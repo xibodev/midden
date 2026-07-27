@@ -513,12 +513,23 @@ async function openSession(id) {
 
     // Per-session actions.
     const acts = el('div', 'row-actions');
+
+    // Depth is explicit because the three levels have three different prices,
+    // and a single "summarise" button would hide that.
+    const sum = el('button', 'btn', 'Summarise');
+    sum.addEventListener('click', () => {
+      $('#drawer').hidden = true;
+      openModal((bx) => summarizeForm(bx, s));
+    });
+    acts.append(sum);
+
     const mine = el('button', 'btn primary', 'Mine this session');
     mine.addEventListener('click', () => {
       $('#drawer').hidden = true;
       openModal((bx) => sessionActionForm(bx, s, 'reclaim'));
     });
     acts.append(mine);
+
     if (s.bytes > 20 * 1024 * 1024) {
       const pr = el('button', 'btn', 'Preview prune');
       pr.addEventListener('click', () => {
@@ -548,6 +559,103 @@ async function openSession(id) {
   } catch (e) {
     body.replaceChildren(el('p', 'bad', 'failed: ' + e.message));
   }
+}
+
+// summarizeForm lets the operator pick how hard to look, with the price of
+// each depth stated before the choice is made.
+function summarizeForm(box, s) {
+  const DEPTHS = [
+    { name: 'shallow', label: 'Shallow', spends: false,
+      desc: 'The original ask and where it left off, quoted directly. No model call.' },
+    { name: 'deep', label: 'Deep', spends: true,
+      desc: 'Synthesised across the whole session: what was decided, what was tried, where it ended.' },
+    { name: 'xray', label: 'X-ray', spends: true,
+      desc: 'Read against the workspace it changed — claims checked against git rather than repeated.' },
+  ];
+
+  box.append(el('h2', null, 'Summarise'));
+  box.append(el('p', 'note', s.title));
+
+  let chosen = 'shallow';
+  const picker = el('div', 'depths');
+  DEPTHS.forEach((d) => {
+    const row = el('label', 'depth' + (d.name === 'shallow' ? ' on' : ''));
+    const radio = el('input');
+    radio.type = 'radio';
+    radio.name = 'depth';
+    radio.checked = d.name === 'shallow';
+    radio.addEventListener('change', () => {
+      chosen = d.name;
+      picker.querySelectorAll('.depth').forEach((x) => x.classList.remove('on'));
+      row.classList.add('on');
+      out.replaceChildren();
+      run.textContent = d.spends ? 'Run' : 'Show';
+      run.disabled = d.spends;
+      estimate.disabled = !d.spends;
+    });
+    row.append(radio);
+    const txt = el('div');
+    const head = el('div', 'head');
+    head.append(el('strong', null, d.label));
+    head.append(el('span', 'pill' + (d.spends ? ' warn' : ''), d.spends ? 'SPENDS' : 'FREE'));
+    txt.append(head);
+    txt.append(el('div', 'meta', d.desc));
+    row.append(txt);
+    picker.append(row);
+  });
+  box.append(picker);
+
+  const out = el('div', 'result');
+  box.append(out);
+
+  const bar = el('div', 'modal-foot');
+  const estimate = el('button', 'btn', 'Estimate cost');
+  estimate.disabled = true;
+  const run = el('button', 'btn primary', 'Show');
+  bar.append(estimate, run);
+  box.append(bar);
+
+  estimate.addEventListener('click', async () => {
+    out.replaceChildren(el('p', 'note', 'gathering evidence...'));
+    try {
+      const job = await post('/api/action',
+        { op: 'summarize', session_id: s.id, depth: chosen, apply: false });
+      const done = await pollJob(job.id, (j) =>
+        out.replaceChildren(el('p', 'note', j.progress || 'working...')));
+      const r = done.result || {};
+      out.replaceChildren();
+      const p = el('div', 'estimate reveal');
+      p.append(el('div', 'k', 'Estimated cost'));
+      p.append(el('div', 'v', r.estimate_text || '—'));
+      p.append(el('div', 'meta', r.describe || ''));
+      out.append(p);
+      out.append(el('p', 'note', 'Shallow is free and often enough — try it first.'));
+      run.disabled = false;
+    } catch (e) { out.replaceChildren(el('p', 'bad', e.message)); }
+  });
+
+  run.addEventListener('click', async () => {
+    run.disabled = true;
+    out.replaceChildren(el('p', 'note', 'working...'));
+    try {
+      const job = await post('/api/action',
+        { op: 'summarize', session_id: s.id, depth: chosen, apply: true });
+      const done = await pollJob(job.id, (j) =>
+        out.replaceChildren(el('p', 'note', j.progress || 'working...')));
+      out.replaceChildren();
+      if (done.status === 'failed') { out.append(el('p', 'bad', done.error)); return; }
+
+      const r = done.result || {};
+      const card = el('div', 'answer reveal');
+      card.append(markdown(r.body || ''));
+      if (done.cost && done.cost.usage) card.append(costLine(done.cost));
+      else if (r.free) card.append(el('div', 'meta', 'free — no model was called'));
+      card.append(copyBtn(r.body || '', 'copy markdown'));
+      out.append(card);
+    } catch (e) {
+      out.replaceChildren(el('p', 'bad', e.message));
+    } finally { run.disabled = false; }
+  });
 }
 
 function sessionActionForm(box, s, op) {
@@ -825,6 +933,122 @@ loaders.artifacts = async () => {
     list.replaceChildren(el('p', 'bad', 'failed: ' + e.message));
   }
 };
+
+// ---- ask -------------------------------------------------------------------
+
+loaders.ask = async () => {
+  const box = $('#ask-suggestions');
+  box.replaceChildren();
+  try {
+    const d = await get('/api/ask-suggestions');
+    if (!(d.suggestions || []).length) return;
+    box.append(el('p', 'note', 'Questions this evidence can answer:'));
+    d.suggestions.forEach((q) => {
+      const b = el('button', 'chip', q);
+      b.addEventListener('click', () => {
+        $('#ask-input').value = q;
+        $('#ask-run').disabled = true;
+        $('#ask-estimate-out').replaceChildren();
+      });
+      box.append(b);
+    });
+  } catch { /* no evidence yet */ }
+};
+
+$('#ask-estimate').addEventListener('click', async () => {
+  const q = $('#ask-input').value.trim();
+  const out = $('#ask-estimate-out');
+  if (!q) { out.replaceChildren(el('p', 'bad', 'Type a question first.')); return; }
+
+  out.replaceChildren(el('p', 'note', 'assembling evidence...'));
+  try {
+    const job = await post('/api/action', { op: 'ask', question: q, apply: false });
+    const done = await pollJob(job.id);
+    const r = done.result || {};
+    out.replaceChildren();
+    const p = el('div', 'estimate reveal');
+    p.append(el('div', 'k', 'Estimated cost'));
+    p.append(el('div', 'v', r.estimate_text || '—'));
+    p.append(el('div', 'meta', `${r.nuggets || 0} nugget(s) and ${r.findings || 0} finding(s) as evidence`));
+    out.append(p);
+    $('#ask-run').disabled = false;
+  } catch (e) {
+    out.replaceChildren(el('p', 'bad', e.message));
+  }
+});
+
+$('#ask-run').addEventListener('click', async () => {
+  const q = $('#ask-input').value.trim();
+  if (!q) return;
+  const ans = $('#ask-answer');
+  $('#ask-run').disabled = true;
+  ans.replaceChildren(el('p', 'note', 'thinking...'));
+
+  try {
+    const job = await post('/api/action', { op: 'ask', question: q, apply: true });
+    const done = await pollJob(job.id, (j) => {
+      ans.replaceChildren(el('p', 'note', j.progress || 'working...'));
+    });
+    ans.replaceChildren();
+    if (done.status === 'failed') {
+      ans.append(el('p', 'bad', done.error));
+      return;
+    }
+    const card = el('div', 'answer reveal');
+    card.append(el('div', 'q', q));
+    card.append(markdown((done.result || {}).answer || ''));
+    if (done.cost && done.cost.usage) card.append(costLine(done.cost));
+    ans.append(card);
+  } catch (e) {
+    ans.replaceChildren(el('p', 'bad', e.message));
+  } finally {
+    $('#ask-run').disabled = false;
+  }
+});
+
+function costLine(run) {
+  const u = run.usage || {};
+  const charge = u.aiu ? u.aiu.toFixed(1) + ' AIU'
+               : u.usd ? '$' + u.usd.toFixed(2)
+               : tok((u.input_tokens || 0) + (u.output_tokens || 0)) + ' tok';
+  return el('div', 'cost-line',
+    `cost ${charge} · ${Math.round((u.duration_ms || 0) / 1000)}s`);
+}
+
+// markdown renders the small subset models actually emit here. Deliberately
+// minimal and text-only — never innerHTML, so a model response can never
+// inject markup.
+function markdown(src) {
+  const wrap = el('div', 'md');
+  let list = null;
+
+  src.split('\n').forEach((line) => {
+    const h = /^(#{1,4})\s+(.*)$/.exec(line);
+    const li = /^\s*[-*]\s+(.*)$/.exec(line);
+
+    if (h) {
+      list = null;
+      wrap.append(el('h' + Math.min(4, h[1].length + 1), null, h[2]));
+      return;
+    }
+    if (li) {
+      if (!list) { list = el('ul'); wrap.append(list); }
+      list.append(el('li', null, stripEmphasis(li[1])));
+      return;
+    }
+    if (/^\s*```/.test(line)) { list = null; return; }
+    if (!line.trim()) { list = null; return; }
+
+    list = null;
+    const p = el('p', null, stripEmphasis(line));
+    wrap.append(p);
+  });
+  return wrap;
+}
+
+function stripEmphasis(s) {
+  return s.replace(/\*\*(.+?)\*\*/g, '$1').replace(/`(.+?)`/g, '$1');
+}
 
 // ---- cost -------------------------------------------------------------------
 

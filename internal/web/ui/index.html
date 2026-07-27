@@ -17,6 +17,7 @@
     <button class="tab" data-view="sessions">Sessions</button>
     <button class="tab" data-view="nuggets">Nuggets</button>
     <button class="tab" data-view="artifacts">Artifacts</button>
+    <button class="tab" data-view="ask">Ask</button>
     <button class="tab" data-view="cost">Cost</button>
     <button class="tab" data-view="ops">Log</button>
   </nav>
@@ -33,8 +34,9 @@
 
   <h2 class="lead">Or pick something</h2>
   <p class="note">
-    Everything is free except <strong>Mine</strong> and <strong>Write</strong>, which call a
-    model through the CLI you are already signed in to. Both show a cost estimate before charging.
+    Everything is free except <strong>Mine</strong>, <strong>Write</strong> and
+    <strong>Ask</strong>, which call a model through the CLI you are already signed in to.
+    All three show a cost estimate before charging.
   </p>
   <div class="actions" id="action-cards"></div>
 
@@ -109,6 +111,28 @@
 
 <section id="artifacts" class="view">
   <div id="artifact-list"></div>
+</section>
+
+<section id="ask" class="view">
+  <h2 class="lead">Ask about your own history</h2>
+  <p class="note">
+    Answered from what midden already knows — the index, the assay, your nuggets and the
+    findings. It never re-reads your transcripts, so a question costs about the same whether
+    you have 50 sessions or 5,000.
+  </p>
+
+  <div class="ask-box">
+    <textarea id="ask-input" rows="3" placeholder="e.g. What am I doing that wastes the most tokens?"></textarea>
+    <div class="row-actions">
+      <button class="btn" id="ask-estimate">Estimate cost</button>
+      <button class="btn primary" id="ask-run" disabled>Ask</button>
+      <span class="pill warn">SPENDS</span>
+    </div>
+    <div id="ask-estimate-out"></div>
+  </div>
+
+  <div id="ask-suggestions"></div>
+  <div id="ask-answer"></div>
 </section>
 
 <section id="cost" class="view">

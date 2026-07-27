@@ -31,6 +31,7 @@ import (
 	"github.com/mekjr1/midden/internal/reclaim"
 	"github.com/mekjr1/midden/internal/redact"
 	"github.com/mekjr1/midden/internal/refine"
+	"github.com/mekjr1/midden/internal/summary"
 )
 
 // JobStatus is where a job has got to.
@@ -128,6 +129,8 @@ type actionRequest struct {
 	Backend     string   `json:"backend"`
 	Model       string   `json:"model"`
 	Records     int      `json:"records"`
+	Depth       string   `json:"depth"`
+	Question    string   `json:"question"`
 
 	// Apply must be explicitly true for anything destructive. A missing field
 	// means dry run, so a malformed request can never delete.
@@ -184,7 +187,7 @@ func (s *Server) handleAction(w http.ResponseWriter, r *http.Request) {
 	}
 
 	switch req.Op {
-	case "prune", "archive", "reclaim", "refine":
+	case "prune", "archive", "reclaim", "refine", "summarize", "ask":
 	default:
 		http.Error(w, "unknown op: "+req.Op, http.StatusBadRequest)
 		return
@@ -228,6 +231,10 @@ func (s *Server) runJob(id string, req actionRequest) {
 		result, err = s.doReclaim(id, req)
 	case "refine":
 		result, err = s.doRefine(id, req)
+	case "summarize":
+		result, err = s.doSummarize(id, req)
+	case "ask":
+		result, err = s.doAsk(id, req)
 	}
 
 	s.jobs.update(id, func(j *Job) {
@@ -634,4 +641,153 @@ func firstLines(s string, n int) string {
 		lines = lines[:n]
 	}
 	return strings.Join(lines, "\n")
+}
+
+// doSummarize produces a session summary at the requested depth.
+//
+// Shallow returns immediately with no model call, so the free tier feels free
+// rather than queued behind a spinner.
+func (s *Server) doSummarize(id string, req actionRequest) (any, error) {
+	if req.SessionID == "" {
+		return nil, fmt.Errorf("a session is required")
+	}
+	matches, _ := adapter.Collect(core.Scope{IDPrefix: req.SessionID, IncludeNoise: true})
+	if len(matches) == 0 {
+		return nil, fmt.Errorf("session not found")
+	}
+	sess := matches[0]
+
+	depth, err := summary.ParseDepth(req.Depth)
+	if err != nil {
+		return nil, err
+	}
+
+	ctx := summary.Context{Session: sess, Depth: depth}
+	s.jobs.update(id, func(j *Job) { j.Progress = "gathering evidence" })
+
+	if h, ok := adapter.Find(sess.Tool).(core.Harvester); ok {
+		if hv, err := h.Harvest(sess, 12); err == nil {
+			ctx.Harvest = hv
+		}
+	}
+	if a, ok := adapter.Find(sess.Tool).(adapter.Assayer); ok {
+		if m, err := a.Assay(sess, 80); err == nil {
+			ctx.Manifest = m
+		}
+	}
+	if depth == summary.XRay {
+		s.jobs.update(id, func(j *Job) { j.Progress = "reading workspace state" })
+		ctx.Workspace = summary.InspectWorkspace(sess.Dir)
+	}
+	ctx.Redact()
+
+	if depth == summary.Shallow {
+		return map[string]any{"depth": depth, "body": summary.RenderShallow(ctx), "free": true}, nil
+	}
+
+	raw := ctx.RawTokens()
+	stats, _ := s.db.CalibrationFor("summarize")
+	est := cost.Predict("summarize", raw, stats)
+	s.jobs.update(id, func(j *Job) { j.Estimate = &est })
+
+	if !req.Apply {
+		return map[string]any{
+			"preview": true, "depth": depth, "estimate": est,
+			"estimate_text": est.String(), "describe": depth.Describe(),
+		}, nil
+	}
+
+	be, err := exec.Detect(req.Backend)
+	if err != nil {
+		return nil, err
+	}
+	runner := &exec.Runner{Backend: be, Model: req.Model, Pure: true, Timeout: 12 * time.Minute}
+	conv := runner.NewConversation()
+	run := cost.Run{UID: index.NewUID(), Op: "summarize",
+		Scope: string(depth) + " " + shortID(sess.ID), Backend: string(be),
+		EstTokens: raw, StartedAt: time.Now(), CLISessions: []string{conv.SessionID()}}
+
+	s.jobs.update(id, func(j *Job) { j.Progress = "reading the session" })
+	res, err := conv.Prime(context.Background(), ctx.Prompt())
+
+	run.Items = 1
+	run.EndedAt = time.Now()
+	run.OK = err == nil
+	s.db.PutRun(run)
+	if err != nil {
+		return nil, err
+	}
+
+	body := exec.CleanOutput(res.Output)
+	if r := redact.Text(body); r.Redacted {
+		body = r.Text
+	}
+
+	time.Sleep(1500 * time.Millisecond)
+	s.settle(id, run.UID)
+	return map[string]any{"depth": depth, "body": body}, nil
+}
+
+// doAsk answers a question from the compressed picture.
+func (s *Server) doAsk(id string, req actionRequest) (any, error) {
+	q := strings.TrimSpace(req.Question)
+	if q == "" {
+		return nil, fmt.Errorf("a question is required")
+	}
+
+	s.jobs.update(id, func(j *Job) { j.Progress = "assembling evidence" })
+	st := s.guideState()
+	brief := s.buildBrief(st)
+	brief.RedactAll()
+	brief.Trim(q)
+
+	raw := brief.EstTokens(q)
+	stats, _ := s.db.CalibrationFor("ask")
+	est := cost.Predict("ask", raw, stats)
+	s.jobs.update(id, func(j *Job) { j.Estimate = &est })
+
+	if !req.Apply {
+		return map[string]any{
+			"preview": true, "estimate": est, "estimate_text": est.String(),
+			"nuggets": len(brief.Nuggets), "findings": len(brief.Findings),
+		}, nil
+	}
+
+	be, err := exec.Detect(req.Backend)
+	if err != nil {
+		return nil, err
+	}
+	runner := &exec.Runner{Backend: be, Model: req.Model, Pure: true, Timeout: 10 * time.Minute}
+	conv := runner.NewConversation()
+	run := cost.Run{UID: index.NewUID(), Op: "ask", Scope: truncate(q, 40),
+		Backend: string(be), EstTokens: raw, StartedAt: time.Now(),
+		CLISessions: []string{conv.SessionID()}}
+
+	s.jobs.update(id, func(j *Job) { j.Progress = "thinking" })
+	res, err := conv.Prime(context.Background(), brief.Prompt(q))
+
+	run.Items = 1
+	run.EndedAt = time.Now()
+	run.OK = err == nil
+	s.db.PutRun(run)
+	if err != nil {
+		return nil, err
+	}
+
+	answer := exec.CleanOutput(res.Output)
+	if r := redact.Text(answer); r.Redacted {
+		answer = r.Text
+	}
+
+	time.Sleep(1500 * time.Millisecond)
+	s.settle(id, run.UID)
+	return map[string]any{"question": q, "answer": answer}, nil
+}
+
+func truncate(s string, n int) string {
+	r := []rune(s)
+	if len(r) <= n {
+		return s
+	}
+	return string(r[:n]) + "..."
 }

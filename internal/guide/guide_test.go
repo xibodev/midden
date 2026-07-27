@@ -6,17 +6,23 @@ import (
 )
 
 func TestSpendingListIsSmallAndExplicit(t *testing.T) {
-	// The product's central promise is that almost everything is free. If this
-	// list grows, the labelling has to change with it — so pin it.
+	// The product's central promise is that almost everything is free. This
+	// pins the list so that adding a spending command forces a deliberate
+	// update to the copy that quotes the count — which is exactly what caught
+	// `ask` being added while the UI still said "the two below".
 	sp := Spending()
-	if len(sp) != 2 {
-		t.Fatalf("expected exactly 2 spending commands, got %d: %v", len(sp), sp)
+	if len(sp) != 3 {
+		t.Fatalf("expected exactly 3 spending commands, got %d: %v", len(sp), sp)
 	}
-	want := map[string]bool{"reclaim": true, "refine": true}
+	want := map[string]bool{"reclaim": true, "refine": true, "ask": true}
 	for _, s := range sp {
 		if !want[s] {
 			t.Errorf("unexpected spending command %q", s)
 		}
+	}
+	if len(sp) > len(Commands)/4 {
+		t.Errorf("%d of %d commands spend — the 'almost everything is free' promise no longer holds",
+			len(sp), len(Commands))
 	}
 }
 

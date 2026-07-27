@@ -18,7 +18,7 @@ import (
 	"github.com/mekjr1/midden/internal/render"
 )
 
-const version = "1.2.0"
+const version = "1.3.0"
 
 func main() {
 	// A bare invocation used to print twenty commands with no ordering and no
@@ -75,6 +75,10 @@ func main() {
 		err = cmdCost(os.Args[2:])
 	case "start":
 		err = cmdStart(os.Args[2:])
+	case "summarize", "summarise", "summary":
+		err = cmdSummarize(os.Args[2:])
+	case "ask":
+		err = cmdAsk(os.Args[2:])
 	case "version", "--version", "-v":
 		fmt.Println("midden", version)
 	case "help", "--help", "-h":

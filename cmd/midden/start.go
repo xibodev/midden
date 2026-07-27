@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/mekjr1/midden/internal/adapter"
@@ -153,10 +154,11 @@ func cmdStart(args []string) error {
 	}
 
 	// What it costs. Stated before anything is suggested.
+	spending := guide.Spending()
 	fmt.Printf("\n  %s\n", render.Bold("WHAT IT COSTS"))
-	fmt.Printf("    %s  everything except the two below\n", render.Dim("FREE  "))
-	fmt.Printf("    %s  %s\n", costTag(guide.Spends),
-		"reclaim, refine — these call a model through your existing CLI seat")
+	fmt.Printf("    %s  everything except the %d below\n", render.Dim("FREE  "), len(spending))
+	fmt.Printf("    %s  %s — these call a model through your existing CLI seat\n",
+		costTag(guide.Spends), strings.Join(spending, ", "))
 	if unit := unitCostLine(); unit != "" {
 		fmt.Printf("    %s\n", render.Dim(unit))
 	} else {

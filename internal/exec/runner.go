@@ -24,6 +24,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"regexp"
 	"strings"
 	"time"
 )
@@ -266,3 +267,25 @@ func truncate(s string, n int) string {
 // available. Copilot requires the mcpServers key to be present even when it is
 // empty.
 const emptyMCPConfig = `{"mcpServers":{}}`
+
+// cliChrome matches the framing an AI CLI prints around its answer: tool-call
+// echoes from reading a staged prompt, and the usage footer.
+//
+// Without this, a summary or answer arrives wrapped in "I'll read the file
+// first", a Read tool echo, and a credits table — none of which the operator
+// asked for, and all of which would be written into saved artifacts.
+var cliChrome = []*regexp.Regexp{
+	regexp.MustCompile(`(?m)^\s*[●○*]\s*Read\s+midden-prompt-[^\n]*\n(?:\s*[│└|].*\n)*`),
+	regexp.MustCompile(`(?mi)^\s*(?:I'll|I will|Let me|Reading|First,? I'll)\s+(?:now\s+)?read\s+[^\n]*\n+`),
+	regexp.MustCompile(`(?ms)^\s*Changes\s+\+\d+\s+-\d+\s*\n.*?^\s*Resume\s+.*$`),
+	regexp.MustCompile(`(?m)^\s*(?:AI Credits|Tokens|Resume)\s{2,}[^\n]*\n`),
+	regexp.MustCompile(`(?m)^\s*Changes\s{2,}[^\n]*\n`),
+}
+
+// CleanOutput removes CLI framing from a model response.
+func CleanOutput(s string) string {
+	for _, re := range cliChrome {
+		s = re.ReplaceAllString(s, "")
+	}
+	return strings.TrimSpace(s)
+}

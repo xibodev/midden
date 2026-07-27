@@ -14,6 +14,7 @@ package refine
 import (
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"strings"
 
 	"github.com/mekjr1/midden/internal/index"
@@ -258,6 +259,7 @@ func Slug(s string) string {
 // CleanOutput strips code fences a model may have wrapped the document in.
 func CleanOutput(s string) string {
 	s = strings.TrimSpace(s)
+	s = stripCLIChrome(s)
 	if !strings.HasPrefix(s, "```") {
 		return s
 	}
@@ -290,4 +292,20 @@ func min(a, b int) int {
 		return a
 	}
 	return b
+}
+
+// cliChrome matches the framing an AI CLI prints around its answer. Artifacts
+// are written to disk and may be published, so this must not survive into one.
+var cliChrome = []*regexp.Regexp{
+	regexp.MustCompile(`(?m)^\s*[●○*]\s*Read\s+midden-prompt-[^\n]*\n(?:\s*[│└|].*\n)*`),
+	regexp.MustCompile(`(?mi)^\s*(?:I'll|I will|Let me|Reading|First,? I'll)\s+(?:now\s+)?read\s+[^\n]*\n+`),
+	regexp.MustCompile(`(?ms)^\s*Changes\s+\+\d+\s+-\d+\s*\n.*?^\s*Resume\s+.*$`),
+	regexp.MustCompile(`(?m)^\s*(?:AI Credits|Tokens|Resume|Changes)\s{2,}[^\n]*\n`),
+}
+
+func stripCLIChrome(s string) string {
+	for _, re := range cliChrome {
+		s = re.ReplaceAllString(s, "")
+	}
+	return strings.TrimSpace(s)
 }

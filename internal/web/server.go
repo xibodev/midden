@@ -20,9 +20,11 @@ import (
 	"time"
 
 	"github.com/mekjr1/midden/internal/adapter"
+	"github.com/mekjr1/midden/internal/advise"
 	"github.com/mekjr1/midden/internal/core"
 	"github.com/mekjr1/midden/internal/guide"
 	"github.com/mekjr1/midden/internal/index"
+	"github.com/mekjr1/midden/internal/oracle"
 	"github.com/mekjr1/midden/internal/refine"
 )
 
@@ -62,6 +64,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/templates", s.handleTemplates)
 	mux.HandleFunc("/api/resume", s.handleResume)
 	mux.HandleFunc("/api/next", s.handleNext)
+	mux.HandleFunc("/api/ask-suggestions", s.handleAskSuggestions)
 
 	return localOnly(mux)
 }
@@ -493,4 +496,57 @@ func (s *Server) guideState() guide.State {
 		st.Artifacts = len(as)
 	}
 	return st
+}
+
+// buildBrief assembles the compressed picture the oracle reasons over.
+//
+// Mirrors the CLI so both surfaces answer from identical evidence.
+func (s *Server) buildBrief(st guide.State) oracle.Brief {
+	b := oracle.Brief{State: st}
+
+	if ns, err := s.db.Nuggets(index.NuggetQuery{Limit: oracle.MaxNuggets}); err == nil {
+		b.Nuggets = ns
+	}
+	if t, err := s.db.Costs(); err == nil {
+		b.Costs = t
+	}
+
+	sessions, _ := adapter.Collect(core.Scope{IncludeNoise: true})
+	totals, _ := s.db.Aggregate("")
+	counts, _ := s.db.NuggetCounts()
+
+	b.Findings = advise.Analyse(advise.Input{
+		Sessions: sessions, Footprints: adapter.Footprints(),
+		Assayed: totals.Assayed, Signal: totals.Signal, Exhaust: totals.Exhaust,
+		Artifact: totals.Artifact, Book: totals.Book, DupBytes: totals.DupBytes,
+		Images: totals.Images, Clusters: totals.Clusters, Nuggets: counts,
+	})
+
+	agg := map[string]*oracle.DirStat{}
+	for _, x := range sessions {
+		if x.Noise || x.Dir == "" {
+			continue
+		}
+		d, ok := agg[x.Dir]
+		if !ok {
+			d = &oracle.DirStat{Dir: x.Dir}
+			agg[x.Dir] = d
+		}
+		d.Sessions++
+		d.Bytes += x.Bytes
+	}
+	for _, d := range agg {
+		b.TopDirs = append(b.TopDirs, *d)
+	}
+	sort.Slice(b.TopDirs, func(i, j int) bool { return b.TopDirs[i].Bytes > b.TopDirs[j].Bytes })
+	if len(b.TopDirs) > 8 {
+		b.TopDirs = b.TopDirs[:8]
+	}
+	return b
+}
+
+// handleAskSuggestions offers starter questions, so an empty prompt is not a
+// dead end.
+func (s *Server) handleAskSuggestions(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, map[string]any{"suggestions": oracle.Suggestions(s.guideState())})
 }
