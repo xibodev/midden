@@ -17,7 +17,7 @@ import (
 	"github.com/mekjr1/midden/internal/render"
 )
 
-const version = "0.1.0-m0"
+const version = "0.2.0-m1"
 
 func main() {
 	if len(os.Args) < 2 {
