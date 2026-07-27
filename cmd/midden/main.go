@@ -18,7 +18,7 @@ import (
 	"github.com/mekjr1/midden/internal/render"
 )
 
-const version = "1.3.0"
+const version = "1.3.1"
 
 func main() {
 	// A bare invocation used to print twenty commands with no ordering and no

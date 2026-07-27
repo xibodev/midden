@@ -45,3 +45,14 @@ Thumbs.db
 .env
 .env.*
 !.env.example
+
+# Agent-harness skill installs (impeccable etc). Tool config, not project code.
+/.codex/
+/.claude/
+/.agents/
+/.gemini/
+/.kiro/
+/.pi/
+/.qoder/
+/.rovodev/
+/.vibe/
