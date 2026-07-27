@@ -7,9 +7,11 @@ import (
 	"os"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/mekjr1/midden/internal/adapter"
 	"github.com/mekjr1/midden/internal/core"
+	"github.com/mekjr1/midden/internal/cost"
 	"github.com/mekjr1/midden/internal/exec"
 	"github.com/mekjr1/midden/internal/index"
 	"github.com/mekjr1/midden/internal/reclaim"
@@ -91,11 +93,21 @@ func cmdReclaim(args []string) error {
 		return fmt.Errorf("no usable evidence in scope")
 	}
 
-	// Pre-flight: nothing expensive starts without a prediction.
+	db, err := index.Open()
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+
+	// Pre-flight: nothing expensive starts without a prediction, and the
+	// prediction is calibrated against what previous runs actually cost.
+	est := estimateFor(db, "reclaim", estTokens, 1)
+
 	fmt.Printf("\n  %s  %d session(s) via %s\n", render.Bold("RECLAIM"), len(jobs), be)
 	fmt.Printf("  %s\n\n", render.Rule(62))
 	fmt.Printf("  %-16s %d\n", render.Dim("model calls"), len(jobs))
-	fmt.Printf("  %-16s ~%d\n", render.Dim("input tokens"), estTokens)
+	fmt.Printf("  %-16s ~%d\n", render.Dim("evidence"), estTokens)
+	fmt.Printf("  %-16s %s\n", render.Dim("estimated cost"), est.String())
 	fmt.Printf("  %-16s %s\n", render.Dim("backend"), string(be)+" (uses your existing seat, no API key)")
 	if *model != "" {
 		fmt.Printf("  %-16s %s\n", render.Dim("model"), *model)
@@ -114,11 +126,7 @@ func cmdReclaim(args []string) error {
 		return nil
 	}
 
-	db, err := index.Open()
-	if err != nil {
-		return err
-	}
-	defer db.Close()
+	run := recordRun(db, "reclaim", scopeLabel(*sc), string(be), estTokens*len(jobs))
 
 	runner := &exec.Runner{Backend: be, Model: *model, Pure: true}
 	budget := &exec.Budget{MaxCalls: *budgetCalls}
@@ -134,7 +142,12 @@ func cmdReclaim(args []string) error {
 		fmt.Fprintf(os.Stderr, "\r  mining %d/%d  %-44s", i+1, len(jobs),
 			core.Truncate(j.session.Title, 42))
 
-		res, err := runner.Run(ctx, j.slice.Prompt())
+		// Each extraction runs in its own known session so its real cost can
+		// be read back afterwards.
+		conv := runner.NewConversation()
+		run.CLISessions = append(run.CLISessions, conv.SessionID())
+
+		res, err := conv.Prime(ctx, j.slice.Prompt())
 		budget.Charge(j.slice.EstTokens())
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "\r  %s %v\n", render.Dim("failed:"), err)
@@ -161,13 +174,34 @@ func cmdReclaim(args []string) error {
 	}
 	fmt.Fprintf(os.Stderr, "\r%-70s\r", "")
 
+	// Close the ledger entry, then settle it against what the backend actually
+	// recorded. Accounting lags by moments, so a brief wait pays for itself in
+	// accuracy.
+	run.Items = len(stored)
+	run.EndedAt = time.Now()
+	run.OK = len(stored) > 0
+	db.PutRun(run)
+
+	time.Sleep(1500 * time.Millisecond)
+	reconcile(db)
+
 	if *asJSON {
 		return emitJSON(stored)
 	}
 
-	calls, toks := budget.Spent()
-	fmt.Printf("\n  %s %d nugget(s) from %d call(s), ~%d tokens\n",
-		render.Bold("stored"), len(stored), calls, toks)
+	calls, _ := budget.Spent()
+	fmt.Printf("\n  %s %d nugget(s) from %d call(s)\n",
+		render.Bold("stored"), len(stored), calls)
+
+	if actual, err := db.Runs(1, "reclaim"); err == nil && len(actual) > 0 && !actual[0].Usage.Empty() {
+		a := actual[0]
+		fmt.Printf("  %-11s %s  %s\n", render.Dim("cost"), a.Usage.Unit(),
+			render.Dim(fmt.Sprintf("%s tokens · %.0fs · %s",
+				cost.Compact(a.Usage.Billable()), a.Duration().Seconds(), a.Usage.Model)))
+		if a.Items > 0 {
+			fmt.Printf("  %-11s %.1f per nugget\n", render.Dim("unit"), a.PerItem())
+		}
+	}
 
 	byKind := map[string]int{}
 	for _, n := range stored {
@@ -271,4 +305,25 @@ func cmdNuggets(args []string) error {
 			n.Kind, n.Confidence*100, shortID(n.SessionID), core.Truncate(n.Workspace, 34))))
 	}
 	return nil
+}
+
+// scopeLabel renders a scope for the ledger so a run can be recognised later.
+func scopeLabel(sc core.Scope) string {
+	var parts []string
+	if sc.IDPrefix != "" {
+		parts = append(parts, "session "+shortID(sc.IDPrefix))
+	}
+	if sc.Workspace != "" {
+		parts = append(parts, "workspace "+sc.Workspace)
+	}
+	if len(sc.Tools) == 1 {
+		parts = append(parts, string(sc.Tools[0]))
+	}
+	if sc.Days > 0 {
+		parts = append(parts, fmt.Sprintf("last %dd", sc.Days))
+	}
+	if len(parts) == 0 {
+		return "all"
+	}
+	return strings.Join(parts, ", ")
 }

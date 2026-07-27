@@ -165,8 +165,10 @@ CREATE TABLE IF NOT EXISTS meta (
 `
 
 func (d *DB) migrate() error {
-	_, err := d.sql.Exec(schema)
-	return err
+	if _, err := d.sql.Exec(schema); err != nil {
+		return err
+	}
+	return d.migrateRuns()
 }
 
 // PutSessions replaces the session index in one transaction.

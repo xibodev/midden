@@ -10,7 +10,17 @@ const el = (tag, cls, text) => {
 
 const get = async (path) => {
   const r = await fetch(path);
-  if (!r.ok) throw new Error(await r.text());
+  if (!r.ok) throw new Error((await r.text()) || r.statusText);
+  return r.json();
+};
+
+const post = async (path, body) => {
+  const r = await fetch(path, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (!r.ok) throw new Error((await r.text()) || r.statusText);
   return r.json();
 };
 
@@ -22,10 +32,34 @@ function bytes(n) {
   return `${n.toFixed(i === 0 ? 0 : 1)} ${u[i]}`;
 }
 
-function riskPill(risk) {
-  if (risk === 'ok') return null;
-  const cls = risk === 'critical' ? 'crit' : risk === 'warn' ? 'warn' : '';
-  return el('span', `pill ${cls}`, risk);
+function tok(n) {
+  if (!n) return '0';
+  if (n >= 1e6) return (n / 1e6).toFixed(1) + 'M';
+  if (n >= 1e3) return Math.round(n / 1e3) + 'k';
+  return String(n);
+}
+
+function toast(msg, kind) {
+  const t = $('#toast');
+  t.textContent = msg;
+  t.className = 'toast' + (kind ? ' ' + kind : '');
+  t.hidden = false;
+  clearTimeout(window.__toast);
+  window.__toast = setTimeout(() => { t.hidden = true; }, 3200);
+}
+
+// A copy button beside every command, because selecting a long shell line by
+// hand is exactly the friction this tool exists to remove.
+function copyBtn(text, label) {
+  const b = el('button', 'copy', label || 'copy');
+  b.addEventListener('click', (e) => {
+    e.stopPropagation();
+    navigator.clipboard.writeText(text).then(
+      () => { b.textContent = 'copied'; toast('Copied to clipboard'); setTimeout(() => { b.textContent = label || 'copy'; }, 1400); },
+      () => toast('Copy failed', 'bad')
+    );
+  });
+  return b;
 }
 
 // ---- navigation -------------------------------------------------------------
@@ -43,12 +77,326 @@ document.querySelectorAll('.tab').forEach((tab) => {
   });
 });
 
-// ---- drawer -----------------------------------------------------------------
+function show(view) {
+  document.querySelector(`.tab[data-view="${view}"]`).click();
+}
+
+// ---- modal ------------------------------------------------------------------
+
+function openModal(build) {
+  const box = $('#modal-body');
+  box.replaceChildren();
+  build(box);
+  $('#modal').hidden = false;
+}
+$('#modal-close').addEventListener('click', () => { $('#modal').hidden = true; });
+$('#modal').addEventListener('click', (e) => {
+  if (e.target.id === 'modal') $('#modal').hidden = true;
+});
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') { $('#modal').hidden = true; $('#drawer').hidden = true; }
+});
+
+// ---- DO: the action surface -------------------------------------------------
+
+const ACTIONS = [
+  {
+    op: 'reclaim', title: 'Mine sessions for knowledge', costly: true,
+    blurb: 'Extract decisions, fixes, gotchas and dead ends as reusable nuggets.',
+    build: scopeForm,
+  },
+  {
+    op: 'refine', title: 'Write something from what I know', costly: true,
+    blurb: 'Turn nuggets into a tutorial, FAQ, ADR, troubleshooting guide or post.',
+    build: refineForm,
+  },
+  {
+    op: 'prune', title: 'Recover disk space', costly: false,
+    blurb: 'Replace bulky tool payloads with markers. Every record is preserved and verified.',
+    build: scopeForm,
+  },
+  {
+    op: 'archive', title: 'Archive old transcripts', costly: false,
+    blurb: 'Move transcripts out of the tool\u2019s active path, keeping a manifest.',
+    build: scopeForm,
+  },
+];
+
+loaders.do = () => {
+  const wrap = $('#action-cards');
+  wrap.replaceChildren();
+  ACTIONS.forEach((a) => {
+    const c = el('div', 'action');
+    c.append(el('h3', null, a.title));
+    c.append(el('p', null, a.blurb));
+    const foot = el('div', 'foot');
+    foot.append(el('span', 'pill' + (a.costly ? ' warn' : ''), a.costly ? 'uses a model' : 'free'));
+    const go = el('button', 'btn primary', 'Start');
+    go.addEventListener('click', () => openModal((box) => a.build(box, a)));
+    foot.append(go);
+    c.append(foot);
+    wrap.append(c);
+  });
+  refreshJobs();
+};
+
+function field(label, node) {
+  const w = el('label', 'field');
+  w.append(el('span', null, label));
+  w.append(node);
+  return w;
+}
+
+function scopeForm(box, action) {
+  box.append(el('h2', null, action.title));
+  box.append(el('p', 'note', action.blurb));
+
+  const ws = el('input');
+  ws.type = 'text';
+  ws.placeholder = 'e.g. orvantix (blank = all)';
+
+  const days = el('select');
+  [['', 'any time'], ['7', 'last 7 days'], ['14', 'last 14 days'], ['30', 'last 30 days']]
+    .forEach(([v, t]) => { const o = el('option', null, t); o.value = v; days.append(o); });
+  days.value = action.op === 'reclaim' ? '7' : '';
+
+  const tool = el('select');
+  [['', 'all tools'], ['copilot', 'copilot'], ['claude', 'claude'], ['opencode', 'opencode']]
+    .forEach(([v, t]) => { const o = el('option', null, t); o.value = v; tool.append(o); });
+
+  box.append(field('Workspace contains', ws));
+  box.append(field('Time range', days));
+  box.append(field('Tool', tool));
+
+  const out = el('div', 'result');
+  box.append(out);
+
+  const bar = el('div', 'modal-foot');
+  const preview = el('button', 'btn', action.costly ? 'Estimate cost' : 'Preview');
+  const run = el('button', 'btn primary', 'Run');
+  run.disabled = true;
+  bar.append(preview, run);
+  box.append(bar);
+
+  const req = () => ({
+    op: action.op,
+    workspace: ws.value.trim(),
+    days: parseInt(days.value || '0', 10),
+    tool: tool.value,
+  });
+
+  preview.addEventListener('click', async () => {
+    out.replaceChildren(el('p', 'note', 'checking...'));
+    try {
+      const job = await post('/api/action', { ...req(), apply: false });
+      const done = await pollJob(job.id, (j) => {
+        out.replaceChildren(el('p', 'note', j.progress || 'working...'));
+      });
+      renderPreview(out, done, action);
+      run.disabled = false;
+    } catch (e) {
+      out.replaceChildren(el('p', 'bad', e.message));
+    }
+  });
+
+  run.addEventListener('click', async () => {
+    if (action.op === 'archive' && !confirm('Archive moves transcripts out of the tool\u2019s path. Continue?')) return;
+    run.disabled = true;
+    try {
+      const job = await post('/api/action', { ...req(), apply: true, confirm: true });
+      $('#modal').hidden = true;
+      show('do');
+      trackJob(job.id);
+      toast('Started \u2014 progress below');
+    } catch (e) {
+      out.replaceChildren(el('p', 'bad', e.message));
+      run.disabled = false;
+    }
+  });
+}
+
+function refineForm(box, action) {
+  box.append(el('h2', null, action.title));
+
+  const ws = el('input');
+  ws.type = 'text';
+  ws.placeholder = 'workspace (blank = all evidence)';
+  box.append(field('Evidence from', ws));
+
+  const list = el('div', 'template-list');
+  box.append(el('p', 'note', 'loading what your evidence supports...'));
+  box.append(list);
+
+  const out = el('div', 'result');
+  box.append(out);
+
+  const bar = el('div', 'modal-foot');
+  const preview = el('button', 'btn', 'Estimate cost');
+  const run = el('button', 'btn primary', 'Write');
+  run.disabled = true;
+  bar.append(preview, run);
+  box.append(bar);
+
+  const chosen = new Set();
+  get('/api/templates').then((d) => {
+    list.replaceChildren();
+    if (!d.nuggets) {
+      list.append(el('p', 'bad', 'No nuggets yet \u2014 run "Mine sessions" first.'));
+      return;
+    }
+    d.templates.forEach((t) => {
+      const row = el('label', 'tpl' + (t.supported ? '' : ' unsupported'));
+      const cb = el('input');
+      cb.type = 'checkbox';
+      cb.disabled = !t.supported;
+      cb.addEventListener('change', () => {
+        cb.checked ? chosen.add(t.name) : chosen.delete(t.name);
+      });
+      row.append(cb);
+      const txt = el('div');
+      txt.append(el('strong', null, t.title));
+      txt.append(el('div', 'meta', t.supported ? t.why : 'not enough evidence yet'));
+      row.append(txt);
+      list.append(row);
+    });
+  });
+
+  const req = () => ({
+    op: 'refine', workspace: ws.value.trim(), templates: [...chosen],
+  });
+
+  preview.addEventListener('click', async () => {
+    if (!chosen.size) { out.replaceChildren(el('p', 'bad', 'Choose at least one.')); return; }
+    out.replaceChildren(el('p', 'note', 'estimating...'));
+    try {
+      const job = await post('/api/action', { ...req(), apply: false });
+      const done = await pollJob(job.id);
+      renderPreview(out, done, action);
+      run.disabled = false;
+    } catch (e) {
+      out.replaceChildren(el('p', 'bad', e.message));
+    }
+  });
+
+  run.addEventListener('click', async () => {
+    run.disabled = true;
+    try {
+      const job = await post('/api/action', { ...req(), apply: true });
+      $('#modal').hidden = true;
+      show('do');
+      trackJob(job.id);
+      toast('Writing \u2014 progress below');
+    } catch (e) {
+      out.replaceChildren(el('p', 'bad', e.message));
+      run.disabled = false;
+    }
+  });
+}
+
+function renderPreview(out, job, action) {
+  out.replaceChildren();
+  if (job.status === 'failed') {
+    out.append(el('p', 'bad', job.error));
+    return;
+  }
+  const r = job.result || {};
+
+  if (r.estimate_text) {
+    const p = el('div', 'estimate');
+    p.append(el('div', 'k', 'Estimated cost'));
+    p.append(el('div', 'v', r.estimate_text));
+    if (r.sessions) p.append(el('div', 'meta', `${r.sessions} session(s) in scope`));
+    if (r.artifacts) p.append(el('div', 'meta', `${r.artifacts} artifact(s) from ${r.nuggets} nuggets`));
+    out.append(p);
+    out.append(el('p', 'note', 'Costs your existing CLI seat \u2014 no API key, no separate bill.'));
+    return;
+  }
+
+  if (r.rows) {
+    out.append(el('p', null,
+      `${r.rows.length} transcript(s) \u2014 about ${bytes(r.total_saved)} recoverable.`));
+    const t = el('table');
+    r.rows.slice(0, 8).forEach((row) => {
+      const tr = el('tr');
+      tr.append(el('td', null, row.session.title.slice(0, 34)));
+      tr.append(el('td', 'meta', bytes(row.before)));
+      tr.append(el('td', null, '\u2192 ' + bytes(row.after)));
+      tr.append(el('td', 'good', bytes(row.saved)));
+      t.append(tr);
+    });
+    out.append(t);
+    out.append(el('p', 'note', 'Originals are never modified. Pruned copies are written separately and verified.'));
+  }
+}
+
+// ---- jobs -------------------------------------------------------------------
+
+const tracked = new Set();
+
+function trackJob(id) {
+  tracked.add(id);
+  refreshJobs();
+  pollJob(id, null, true);
+}
+
+async function pollJob(id, onProgress, redraw) {
+  for (;;) {
+    const j = await get('/api/job-status?id=' + encodeURIComponent(id))
+      .catch(() => get('/api/jobs?id=' + encodeURIComponent(id)));
+    if (onProgress) onProgress(j);
+    if (redraw) refreshJobs();
+    if (j.status === 'done' || j.status === 'failed') {
+      if (redraw) {
+        toast(j.status === 'done' ? 'Finished' : 'Failed: ' + j.error,
+              j.status === 'done' ? 'good' : 'bad');
+      }
+      return j;
+    }
+    await new Promise((r) => setTimeout(r, 1200));
+  }
+}
+
+async function refreshJobs() {
+  let jobs = [];
+  try { jobs = await get('/api/jobs'); } catch { return; }
+
+  const panel = $('#job-panel');
+  const list = $('#job-list');
+  const active = jobs.filter((j) => j.status === 'running' || j.status === 'queued' || tracked.has(j.id));
+  if (!active.length) { panel.hidden = true; return; }
+
+  panel.hidden = false;
+  list.replaceChildren();
+  active.slice(0, 8).forEach((j) => {
+    const d = el('div', 'job ' + j.status);
+    const top = el('div', 'top');
+    top.append(el('span', 'pill', j.op));
+    top.append(el('span', 'title', j.scope));
+    top.append(el('span', 'meta', j.status));
+    d.append(top);
+    if (j.progress) d.append(el('div', 'meta', j.progress));
+    if (j.error) d.append(el('div', 'bad', j.error));
+
+    if (j.cost && j.cost.usage) {
+      const u = j.cost.usage;
+      const charge = u.aiu ? u.aiu.toFixed(1) + ' AIU'
+                   : u.usd ? '$' + u.usd.toFixed(2)
+                   : tok(u.input_tokens + u.output_tokens + u.cache_read_tokens + u.cache_write_tokens) + ' tok';
+      d.append(el('div', 'cost-line',
+        `cost ${charge} \u00b7 ${j.cost.items} item(s) \u00b7 ${Math.round((u.duration_ms || 0) / 1000)}s`));
+    }
+    if (j.result && j.result.count) d.append(el('div', 'good', `${j.result.count} nugget(s) stored`));
+    if (j.result && j.result.written) d.append(el('div', 'good', `${j.result.written} artifact(s) written`));
+    if (j.result && j.result.total_saved) d.append(el('div', 'good', `${bytes(j.result.total_saved)} recovered`));
+    list.append(d);
+  });
+}
+
+setInterval(() => { if ($('#do').classList.contains('active')) refreshJobs(); }, 2500);
+
+// ---- drawer: session detail + resume composer -------------------------------
 
 $('#drawer-close').addEventListener('click', () => { $('#drawer').hidden = true; });
-document.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape') $('#drawer').hidden = true;
-});
 
 async function openSession(id) {
   const drawer = $('#drawer');
@@ -77,12 +425,60 @@ async function openSession(id) {
     if (s.span_days >= 1) addRow('span', s.span_days + ' days');
     if (s.turns) addRow('turns', String(s.turns));
     if (s.bytes) addRow('transcript', bytes(s.bytes) + ' (' + s.risk + ')');
-    if (s.live) addRow('status', 'open right now — do not resume');
+    if (s.live) addRow('status', 'open right now \u2014 do not resume');
     if (!s.dir_exists) addRow('workspace', 'MISSING');
     body.append(facts);
 
+    // Resume composer: set an instruction, get a one-liner, copy it.
     body.append(el('h2', null, 'Resume'));
-    body.append(el('pre', 'mono', s.resume));
+    const instr = el('textarea');
+    instr.placeholder = 'optional instruction to deliver on resume, e.g. "re-run the audit, writing incrementally"';
+    instr.rows = 2;
+    body.append(instr);
+
+    const cmdBox = el('pre', 'mono');
+    cmdBox.textContent = s.resume;
+    body.append(cmdBox);
+
+    const bar = el('div', 'row-actions');
+    const build = el('button', 'btn', 'Build command');
+    build.addEventListener('click', async () => {
+      try {
+        const r = await get('/api/resume?id=' + encodeURIComponent(s.id) +
+          '&instruction=' + encodeURIComponent(instr.value));
+        cmdBox.textContent = r.command;
+        warnBox.replaceChildren();
+        (r.warnings || []).forEach((w) => warnBox.append(el('div', 'bad', w)));
+        copyWrap.replaceChildren(copyBtn(r.command, 'copy command'));
+      } catch (e) { toast(e.message, 'bad'); }
+    });
+    const copyWrap = el('span');
+    copyWrap.append(copyBtn(s.resume, 'copy command'));
+    bar.append(build, copyWrap);
+    body.append(bar);
+
+    const warnBox = el('div');
+    body.append(warnBox);
+    if (s.live) warnBox.append(el('div', 'bad', 'This session is open right now \u2014 switch to that terminal instead.'));
+    if (s.risk === 'critical') warnBox.append(el('div', 'bad', 'Past the resume cliff \u2014 prefer a handoff brief.'));
+
+    // Per-session actions.
+    const acts = el('div', 'row-actions');
+    const mine = el('button', 'btn primary', 'Mine this session');
+    mine.addEventListener('click', () => {
+      $('#drawer').hidden = true;
+      openModal((bx) => sessionActionForm(bx, s, 'reclaim'));
+    });
+    acts.append(mine);
+    if (s.bytes > 20 * 1024 * 1024) {
+      const pr = el('button', 'btn', 'Preview prune');
+      pr.addEventListener('click', () => {
+        $('#drawer').hidden = true;
+        openModal((bx) => sessionActionForm(bx, s, 'prune'));
+      });
+      acts.append(pr);
+    }
+    body.append(acts);
 
     if (d.harvest) {
       const h = d.harvest;
@@ -95,14 +491,52 @@ async function openSession(id) {
         h.recent.forEach((t) => {
           const d2 = el('div', 'turn ' + (t.role === 'user' ? 'user' : ''));
           d2.append(el('div', 'who', t.role));
-          d2.append(el('div', null, t.text.slice(0, 1400)));
+          d2.append(el('div', null, (t.text || '').slice(0, 1400)));
           body.append(d2);
         });
       }
     }
   } catch (e) {
-    body.replaceChildren(el('p', 'note', 'failed: ' + e.message));
+    body.replaceChildren(el('p', 'bad', 'failed: ' + e.message));
   }
+}
+
+function sessionActionForm(box, s, op) {
+  const action = ACTIONS.find((a) => a.op === op);
+  box.append(el('h2', null, action.title));
+  box.append(el('p', 'note', s.title));
+
+  const out = el('div', 'result');
+  box.append(out);
+
+  const bar = el('div', 'modal-foot');
+  const preview = el('button', 'btn', op === 'reclaim' ? 'Estimate cost' : 'Preview');
+  const run = el('button', 'btn primary', 'Run');
+  run.disabled = true;
+  bar.append(preview, run);
+  box.append(bar);
+
+  const req = { op, session_id: s.id };
+
+  preview.addEventListener('click', async () => {
+    out.replaceChildren(el('p', 'note', 'checking...'));
+    try {
+      const job = await post('/api/action', { ...req, apply: false });
+      renderPreview(out, await pollJob(job.id), action);
+      run.disabled = false;
+    } catch (e) { out.replaceChildren(el('p', 'bad', e.message)); }
+  });
+
+  run.addEventListener('click', async () => {
+    run.disabled = true;
+    try {
+      const job = await post('/api/action', { ...req, apply: true, confirm: true });
+      $('#modal').hidden = true;
+      show('do');
+      trackJob(job.id);
+      toast('Started');
+    } catch (e) { out.replaceChildren(el('p', 'bad', e.message)); run.disabled = false; }
+  });
 }
 
 // ---- overview ---------------------------------------------------------------
@@ -112,12 +546,8 @@ loaders.overview = async () => {
   cards.replaceChildren();
 
   let h;
-  try {
-    h = await get('/api/health');
-  } catch (e) {
-    cards.append(el('p', 'note', 'failed to load: ' + e.message));
-    return;
-  }
+  try { h = await get('/api/health'); }
+  catch (e) { cards.append(el('p', 'bad', 'failed: ' + e.message)); return; }
 
   const card = (k, v, n) => {
     const c = el('div', 'card');
@@ -125,9 +555,7 @@ loaders.overview = async () => {
     if (n) c.append(el('div', 'n', n));
     return c;
   };
-
-  const tools = Object.entries(h.by_tool || {})
-    .map(([t, n]) => `${t} ${n}`).join(' · ');
+  const tools = Object.entries(h.by_tool || {}).map(([t, n]) => `${t} ${n}`).join(' \u00b7 ');
   const nugTotal = Object.values(h.nuggets || {}).reduce((a, b) => a + b, 0);
 
   cards.append(
@@ -144,30 +572,26 @@ loaders.overview = async () => {
   if ((h.at_risk || []).length) {
     riskPanel.hidden = false;
     h.at_risk.forEach((s) => riskList.append(sessionRow(s)));
-  } else {
-    riskPanel.hidden = true;
-  }
+  } else { riskPanel.hidden = true; }
 
-  // assay
   const bars = $('#assay-bars');
   try {
     const a = await get('/api/assay');
     if (!a.assayed) return;
     bars.replaceChildren();
-
     const total = a.bytes || 1;
     const bar = el('div', 'bar');
     ['signal', 'exhaust', 'artifact', 'bookkeeping'].forEach((k) => {
-      const s = el('span', k);
-      s.style.width = (100 * (a[k] || 0) / total) + '%';
-      bar.append(s);
+      const sp = el('span', k);
+      sp.style.width = (100 * (a[k] || 0) / total) + '%';
+      bar.append(sp);
     });
     bars.append(bar);
 
     const legend = el('div', 'legend');
     [['signal', '#6ee7b7'], ['exhaust', '#48536b'], ['artifact', '#58c4dd'], ['bookkeeping', '#333c4d']]
       .forEach(([k, c]) => {
-        const item = el('span', null);
+        const item = el('span');
         const i = el('i');
         i.style.background = c;
         item.append(i, document.createTextNode(
@@ -175,11 +599,10 @@ loaders.overview = async () => {
         legend.append(item);
       });
     bars.append(legend);
-
     bars.append(el('p', 'note',
-      `${bytes(a.reclaimable)} reclaimable · ${a.compression}x compression · ` +
-      `${a.images} images in ${a.image_clusters} clusters · ${a.assayed} of ${a.sessions} sessions assayed`));
-  } catch (e) { /* index not built yet */ }
+      `${bytes(a.reclaimable)} reclaimable \u00b7 ${a.compression}x compression \u00b7 ` +
+      `${a.images} images in ${a.image_clusters} clusters \u00b7 ${a.assayed} of ${a.sessions} assayed`));
+  } catch { /* index not built */ }
 };
 
 // ---- sessions ---------------------------------------------------------------
@@ -191,18 +614,21 @@ function sessionRow(s) {
   const top = el('div', 'top');
   top.append(el('span', 'tool ' + s.tool, s.tool));
   top.append(el('span', 'title', s.title));
-  const r = riskPill(s.risk);
-  if (r) top.append(r);
+  if (s.risk && s.risk !== 'ok') {
+    top.append(el('span', 'pill ' + (s.risk === 'critical' ? 'crit' : 'warn'), s.risk));
+  }
   if (s.live) top.append(el('span', 'pill live', 'open'));
   if (!s.dir_exists) top.append(el('span', 'pill crit', 'dir missing'));
   if (s.span_days >= 2) top.append(el('span', 'pill', s.span_days.toFixed(0) + 'd span'));
   top.append(el('span', 'meta', s.age + ' ago'));
-  if (s.bytes) top.append(el('span', 'meta', bytes(s.bytes)));
-  else if (s.turns) top.append(el('span', 'meta', s.turns + ' turns'));
+  top.append(el('span', 'meta', s.bytes ? bytes(s.bytes) : (s.turns ? s.turns + ' turns' : '')));
   row.append(top);
-
   row.append(el('div', 'dir', s.dir));
-  row.append(el('div', 'cmd mono', s.resume));
+
+  const cmd = el('div', 'cmd mono');
+  cmd.append(el('span', null, s.resume));
+  cmd.append(copyBtn(s.resume));
+  row.append(cmd);
   return row;
 }
 
@@ -222,27 +648,53 @@ async function loadSessions() {
     allSessions = await get('/api/sessions?' + p.toString());
     renderSessions();
   } catch (e) {
-    list.replaceChildren(el('p', 'note', 'failed: ' + e.message));
+    list.replaceChildren(el('p', 'bad', 'failed: ' + e.message));
   }
+}
+
+function groupKey(s, mode) {
+  if (mode === 'tool') return s.tool;
+  if (mode === 'workspace') return s.dir || '(none)';
+  if (mode === 'drive') {
+    const m = /^([A-Za-z]:)/.exec(s.dir || '');
+    return m ? m[1] : (s.dir || '').split('/')[1] || '(root)';
+  }
+  return '';
 }
 
 function renderSessions() {
   const list = $('#session-list');
   const q = $('#f-search').value.toLowerCase();
-  const rows = allSessions.filter((s) =>
-    !q || (s.title + ' ' + s.dir).toLowerCase().includes(q));
+  const mode = $('#f-group').value;
+  const rows = allSessions.filter((s) => !q || (s.title + ' ' + s.dir).toLowerCase().includes(q));
 
   list.replaceChildren();
-  if (!rows.length) {
-    list.append(el('p', 'empty', 'no sessions match'));
-    return;
-  }
-  rows.forEach((s) => list.append(sessionRow(s)));
+  if (!rows.length) { list.append(el('p', 'empty', 'no sessions match')); return; }
+
+  if (!mode) { rows.forEach((s) => list.append(sessionRow(s))); return; }
+
+  const groups = new Map();
+  rows.forEach((s) => {
+    const k = groupKey(s, mode);
+    if (!groups.has(k)) groups.set(k, []);
+    groups.get(k).push(s);
+  });
+
+  [...groups.entries()]
+    .sort((a, b) => b[1].length - a[1].length)
+    .forEach(([k, items]) => {
+      const totalBytes = items.reduce((n, s) => n + (s.bytes || 0), 0);
+      const h = el('div', 'group-head');
+      h.append(el('span', 'title', k));
+      h.append(el('span', 'meta', `${items.length} session(s) \u00b7 ${bytes(totalBytes)}`));
+      list.append(h);
+      items.forEach((s) => list.append(sessionRow(s)));
+    });
 }
 
 loaders.sessions = loadSessions;
-['#f-tool', '#f-days', '#f-all'].forEach((s) =>
-  $(s).addEventListener('change', loadSessions));
+['#f-tool', '#f-days', '#f-all'].forEach((s) => $(s).addEventListener('change', loadSessions));
+$('#f-group').addEventListener('change', renderSessions);
 $('#f-search').addEventListener('input', renderSessions);
 
 // ---- nuggets ----------------------------------------------------------------
@@ -250,7 +702,6 @@ $('#f-search').addEventListener('input', renderSessions);
 async function loadNuggets() {
   const list = $('#nugget-list');
   list.replaceChildren(el('p', 'note', 'loading...'));
-
   const p = new URLSearchParams();
   if ($('#n-kind').value) p.set('kind', $('#n-kind').value);
   if ($('#n-search').value) p.set('search', $('#n-search').value);
@@ -259,7 +710,11 @@ async function loadNuggets() {
     const ns = await get('/api/nuggets?' + p.toString());
     list.replaceChildren();
     if (!ns || !ns.length) {
-      list.append(el('p', 'empty', 'no nuggets yet — run: midden reclaim --days 7'));
+      const e = el('p', 'empty', 'No nuggets yet. ');
+      const b = el('button', 'btn primary', 'Mine some sessions');
+      b.addEventListener('click', () => show('do'));
+      e.append(b);
+      list.append(e);
       return;
     }
     ns.forEach((n) => {
@@ -269,13 +724,14 @@ async function loadNuggets() {
       const m = el('div', 'meta');
       m.append(el('span', 'pill', n.kind));
       m.append(document.createTextNode(
-        ` ${Math.round((n.confidence || 0) * 100)}% · ${n.session_id.slice(0, 8)} · ${n.workspace || ''}`));
+        ` ${Math.round((n.confidence || 0) * 100)}% \u00b7 ${(n.session_id || '').slice(0, 8)} \u00b7 ${n.workspace || ''} \u00b7 ${n.model || ''}`));
       if (n.redacted) m.append(el('span', 'pill warn', 'redacted'));
+      m.append(copyBtn(n.title + '\n\n' + n.body, 'copy'));
       d.append(m);
       list.append(d);
     });
   } catch (e) {
-    list.replaceChildren(el('p', 'note', 'failed: ' + e.message));
+    list.replaceChildren(el('p', 'bad', 'failed: ' + e.message));
   }
 }
 
@@ -295,7 +751,11 @@ loaders.artifacts = async () => {
     const as = await get('/api/artifacts');
     list.replaceChildren();
     if (!as || !as.length) {
-      list.append(el('p', 'empty', 'nothing generated yet — run: midden catalog'));
+      const e = el('p', 'empty', 'Nothing written yet. ');
+      const b = el('button', 'btn primary', 'Write something');
+      b.addEventListener('click', () => show('do'));
+      e.append(b);
+      list.append(e);
       return;
     }
     as.forEach((a) => {
@@ -305,16 +765,92 @@ loaders.artifacts = async () => {
       top.append(el('span', 'title', a.title));
       top.append(el('span', 'meta', new Date(a.created_at).toLocaleString()));
       d.append(top);
-      d.append(el('div', 'dir', a.path));
-      d.append(el('div', 'meta', `${(a.nugget_ids || []).length} nuggets · ${a.model}`));
+      const p = el('div', 'cmd mono');
+      p.append(el('span', null, a.path));
+      p.append(copyBtn(a.path, 'copy path'));
+      d.append(p);
+      d.append(el('div', 'meta', `${(a.nugget_ids || []).length} nuggets \u00b7 ${a.model}`));
       list.append(d);
     });
   } catch (e) {
-    list.replaceChildren(el('p', 'note', 'failed: ' + e.message));
+    list.replaceChildren(el('p', 'bad', 'failed: ' + e.message));
   }
 };
 
-// ---- operation log ----------------------------------------------------------
+// ---- cost -------------------------------------------------------------------
+
+loaders.cost = async () => {
+  const cards = $('#cost-cards');
+  cards.replaceChildren(el('p', 'note', 'loading...'));
+  let d;
+  try { d = await get('/api/cost'); }
+  catch (e) { cards.replaceChildren(el('p', 'bad', e.message)); return; }
+
+  const t = d.totals || {};
+  const card = (k, v, n) => {
+    const c = el('div', 'card');
+    c.append(el('div', 'k', k), el('div', 'v', v));
+    if (n) c.append(el('div', 'n', n));
+    return c;
+  };
+  const charge = t.aiu ? t.aiu.toFixed(1) + ' AIU' : t.usd ? '$' + t.usd.toFixed(2) : '\u2014';
+
+  cards.replaceChildren(
+    card('total charged', charge, 'on your existing seat'),
+    card('tokens', tok(t.tokens || 0), `${t.runs || 0} run(s)`),
+    card('items produced', t.items || 0, 'nuggets + artifacts'),
+    card('free commands', 'everything else', 'ls, doctor, assay, prune, advise\u2026')
+  );
+
+  const cal = $('#calibration');
+  cal.replaceChildren();
+  const entries = Object.entries(d.calibration || {});
+  if (!entries.length) {
+    cal.append(el('p', 'note', 'No calibration yet \u2014 run something that uses a model.'));
+  } else {
+    entries.forEach(([op, c]) => {
+      const row = el('div', 'calib');
+      row.append(el('span', 'pill', op));
+      row.append(document.createTextNode(
+        ` actual is ${c.mean_factor}\u00d7 the raw prompt estimate ` +
+        `(range ${c.min_factor}\u2013${c.max_factor}\u00d7 over ${c.samples} run(s))`));
+      cal.append(row);
+    });
+  }
+
+  const runs = $('#run-list');
+  runs.replaceChildren();
+  if (!(d.runs || []).length) {
+    runs.append(el('p', 'note', 'No runs recorded.'));
+    return;
+  }
+  const table = el('table');
+  const head = el('tr');
+  ['when', 'op', 'scope', 'items', 'tokens', 'charged', 'est err', 'secs'].forEach((h) =>
+    head.append(el('th', null, h)));
+  table.append(head);
+  d.runs.forEach((r) => {
+    const u = r.usage || {};
+    const billable = (u.input_tokens || 0) + (u.output_tokens || 0) +
+                     (u.cache_read_tokens || 0) + (u.cache_write_tokens || 0);
+    const ch = u.aiu ? u.aiu.toFixed(1) + ' AIU' : u.usd ? '$' + u.usd.toFixed(2) : '\u2014';
+    const err = r.est_tokens && billable ? (billable / r.est_tokens).toFixed(0) + '\u00d7' : '\u2014';
+    const tr = el('tr');
+    tr.append(
+      el('td', 'meta', new Date(r.started_at).toLocaleString()),
+      el('td', null, r.op),
+      el('td', 'meta', r.scope || ''),
+      el('td', null, String(r.items || 0)),
+      el('td', null, tok(billable)),
+      el('td', null, ch),
+      el('td', 'meta', err),
+      el('td', 'meta', Math.round((u.duration_ms || 0) / 1000)));
+    table.append(tr);
+  });
+  runs.append(table);
+};
+
+// ---- log --------------------------------------------------------------------
 
 loaders.ops = async () => {
   const list = $('#ops-list');
@@ -323,13 +859,12 @@ loaders.ops = async () => {
     const ops = await get('/api/ops');
     list.replaceChildren();
     if (!ops || !ops.length) {
-      list.append(el('p', 'empty', 'nothing has been modified'));
+      list.append(el('p', 'empty', 'Nothing has been modified.'));
       return;
     }
     const t = el('table');
     const head = el('tr');
-    ['when', 'op', 'tool', 'session', 'before', 'after', 'ok'].forEach((h) =>
-      head.append(el('th', null, h)));
+    ['when', 'op', 'tool', 'session', 'before', 'after', 'ok'].forEach((h) => head.append(el('th', null, h)));
     t.append(head);
     ops.forEach((o) => {
       const tr = el('tr');
@@ -340,13 +875,13 @@ loaders.ops = async () => {
         el('td', 'mono', (o.session_id || '').slice(0, 8)),
         el('td', null, bytes(o.before)),
         el('td', null, bytes(o.after)),
-        el('td', null, o.ok ? 'ok' : 'FAILED'));
+        el('td', o.ok ? 'good' : 'bad', o.ok ? 'ok' : 'FAILED'));
       t.append(tr);
     });
     list.append(t);
   } catch (e) {
-    list.replaceChildren(el('p', 'note', 'failed: ' + e.message));
+    list.replaceChildren(el('p', 'bad', 'failed: ' + e.message));
   }
 };
 
-loaders.overview();
+loaders.do();

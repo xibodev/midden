@@ -12,17 +12,30 @@
 <header>
   <h1>midden<span class="sub">a materials recovery facility for AI coding exhaust</span></h1>
   <nav>
-    <button class="tab active" data-view="overview">Overview</button>
+    <button class="tab active" data-view="do">Do</button>
+    <button class="tab" data-view="overview">Overview</button>
     <button class="tab" data-view="sessions">Sessions</button>
     <button class="tab" data-view="nuggets">Nuggets</button>
     <button class="tab" data-view="artifacts">Artifacts</button>
+    <button class="tab" data-view="cost">Cost</button>
     <button class="tab" data-view="ops">Log</button>
   </nav>
 </header>
 
 <main>
 
-<section id="overview" class="view active">
+<section id="do" class="view active">
+  <h2 class="lead">What do you want to do?</h2>
+  <p class="note">Nothing here spends anything until you approve an estimate.</p>
+  <div class="actions" id="action-cards"></div>
+
+  <div class="panel" id="job-panel" hidden>
+    <h2>Running</h2>
+    <div id="job-list"></div>
+  </div>
+</section>
+
+<section id="overview" class="view">
   <div class="cards" id="stat-cards"></div>
 
   <div class="panel" id="risk-panel" hidden>
@@ -52,6 +65,12 @@
       <option value="7" selected>last 7 days</option>
       <option value="30">last 30 days</option>
     </select>
+    <select id="f-group">
+      <option value="">no grouping</option>
+      <option value="workspace">by workspace</option>
+      <option value="tool">by tool</option>
+      <option value="drive">by drive</option>
+    </select>
     <input id="f-search" type="search" placeholder="filter by title or workspace">
     <label class="check"><input type="checkbox" id="f-all"> show automated</label>
   </div>
@@ -78,6 +97,20 @@
   <div id="artifact-list"></div>
 </section>
 
+<section id="cost" class="view">
+  <div class="cards" id="cost-cards"></div>
+  <div class="panel">
+    <h2>Estimate accuracy</h2>
+    <p class="note">Predictions are calibrated against what runs actually cost, so they
+      improve the more you use the tool.</p>
+    <div id="calibration"></div>
+  </div>
+  <div class="panel">
+    <h2>Runs</h2>
+    <div id="run-list"></div>
+  </div>
+</section>
+
 <section id="ops" class="view">
   <p class="note">Every mutating operation midden has performed.</p>
   <div id="ops-list"></div>
@@ -89,6 +122,15 @@
   <button id="drawer-close" aria-label="close">&times;</button>
   <div id="drawer-body"></div>
 </div>
+
+<div id="modal" class="modal" hidden>
+  <div class="modal-box">
+    <button id="modal-close" aria-label="close">&times;</button>
+    <div id="modal-body"></div>
+  </div>
+</div>
+
+<div id="toast" class="toast" hidden></div>
 
 <script src="app.js"></script>
 </body>

@@ -22,6 +22,7 @@ import (
 	"github.com/mekjr1/midden/internal/adapter"
 	"github.com/mekjr1/midden/internal/core"
 	"github.com/mekjr1/midden/internal/index"
+	"github.com/mekjr1/midden/internal/refine"
 )
 
 //go:embed ui/*
@@ -29,10 +30,13 @@ var uiFS embed.FS
 
 // Server exposes the index and adapters over HTTP.
 type Server struct {
-	db *index.DB
+	db   *index.DB
+	jobs *Jobs
 }
 
-func NewServer(db *index.DB) *Server { return &Server{db: db} }
+func NewServer(db *index.DB) *Server {
+	return &Server{db: db, jobs: NewJobs()}
+}
 
 // Handler builds the route table.
 func (s *Server) Handler() http.Handler {
@@ -50,6 +54,12 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/artifacts", s.handleArtifacts)
 	mux.HandleFunc("/api/assay", s.handleAssay)
 	mux.HandleFunc("/api/ops", s.handleOps)
+	mux.HandleFunc("/api/action", s.handleAction)
+	mux.HandleFunc("/api/jobs", s.handleJobs)
+	mux.HandleFunc("/api/job-status", s.handleJobStatus)
+	mux.HandleFunc("/api/cost", s.handleCost)
+	mux.HandleFunc("/api/templates", s.handleTemplates)
+	mux.HandleFunc("/api/resume", s.handleResume)
 
 	return localOnly(mux)
 }
@@ -301,4 +311,113 @@ func humanAge(d time.Duration) string {
 
 func round1(f float64) float64 {
 	return float64(int(f*10+0.5)) / 10
+}
+
+// handleCost exposes the ledger and calibration, so the UI can show what
+// anything cost rather than leaving the operator to guess.
+func (s *Server) handleCost(w http.ResponseWriter, r *http.Request) {
+	runs, err := s.db.Runs(30, "")
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	totals, err := s.db.Costs()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	calib := map[string]any{}
+	for _, op := range []string{"reclaim", "refine"} {
+		if st, err := s.db.CalibrationFor(op); err == nil && st.Samples > 0 {
+			calib[op] = map[string]any{
+				"samples": st.Samples, "mean_factor": round1(st.MeanFactor),
+				"min_factor": round1(st.MinFactor), "max_factor": round1(st.MaxFactor),
+				"mean_unit": round1(st.MeanUnit), "unit": st.UnitName,
+			}
+		}
+	}
+	writeJSON(w, map[string]any{"runs": runs, "totals": totals, "calibration": calib})
+}
+
+// handleTemplates lists artifact kinds and what the current evidence supports.
+func (s *Server) handleTemplates(w http.ResponseWriter, r *http.Request) {
+	ns, _ := s.db.Nuggets(index.NuggetQuery{Workspace: r.URL.Query().Get("workspace")})
+
+	type item struct {
+		Name      string `json:"name"`
+		Title     string `json:"title"`
+		Audience  string `json:"audience"`
+		Supported bool   `json:"supported"`
+		Why       string `json:"why,omitempty"`
+	}
+	supported := map[string]string{}
+	for _, c := range refine.Catalog(ns, 2) {
+		supported[c.Template] = c.Why
+	}
+
+	out := make([]item, 0, len(refine.Templates))
+	for _, t := range refine.Templates {
+		why, ok := supported[t.Name]
+		out = append(out, item{Name: t.Name, Title: t.Title,
+			Audience: t.Audience, Supported: ok, Why: why})
+	}
+	writeJSON(w, map[string]any{"templates": out, "nuggets": len(ns)})
+}
+
+// handleResume builds a resume one-liner, optionally carrying an instruction.
+//
+// This is the "set an instruction, copy the command" flow: composing the
+// instruction in the UI and pasting one line into a terminal.
+func (s *Server) handleResume(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	id := q.Get("id")
+	if id == "" {
+		http.Error(w, "id required", http.StatusBadRequest)
+		return
+	}
+
+	matches, _ := adapter.Collect(core.Scope{IDPrefix: id, IncludeNoise: true})
+	if len(matches) == 0 {
+		http.Error(w, "not found", http.StatusNotFound)
+		return
+	}
+	sess := matches[0]
+
+	a := adapter.Find(sess.Tool)
+	if a == nil {
+		http.Error(w, "no adapter", http.StatusInternalServerError)
+		return
+	}
+
+	var warnings []string
+	if sess.Live != nil {
+		warnings = append(warnings, fmt.Sprintf(
+			"already open (pid %d, %s) — switch to that terminal instead", sess.Live.PID, sess.Live.Status))
+	}
+	if !sess.DirExists() {
+		warnings = append(warnings, "workspace no longer exists: "+sess.Dir)
+	}
+	if sess.Risk() >= core.RiskWarn {
+		warnings = append(warnings, fmt.Sprintf(
+			"transcript is %d MiB (%s) — resume may time out and silently start a NEW session; prefer a handoff brief",
+			sess.Bytes>>20, sess.Risk()))
+	}
+
+	writeJSON(w, map[string]any{
+		"command":  adapter.WalkAndResume(sess.Dir, a.ResumeCmd(sess, q.Get("instruction"))),
+		"warnings": warnings,
+		"session":  toView(sess),
+	})
+}
+
+// handleJobStatus is an alias for a single job, so the UI can poll one id
+// without fetching the whole list.
+func (s *Server) handleJobStatus(w http.ResponseWriter, r *http.Request) {
+	job, ok := s.jobs.get(r.URL.Query().Get("id"))
+	if !ok {
+		http.Error(w, "not found", http.StatusNotFound)
+		return
+	}
+	writeJSON(w, job)
 }

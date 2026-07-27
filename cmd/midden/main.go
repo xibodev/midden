@@ -17,7 +17,7 @@ import (
 	"github.com/mekjr1/midden/internal/render"
 )
 
-const version = "1.0.0"
+const version = "1.1.0"
 
 func main() {
 	if len(os.Args) < 2 {
@@ -65,6 +65,8 @@ func main() {
 		err = cmdUI(os.Args[2:])
 	case "advise":
 		err = cmdAdvise(os.Args[2:])
+	case "cost":
+		err = cmdCost(os.Args[2:])
 	case "version", "--version", "-v":
 		fmt.Println("midden", version)
 	case "help", "--help", "-h":
@@ -106,6 +108,7 @@ COMMANDS
   artifacts List what has been generated
   ui        Serve the embedded web interface on loopback
   advise    Recommendations for producing less exhaust, with evidence
+  cost      What midden has actually spent, and estimate accuracy
   mcp       Run as an MCP server on stdio (token-budgeted tools for agents)
   version   Print version
 

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/mekjr1/midden/internal/core"
+	"github.com/mekjr1/midden/internal/cost"
 	"github.com/mekjr1/midden/internal/exec"
 	"github.com/mekjr1/midden/internal/index"
 	"github.com/mekjr1/midden/internal/redact"
@@ -145,12 +146,16 @@ func cmdRefine(args []string) error {
 		dir = filepath.Join(index.Dir(), "artifacts")
 	}
 
-	// Pre-flight. The saving from one warm context is the headline number, so
-	// it is stated explicitly.
+	// Pre-flight, calibrated against what previous runs actually cost. The
+	// saving from one warm context is stated explicitly because it is the
+	// whole reason for batching.
 	loadOnce := ev.EstTokens()
 	perArtifact := 300
-	batched := loadOnce + len(wanted)*perArtifact
-	separate := len(wanted) * (loadOnce + perArtifact)
+	rawBatched := loadOnce + len(wanted)*perArtifact
+	rawSeparate := len(wanted) * (loadOnce + perArtifact)
+
+	estBatched := estimateFor(db, "refine", rawBatched, 1)
+	estSeparate := estimateFor(db, "refine", rawSeparate, 1)
 
 	fmt.Printf("\n  %s  %d artifact(s) from %d nugget(s) via %s\n",
 		render.Bold("REFINE"), len(wanted), len(ns), be)
@@ -160,11 +165,12 @@ func cmdRefine(args []string) error {
 	}
 	fmt.Printf("\n  %-18s ~%d tokens %s\n", render.Dim("evidence"), loadOnce,
 		render.Dim("loaded once, reused by every artifact"))
-	fmt.Printf("  %-18s ~%d tokens\n", render.Dim("estimated total"), batched)
+	fmt.Printf("  %-18s %s\n", render.Dim("estimated cost"), estBatched.String())
 	if len(wanted) > 1 {
-		fmt.Printf("  %-18s ~%d tokens %s\n", render.Dim("if run separately"), separate,
+		fmt.Printf("  %-18s %s %s\n", render.Dim("if run separately"),
+			cost.Compact(estSeparate.Mid)+" tokens",
 			render.Dim(fmt.Sprintf("(%.1fx more — cache writes dominate)",
-				float64(separate)/float64(batched))))
+				float64(estSeparate.Mid)/float64(maxInt64(estBatched.Mid, 1)))))
 	}
 	fmt.Printf("  %-18s %s\n\n", render.Dim("output"), dir)
 
@@ -180,8 +186,11 @@ func cmdRefine(args []string) error {
 		return err
 	}
 
+	run := recordRun(db, "refine", scope, string(be), rawBatched)
+
 	runner := &exec.Runner{Backend: be, Model: *model, Pure: true, Timeout: 15 * time.Minute}
 	conv := runner.NewConversation()
+	run.CLISessions = append(run.CLISessions, conv.SessionID())
 	ctx := context.Background()
 
 	fmt.Fprintf(os.Stderr, "  %s\n", render.Dim("loading evidence into one session..."))
@@ -247,6 +256,20 @@ func cmdRefine(args []string) error {
 	}
 	fmt.Fprintf(os.Stderr, "\r%-60s\r", "")
 
+	written := 0
+	for _, p := range out {
+		if p.Err == "" {
+			written++
+		}
+	}
+	run.Items = written
+	run.EndedAt = time.Now()
+	run.OK = written > 0
+	db.PutRun(run)
+
+	time.Sleep(1500 * time.Millisecond)
+	reconcile(db)
+
 	if *asJSON {
 		return emitJSON(out)
 	}
@@ -262,9 +285,27 @@ func cmdRefine(args []string) error {
 			fmt.Printf("                %s\n", render.Dim("! "+p.Warning))
 		}
 	}
+
+	if actual, err := db.Runs(1, "refine"); err == nil && len(actual) > 0 && !actual[0].Usage.Empty() {
+		a := actual[0]
+		fmt.Printf("\n  %-11s %s  %s\n", render.Dim("cost"), a.Usage.Unit(),
+			render.Dim(fmt.Sprintf("%s tokens · %.0fs · %d turn(s) in one session",
+				cost.Compact(a.Usage.Billable()), a.Duration().Seconds(), a.Usage.Turns)))
+		if a.Items > 0 {
+			fmt.Printf("  %-11s %.1f per artifact\n", render.Dim("unit"), a.PerItem())
+		}
+	}
+
 	fmt.Printf("\n  %s\n\n", render.Dim(
 		"review before publishing — generated from your own sessions, which may contain private detail"))
 	return nil
+}
+
+func maxInt64(a, b int64) int64 {
+	if a > b {
+		return a
+	}
+	return b
 }
 
 // cmdArtifacts lists what has been generated.

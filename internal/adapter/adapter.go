@@ -121,3 +121,9 @@ func Footprints() map[core.Tool]int64 {
 	}
 	return out
 }
+
+// coreScopeForID builds a scope that matches one session id prefix, including
+// noise, so lookups by id never miss.
+func coreScopeForID(id string) core.Scope {
+	return core.Scope{IDPrefix: id, IncludeNoise: true}
+}

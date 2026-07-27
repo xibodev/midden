@@ -1,0 +1,637 @@
+package web
+
+// Jobs run the operations that take time or spend money.
+//
+// The UI was previously read-only, which made it an instrument panel rather
+// than a tool: every action required dropping to a terminal. These handlers
+// close the loop — see, decide, act, and see what it cost — without leaving
+// the page.
+//
+// Long operations run asynchronously with progress, because a reclaim can take
+// a minute and a browser request should not hold open for it.
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"net/http"
+	"os"
+	"path/filepath"
+	"sort"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/mekjr1/midden/internal/adapter"
+	"github.com/mekjr1/midden/internal/core"
+	"github.com/mekjr1/midden/internal/cost"
+	"github.com/mekjr1/midden/internal/dispose"
+	"github.com/mekjr1/midden/internal/exec"
+	"github.com/mekjr1/midden/internal/index"
+	"github.com/mekjr1/midden/internal/reclaim"
+	"github.com/mekjr1/midden/internal/redact"
+	"github.com/mekjr1/midden/internal/refine"
+)
+
+// JobStatus is where a job has got to.
+type JobStatus string
+
+const (
+	Queued  JobStatus = "queued"
+	Running JobStatus = "running"
+	Done    JobStatus = "done"
+	Failed  JobStatus = "failed"
+)
+
+// Job is one asynchronous operation.
+type Job struct {
+	ID       string         `json:"id"`
+	Op       string         `json:"op"`
+	Scope    string         `json:"scope"`
+	Status   JobStatus      `json:"status"`
+	Progress string         `json:"progress"`
+	Started  time.Time      `json:"started"`
+	Ended    time.Time      `json:"ended,omitempty"`
+	Result   any            `json:"result,omitempty"`
+	Error    string         `json:"error,omitempty"`
+	Cost     *cost.Run      `json:"cost,omitempty"`
+	Estimate *cost.Estimate `json:"estimate,omitempty"`
+}
+
+// Jobs tracks running and finished work.
+type Jobs struct {
+	mu   sync.RWMutex
+	jobs map[string]*Job
+	seq  int
+}
+
+func NewJobs() *Jobs { return &Jobs{jobs: map[string]*Job{}} }
+
+func (j *Jobs) create(op, scope string) *Job {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	j.seq++
+	job := &Job{
+		ID:      fmt.Sprintf("job-%d-%d", time.Now().Unix(), j.seq),
+		Op:      op,
+		Scope:   scope,
+		Status:  Queued,
+		Started: time.Now(),
+	}
+	j.jobs[job.ID] = job
+	return job
+}
+
+func (j *Jobs) update(id string, fn func(*Job)) {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	if job, ok := j.jobs[id]; ok {
+		fn(job)
+	}
+}
+
+func (j *Jobs) get(id string) (*Job, bool) {
+	j.mu.RLock()
+	defer j.mu.RUnlock()
+	job, ok := j.jobs[id]
+	if !ok {
+		return nil, false
+	}
+	c := *job
+	return &c, true
+}
+
+func (j *Jobs) list() []*Job {
+	j.mu.RLock()
+	defer j.mu.RUnlock()
+	out := make([]*Job, 0, len(j.jobs))
+	for _, job := range j.jobs {
+		c := *job
+		out = append(out, &c)
+	}
+	sort.Slice(out, func(a, b int) bool { return out[a].Started.After(out[b].Started) })
+	if len(out) > 40 {
+		out = out[:40]
+	}
+	return out
+}
+
+// actionRequest is the body every action endpoint accepts.
+type actionRequest struct {
+	Op          string   `json:"op"`
+	SessionID   string   `json:"session_id"`
+	Workspace   string   `json:"workspace"`
+	Tool        string   `json:"tool"`
+	Days        int      `json:"days"`
+	Instruction string   `json:"instruction"`
+	Templates   []string `json:"templates"`
+	Backend     string   `json:"backend"`
+	Model       string   `json:"model"`
+	Records     int      `json:"records"`
+
+	// Apply must be explicitly true for anything destructive. A missing field
+	// means dry run, so a malformed request can never delete.
+	Apply bool `json:"apply"`
+	// Confirm is a second, separate acknowledgement for irreversible actions.
+	Confirm bool `json:"confirm"`
+}
+
+func (a actionRequest) scope() core.Scope {
+	sc := core.Scope{Days: a.Days, Workspace: a.Workspace, IncludeNoise: true}
+	if a.SessionID != "" {
+		sc.IDPrefix = a.SessionID
+	}
+	switch core.Tool(a.Tool) {
+	case core.ToolCopilot:
+		sc.Tools = []core.Tool{core.ToolCopilot}
+	case core.ToolClaude:
+		sc.Tools = []core.Tool{core.ToolClaude}
+	case core.ToolOpencode:
+		sc.Tools = []core.Tool{core.ToolOpencode}
+	}
+	return sc
+}
+
+func (a actionRequest) label() string {
+	switch {
+	case a.SessionID != "":
+		return "session " + shortID(a.SessionID)
+	case a.Workspace != "":
+		return "workspace " + a.Workspace
+	case a.Days > 0:
+		return fmt.Sprintf("last %dd", a.Days)
+	}
+	return "all"
+}
+
+func shortID(s string) string {
+	if len(s) > 8 {
+		return s[:8]
+	}
+	return s
+}
+
+// handleAction starts an operation.
+func (s *Server) handleAction(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "POST required", http.StatusMethodNotAllowed)
+		return
+	}
+	var req actionRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "bad request: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	switch req.Op {
+	case "prune", "archive", "reclaim", "refine":
+	default:
+		http.Error(w, "unknown op: "+req.Op, http.StatusBadRequest)
+		return
+	}
+
+	job := s.jobs.create(req.Op, req.label())
+	go s.runJob(job.ID, req)
+	writeJSON(w, job)
+}
+
+func (s *Server) handleJobs(w http.ResponseWriter, r *http.Request) {
+	if id := r.URL.Query().Get("id"); id != "" {
+		job, ok := s.jobs.get(id)
+		if !ok {
+			http.Error(w, "not found", http.StatusNotFound)
+			return
+		}
+		writeJSON(w, job)
+		return
+	}
+	writeJSON(w, s.jobs.list())
+}
+
+// runJob dispatches to the operation implementations.
+func (s *Server) runJob(id string, req actionRequest) {
+	s.jobs.update(id, func(j *Job) {
+		j.Status = Running
+		j.Progress = "starting"
+	})
+
+	var (
+		result any
+		err    error
+	)
+	switch req.Op {
+	case "prune":
+		result, err = s.doPrune(id, req)
+	case "archive":
+		result, err = s.doArchive(id, req)
+	case "reclaim":
+		result, err = s.doReclaim(id, req)
+	case "refine":
+		result, err = s.doRefine(id, req)
+	}
+
+	s.jobs.update(id, func(j *Job) {
+		j.Ended = time.Now()
+		if err != nil {
+			j.Status = Failed
+			j.Error = err.Error()
+			return
+		}
+		j.Status = Done
+		j.Progress = "complete"
+		j.Result = result
+	})
+}
+
+// doPrune previews or applies transcript pruning. Dry run unless Apply is set.
+func (s *Server) doPrune(id string, req actionRequest) (any, error) {
+	sessions, _ := adapter.Collect(req.scope())
+
+	var targets []core.Session
+	for _, x := range sessions {
+		if x.TranscriptPath != "" && fileExists(x.TranscriptPath) && x.Bytes > 20<<20 {
+			targets = append(targets, x)
+		}
+	}
+	if len(targets) == 0 {
+		return nil, fmt.Errorf("no transcripts over 20 MiB in scope")
+	}
+	sort.Slice(targets, func(a, b int) bool { return targets[a].Bytes > targets[b].Bytes })
+	if len(targets) > 10 {
+		targets = targets[:10]
+	}
+
+	opts := dispose.DefaultOptions()
+	workDir := filepath.Join(index.Dir(), "pruned")
+
+	type row struct {
+		Session  sessionView `json:"session"`
+		Before   int64       `json:"before"`
+		After    int64       `json:"after"`
+		Saved    int64       `json:"saved"`
+		Verified bool        `json:"verified"`
+		Failures []string    `json:"failures,omitempty"`
+		Applied  bool        `json:"applied"`
+	}
+	var rows []row
+	var totalSaved int64
+
+	for i, x := range targets {
+		s.jobs.update(id, func(j *Job) {
+			j.Progress = fmt.Sprintf("%d/%d  %s", i+1, len(targets), core.Truncate(x.Title, 40))
+		})
+
+		if !req.Apply {
+			a, ok := adapter.Find(x.Tool).(adapter.Assayer)
+			if !ok {
+				continue
+			}
+			m, err := a.Assay(x, 0)
+			if err != nil {
+				continue
+			}
+			est := (m.Bytes["exhaust"] + m.Bytes["bookkeeping"]) * 9 / 10
+			rows = append(rows, row{Session: toView(x), Before: x.Bytes,
+				After: x.Bytes - est, Saved: est})
+			totalSaved += est
+			continue
+		}
+
+		target := filepath.Join(workDir, string(x.Tool), x.ID+".jsonl")
+		p, err := dispose.PruneJSONL(x.TranscriptPath, target, opts, kindOfLine)
+		if err != nil {
+			continue
+		}
+		v, verr := dispose.Verify(x.TranscriptPath, target, kindOfLine)
+		rw := row{Session: toView(x), Before: p.BeforeBytes, After: p.AfterBytes,
+			Saved: p.Saved(), Applied: true}
+		if verr == nil && v != nil {
+			rw.Verified = v.OK
+			rw.Failures = v.Failures
+		}
+		rows = append(rows, rw)
+		totalSaved += p.Saved()
+
+		s.db.RecordOp("prune", string(x.Tool), x.ID, p.BeforeBytes, p.AfterBytes,
+			fmt.Sprintf("verified=%v via ui", rw.Verified), true)
+	}
+
+	return map[string]any{
+		"applied": req.Apply, "rows": rows, "total_saved": totalSaved,
+		"output_dir": workDir,
+	}, nil
+}
+
+// doArchive moves transcripts out of a tool's active path.
+func (s *Server) doArchive(id string, req actionRequest) (any, error) {
+	// Irreversible enough to demand a second acknowledgement.
+	if req.Apply && !req.Confirm {
+		return nil, fmt.Errorf("archive requires explicit confirmation")
+	}
+
+	sessions, _ := adapter.Collect(req.scope())
+	root := index.Dir()
+
+	var moved int64
+	var rows []map[string]any
+
+	for _, x := range sessions {
+		if x.TranscriptPath == "" || !fileExists(x.TranscriptPath) {
+			continue
+		}
+		if x.Live != nil {
+			continue // never touch a session that is open right now
+		}
+		dir := dispose.ArchivePath(root, string(x.Tool), x.ID)
+		rows = append(rows, map[string]any{
+			"session": x.ID, "tool": string(x.Tool), "bytes": x.Bytes, "target": dir,
+		})
+		if !req.Apply {
+			continue
+		}
+
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			continue
+		}
+		man := dispose.ArchiveManifest{
+			Tool: string(x.Tool), SessionID: x.ID, Title: x.Title,
+			Workspace: x.Dir, SourcePath: x.TranscriptPath, Bytes: x.Bytes,
+			ArchivedAt: time.Now(),
+			Note:       "Archived by midden. Move the transcript back to source_path to restore.",
+		}
+		mb, _ := json.MarshalIndent(man, "", "  ")
+		os.WriteFile(filepath.Join(dir, "manifest.json"), mb, 0o644)
+
+		dst := filepath.Join(dir, filepath.Base(x.TranscriptPath))
+		if os.Rename(x.TranscriptPath, dst) == nil {
+			moved += x.Bytes
+			s.db.RecordOp("archive", string(x.Tool), x.ID, x.Bytes, 0, dir+" (ui)", true)
+		}
+	}
+	return map[string]any{"applied": req.Apply, "rows": rows, "moved": moved}, nil
+}
+
+// doReclaim mines sessions for nuggets.
+func (s *Server) doReclaim(id string, req actionRequest) (any, error) {
+	sessions, _ := adapter.Collect(req.scope())
+	if len(sessions) == 0 {
+		return nil, fmt.Errorf("no sessions in scope")
+	}
+	if len(sessions) > 8 {
+		sessions = sessions[:8]
+	}
+
+	records := req.Records
+	if records <= 0 {
+		records = 100
+	}
+
+	type job struct {
+		session core.Session
+		slice   reclaim.Slice
+	}
+	var jobs []job
+	var raw int
+	for _, x := range sessions {
+		a, ok := adapter.Find(x.Tool).(adapter.Assayer)
+		if !ok {
+			continue
+		}
+		m, err := a.Assay(x, records)
+		if err != nil {
+			continue
+		}
+		sl := reclaim.BuildSlice(x, m, records)
+		if len(sl.Candidates) == 0 {
+			continue
+		}
+		jobs = append(jobs, job{x, sl})
+		raw += sl.EstTokens()
+	}
+	if len(jobs) == 0 {
+		return nil, fmt.Errorf("no usable evidence in scope")
+	}
+
+	stats, _ := s.db.CalibrationFor("reclaim")
+	est := cost.Predict("reclaim", raw, stats)
+	s.jobs.update(id, func(j *Job) { j.Estimate = &est })
+
+	// A preview stops here: the operator sees the predicted cost first.
+	if !req.Apply {
+		return map[string]any{
+			"preview": true, "sessions": len(jobs),
+			"estimate": est, "estimate_text": est.String(),
+		}, nil
+	}
+
+	be, err := exec.Detect(req.Backend)
+	if err != nil {
+		return nil, err
+	}
+	runner := &exec.Runner{Backend: be, Model: req.Model, Pure: true}
+	run := cost.Run{UID: index.NewUID(), Op: "reclaim", Scope: req.label(),
+		Backend: string(be), EstTokens: raw, StartedAt: time.Now()}
+
+	var stored []index.Nugget
+	ctx := context.Background()
+	for i, jb := range jobs {
+		s.jobs.update(id, func(j *Job) {
+			j.Progress = fmt.Sprintf("mining %d/%d  %s", i+1, len(jobs),
+				core.Truncate(jb.session.Title, 38))
+		})
+
+		conv := runner.NewConversation()
+		run.CLISessions = append(run.CLISessions, conv.SessionID())
+
+		res, err := conv.Prime(ctx, jb.slice.Prompt())
+		if err != nil {
+			continue
+		}
+		model := req.Model
+		if model == "" {
+			model = string(be) + ":default"
+		}
+		ns, err := reclaim.Parse(res.Output, jb.session, model)
+		if err != nil || len(ns) == 0 {
+			continue
+		}
+		if s.db.PutNuggets(ns) == nil {
+			stored = append(stored, ns...)
+		}
+	}
+
+	run.Items = len(stored)
+	run.EndedAt = time.Now()
+	run.OK = len(stored) > 0
+	s.db.PutRun(run)
+
+	s.jobs.update(id, func(j *Job) { j.Progress = "settling cost" })
+	time.Sleep(1500 * time.Millisecond)
+	s.settle(id, run.UID)
+
+	return map[string]any{"nuggets": stored, "count": len(stored)}, nil
+}
+
+// doRefine generates artifacts from nuggets, batched in one warm context.
+func (s *Server) doRefine(id string, req actionRequest) (any, error) {
+	ns, err := s.db.Nuggets(index.NuggetQuery{Workspace: req.Workspace, SessionID: req.SessionID})
+	if err != nil {
+		return nil, err
+	}
+	if len(ns) == 0 {
+		return nil, fmt.Errorf("no nuggets in scope — reclaim first")
+	}
+
+	var wanted []refine.Template
+	for _, name := range req.Templates {
+		if t, ok := refine.FindTemplate(name); ok {
+			wanted = append(wanted, t)
+		}
+	}
+	if len(wanted) == 0 {
+		return nil, fmt.Errorf("choose at least one artifact")
+	}
+
+	scope := req.Workspace
+	if scope == "" {
+		scope = "all reclaimed evidence"
+	}
+	ev := refine.Evidence{Scope: scope, Nuggets: ns}
+	raw := ev.EstTokens() + len(wanted)*300
+
+	stats, _ := s.db.CalibrationFor("refine")
+	est := cost.Predict("refine", raw, stats)
+	s.jobs.update(id, func(j *Job) { j.Estimate = &est })
+
+	if !req.Apply {
+		return map[string]any{
+			"preview": true, "nuggets": len(ns), "artifacts": len(wanted),
+			"estimate": est, "estimate_text": est.String(),
+		}, nil
+	}
+
+	be, err := exec.Detect(req.Backend)
+	if err != nil {
+		return nil, err
+	}
+	dir := filepath.Join(index.Dir(), "artifacts")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return nil, err
+	}
+
+	runner := &exec.Runner{Backend: be, Model: req.Model, Pure: true, Timeout: 15 * time.Minute}
+	conv := runner.NewConversation()
+	run := cost.Run{UID: index.NewUID(), Op: "refine", Scope: scope,
+		Backend: string(be), EstTokens: raw, StartedAt: time.Now(),
+		CLISessions: []string{conv.SessionID()}}
+
+	ctx := context.Background()
+	s.jobs.update(id, func(j *Job) { j.Progress = "loading evidence into one session" })
+	if _, err := conv.Prime(ctx, ev.Preamble()); err != nil {
+		return nil, fmt.Errorf("prime: %w", err)
+	}
+
+	model := req.Model
+	if model == "" {
+		model = string(be) + ":default"
+	}
+
+	var out []map[string]any
+	written := 0
+	for i, t := range wanted {
+		s.jobs.update(id, func(j *Job) {
+			j.Progress = fmt.Sprintf("writing %d/%d  %s", i+1, len(wanted), t.Name)
+		})
+		res, err := conv.Ask(ctx, t.Request(""))
+		if err != nil {
+			out = append(out, map[string]any{"template": t.Name, "error": err.Error()})
+			continue
+		}
+		body := refine.CleanOutput(res.Output)
+		if strings.TrimSpace(body) == "" {
+			out = append(out, map[string]any{"template": t.Name, "error": "empty output"})
+			continue
+		}
+
+		warning := ""
+		if scan := redact.Scan(body); len(scan) > 0 {
+			body = redact.Text(body).Text
+			warning = redact.Summary(scan)
+		}
+		header := fmt.Sprintf("<!-- generated by midden from %d nuggets · scope: %s · model: %s · %s -->\n\n",
+			len(ns), scope, model, time.Now().Format("2006-01-02"))
+		path := filepath.Join(dir, refine.Slug(scope+"-"+t.Name)+".md")
+		if os.WriteFile(path, []byte(header+body), 0o644) != nil {
+			continue
+		}
+		written++
+		out = append(out, map[string]any{
+			"template": t.Name, "path": path, "bytes": len(body),
+			"warning": warning, "preview": firstLines(body, 40),
+		})
+		s.db.PutArtifact(index.Artifact{Kind: t.Name, Title: t.Title, Path: path,
+			Scope: scope, NuggetIDs: refine.NuggetIDs(ns), Model: model})
+	}
+
+	run.Items = written
+	run.EndedAt = time.Now()
+	run.OK = written > 0
+	s.db.PutRun(run)
+
+	s.jobs.update(id, func(j *Job) { j.Progress = "settling cost" })
+	time.Sleep(1500 * time.Millisecond)
+	s.settle(id, run.UID)
+
+	return map[string]any{"artifacts": out, "written": written}, nil
+}
+
+// settle reads real usage back and attaches it to the job.
+func (s *Server) settle(jobID, runUID string) {
+	pending, err := s.db.UnreconciledRuns()
+	if err != nil {
+		return
+	}
+	for _, r := range pending {
+		var total cost.Usage
+		for _, sid := range r.CLISessions {
+			u, err := adapter.UsageFor(r.Backend, sid)
+			if err != nil || u.Empty() {
+				continue
+			}
+			total.Add(u)
+		}
+		if total.Empty() {
+			continue
+		}
+		s.db.ReconcileRun(r.UID, total)
+		if r.UID == runUID {
+			runs, _ := s.db.Runs(1, r.Op)
+			if len(runs) > 0 {
+				s.jobs.update(jobID, func(j *Job) { j.Cost = &runs[0] })
+			}
+		}
+	}
+}
+
+func kindOfLine(line []byte) string {
+	var probe struct {
+		Type string `json:"type"`
+	}
+	if json.Unmarshal(line, &probe) != nil || probe.Type == "" {
+		return "unparsed"
+	}
+	return probe.Type
+}
+
+func fileExists(p string) bool {
+	fi, err := os.Stat(p)
+	return err == nil && !fi.IsDir()
+}
+
+func firstLines(s string, n int) string {
+	lines := strings.Split(s, "\n")
+	if len(lines) > n {
+		lines = lines[:n]
+	}
+	return strings.Join(lines, "\n")
+}
