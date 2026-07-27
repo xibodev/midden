@@ -5,6 +5,23 @@
 > *midden* (n.) — an archaeological refuse heap. Not what a civilisation claimed in its
 > monuments, but what it actually ate, made, and threw away. The most honest record we have.
 
+> **Status: M0 shipped.** `ls` · `show` · `resume` · `doctor` work across Copilot CLI,
+> Claude Code and opencode — read-only, no LLM calls. See [STATUS.md](STATUS.md).
+
+```console
+$ midden doctor
+  on disk    36.3 GiB across 682 sessions
+  at risk    5      critical  773.8 MiB  Tackle Backlog Tasks
+  open now   4      dead dirs 198
+
+$ midden resume ac0c39cf --with "re-run the audit, writing incrementally"
+Set-Location 'E:\startup projects\orvantix'; copilot --resume ac0c39cf-… --prompt '…'
+```
+
+```bash
+go build -o midden ./cmd/midden && ./midden doctor
+```
+
 ---
 
 ## 1. One-liner
