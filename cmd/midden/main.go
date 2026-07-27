@@ -41,6 +41,16 @@ func main() {
 		err = cmdWatch(os.Args[2:])
 	case "mcp":
 		err = cmdMCP(os.Args[2:])
+	case "scan":
+		err = cmdScan(os.Args[2:])
+	case "assay":
+		err = cmdAssay(os.Args[2:])
+	case "prune":
+		err = cmdPrune(os.Args[2:])
+	case "archive":
+		err = cmdArchive(os.Args[2:])
+	case "ops":
+		err = cmdOps(os.Args[2:])
 	case "version", "--version", "-v":
 		fmt.Println("midden", version)
 	case "help", "--help", "-h":
@@ -70,6 +80,11 @@ COMMANDS
   brief     Harvest a session into a handoff brief (deterministic, no LLM)
   doctor    Health check: at-risk sessions, dead workspaces, footprint
   watch     Warn before a session hits the resume cliff
+  scan      Build/refresh the index (--assay to classify transcripts)
+  assay     Report what a scope is made of and what is reclaimable
+  prune     Rewrite transcripts with bulk payloads replaced (dry run by default)
+  archive   Move a transcript out of the tool's active path
+  ops       Audit log of every mutating operation
   mcp       Run as an MCP server on stdio (token-budgeted tools for agents)
   version   Print version
 
