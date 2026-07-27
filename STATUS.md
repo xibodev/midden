@@ -134,7 +134,9 @@ all correctly scored `critical`. A regression test pins those exact sizes.
 - No index yet: every invocation re-reads the source stores. Fine at this size, will not
   scale to ASSAY.
 - Copilot has no live-session marker, so `open now` is Claude-only.
-- Windows-verified only; the shell dialect switch exists but is untested on POSIX.
+- Cross-compiles cleanly to linux/amd64, linux/arm64 and darwin/arm64 (pure-Go SQLite, no
+  cgo), but has only been *run* on Windows. The POSIX shell dialect is unit-tested, not
+  exercised end to end.
 - `watch` polls rather than using filesystem notifications — cheap, but a session can cross
   the cliff between ticks. Default interval is 5 minutes.
 
