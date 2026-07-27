@@ -5,32 +5,44 @@
 > *midden* (n.) — an archaeological refuse heap. Not what a civilisation claimed in its
 > monuments, but what it actually ate, made, and threw away. The most honest record we have.
 
-> **Status: M0 + M1 + M2 shipped.** `ls` · `show` · `resume` · `doctor` · `brief` · `watch` ·
-> `mcp` work across Copilot CLI, Claude Code and opencode — read-only, zero LLM calls.
+> **Status: complete — M0 through M8 shipped, v1.0.0.** Read-only on your session stores;
+> deterministic everywhere except the two stages that explicitly ask a model.
 > See [STATUS.md](STATUS.md) and [docs/MCP.md](docs/MCP.md).
 
 ```console
 $ midden doctor
-  on disk    36.3 GiB across 682 sessions
+  on disk    37.0 GiB across 688 sessions
   at risk    5      critical  773.8 MiB  Tackle Backlog Tasks
-  open now   4      dead dirs 198
 
-$ midden watch --once          # exit 3 when attention is needed
-  4 session(s) need attention
-    critical  681.4 MiB  Review Project Current Status
-    past the cliff — do not resume; hand off instead:
-    midden brief ac0c39cf --handoff
+$ midden assay ac0c39cf
+  signal        107.6 MiB  15.8%     compression        6.3x
+  artifact      382.0 MiB  56.1%     salvage slice  ~1811 tok  (98613:1 vs source)
 
-$ midden brief ac0c39cf --handoff
-  # 681 MiB unresumable session -> handoff prompt in 2.1s, 19.8 MB RAM, zero tokens
-
-$ midden mcp                   # register with any AI CLI; see docs/MCP.md
-  # all 682 sessions surveyable for 3,859 tokens
+$ midden reclaim ac0c39cf          # 681 MiB dead session -> 9 nuggets, ~3k tokens
+$ midden catalog                   # what those nuggets can support
+$ midden refine tsg adr            # both written from ONE warm context
+$ midden ui                        # embedded web UI on loopback
 ```
+
+## Install
 
 ```bash
-go build -o midden ./cmd/midden && ./midden doctor
+go build -o midden ./cmd/midden
+./midden doctor
 ```
+
+## The pipeline
+
+| Stage | Command | Cost |
+|---|---|---|
+| **METER** | `ls` `show` `doctor` | free |
+| **ASSAY** | `scan --assay` `assay` | free |
+| **RESUME** | `resume` `brief` `watch` | free |
+| **RECLAIM** | `reclaim` `nuggets` | cheap model |
+| **REFINE** | `catalog` `refine` | mid-tier, batched |
+| **DISPOSE** | `prune` `archive` `ops` | free |
+| **ADVISE** | `advise` | free |
+| — | `mcp` `ui` | free |
 
 ---
 

@@ -17,7 +17,7 @@ import (
 	"github.com/mekjr1/midden/internal/render"
 )
 
-const version = "0.3.0-m2"
+const version = "1.0.0"
 
 func main() {
 	if len(os.Args) < 2 {
@@ -61,6 +61,10 @@ func main() {
 		err = cmdRefine(os.Args[2:])
 	case "artifacts":
 		err = cmdArtifacts(os.Args[2:])
+	case "ui":
+		err = cmdUI(os.Args[2:])
+	case "advise":
+		err = cmdAdvise(os.Args[2:])
 	case "version", "--version", "-v":
 		fmt.Println("midden", version)
 	case "help", "--help", "-h":
@@ -100,6 +104,8 @@ COMMANDS
   catalog   Propose artifacts the reclaimed evidence can support
   refine    Generate artifacts from nuggets (batched in one warm context)
   artifacts List what has been generated
+  ui        Serve the embedded web interface on loopback
+  advise    Recommendations for producing less exhaust, with evidence
   mcp       Run as an MCP server on stdio (token-budgeted tools for agents)
   version   Print version
 
@@ -119,7 +125,14 @@ EXAMPLES
   midden resume 3877847f --with "re-run the audit, writing incrementally"
   midden brief ac0c39cf --handoff
   midden watch --once
-  midden doctor
+  midden scan --assay
+  midden assay --workspace orvantix
+  midden prune --min-session 400
+  midden reclaim --days 14 --dry-run
+  midden catalog
+  midden refine tsg adr
+  midden advise
+  midden ui
 `)
 }
 

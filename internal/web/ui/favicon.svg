@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+  <rect width="32" height="32" rx="6" fill="#0e1116"/>
+  <!-- a refuse heap: layered strata, the archaeological record -->
+  <path d="M4 25h24v3H4z" fill="#333c4d"/>
+  <path d="M6 21h20v3H6z" fill="#48536b"/>
+  <path d="M9 17h14v3H9z" fill="#58c4dd"/>
+  <path d="M12 13h8v3h-8z" fill="#6ee7b7"/>
+</svg>

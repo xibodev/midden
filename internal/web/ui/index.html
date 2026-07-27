@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>midden</title>
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+
+<header>
+  <h1>midden<span class="sub">a materials recovery facility for AI coding exhaust</span></h1>
+  <nav>
+    <button class="tab active" data-view="overview">Overview</button>
+    <button class="tab" data-view="sessions">Sessions</button>
+    <button class="tab" data-view="nuggets">Nuggets</button>
+    <button class="tab" data-view="artifacts">Artifacts</button>
+    <button class="tab" data-view="ops">Log</button>
+  </nav>
+</header>
+
+<main>
+
+<section id="overview" class="view active">
+  <div class="cards" id="stat-cards"></div>
+
+  <div class="panel" id="risk-panel" hidden>
+    <h2>At risk of failing to resume</h2>
+    <p class="note">A transcript past ~680 MiB will not load: <code>--resume</code> times out
+      and silently starts a <em>new</em> session. Harvest a brief and hand off instead.</p>
+    <div id="risk-list"></div>
+  </div>
+
+  <div class="panel">
+    <h2>What the exhaust is made of</h2>
+    <div id="assay-bars"><p class="note">Run <code>midden scan --assay</code> to measure.</p></div>
+  </div>
+</section>
+
+<section id="sessions" class="view">
+  <div class="filters">
+    <select id="f-tool">
+      <option value="">all tools</option>
+      <option value="copilot">copilot</option>
+      <option value="claude">claude</option>
+      <option value="opencode">opencode</option>
+    </select>
+    <select id="f-days">
+      <option value="">any time</option>
+      <option value="1">last day</option>
+      <option value="7" selected>last 7 days</option>
+      <option value="30">last 30 days</option>
+    </select>
+    <input id="f-search" type="search" placeholder="filter by title or workspace">
+    <label class="check"><input type="checkbox" id="f-all"> show automated</label>
+  </div>
+  <div id="session-list"></div>
+</section>
+
+<section id="nuggets" class="view">
+  <div class="filters">
+    <select id="n-kind">
+      <option value="">all kinds</option>
+      <option value="decision">decision</option>
+      <option value="error_fix">error_fix</option>
+      <option value="command">command</option>
+      <option value="gotcha">gotcha</option>
+      <option value="dead_end">dead_end</option>
+      <option value="artifact">artifact</option>
+    </select>
+    <input id="n-search" type="search" placeholder="search nuggets">
+  </div>
+  <div id="nugget-list"></div>
+</section>
+
+<section id="artifacts" class="view">
+  <div id="artifact-list"></div>
+</section>
+
+<section id="ops" class="view">
+  <p class="note">Every mutating operation midden has performed.</p>
+  <div id="ops-list"></div>
+</section>
+
+</main>
+
+<div id="drawer" class="drawer" hidden>
+  <button id="drawer-close" aria-label="close">&times;</button>
+  <div id="drawer-body"></div>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>
