@@ -1,0 +1,47 @@
+# Binaries
+/midden
+/midden.exe
+/dist/
+/bin/
+
+# Go
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+go.work
+go.work.sum
+vendor/
+
+# Local index + working data (never commit — contains session content)
+*.db
+*.db-shm
+*.db-wal
+/.midden/
+/index/
+/nuggets/
+/artifacts/
+/.salvage/
+
+# Fixtures may contain real session data — opt in explicitly
+/testdata/real/
+
+# Web UI build output
+/web/dist/
+/web/node_modules/
+node_modules/
+
+# Editor / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+*.swp
+
+# Env
+.env
+.env.*
+!.env.example
