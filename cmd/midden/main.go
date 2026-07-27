@@ -35,6 +35,10 @@ func main() {
 		err = cmdResume(os.Args[2:])
 	case "doctor":
 		err = cmdDoctor(os.Args[2:])
+	case "brief":
+		err = cmdBrief(os.Args[2:])
+	case "watch":
+		err = cmdWatch(os.Args[2:])
 	case "version", "--version", "-v":
 		fmt.Println("midden", version)
 	case "help", "--help", "-h":
@@ -61,7 +65,9 @@ COMMANDS
   ls        List sessions across every installed AI CLI
   show      Show one session in detail (deterministic, no LLM)
   resume    Print the walk-to-workspace + resume one-liner
+  brief     Harvest a session into a handoff brief (deterministic, no LLM)
   doctor    Health check: at-risk sessions, dead workspaces, footprint
+  watch     Warn before a session hits the resume cliff
   version   Print version
 
 SCOPE FLAGS (ls, doctor)
@@ -78,6 +84,8 @@ EXAMPLES
   midden ls --tool opencode --workspace brlex
   midden show 3877847f
   midden resume 3877847f --with "re-run the audit, writing incrementally"
+  midden brief ac0c39cf --handoff
+  midden watch --once
   midden doctor
 `)
 }
@@ -106,19 +114,24 @@ func scopeFlags(fs *flag.FlagSet) (*core.Scope, *bool, *bool) {
 
 var scopeToolPtr *string
 
-// boolFlags are the flags that take no value. Needed to reorder arguments,
-// because stdlib flag stops parsing at the first positional argument — so
-// `midden resume <id> --with "x"` would silently drop the instruction.
-var boolFlags = map[string]bool{
-	"all": true, "json": true, "group": true, "sizes": true,
-	"h": true, "help": true,
-}
-
 // reorderArgs moves flags ahead of positional arguments so they may be written
-// in either order.
-func reorderArgs(args []string) []string {
-	var flags, positional []string
+// in either order. Stdlib flag stops parsing at the first positional, which
+// would silently drop `midden resume <id> --with "x"`.
+//
+// Whether a flag consumes the next token is derived from the FlagSet itself
+// rather than a hardcoded list, so adding a flag can never reintroduce the
+// off-by-one that this function exists to prevent.
+func reorderArgs(fs *flag.FlagSet, args []string) []string {
+	isBool := func(name string) bool {
+		f := fs.Lookup(name)
+		if f == nil {
+			return true // unknown: assume no value, let flag report it
+		}
+		bf, ok := f.Value.(interface{ IsBoolFlag() bool })
+		return ok && bf.IsBoolFlag()
+	}
 
+	var flags, positional []string
 	for i := 0; i < len(args); i++ {
 		a := args[i]
 		if a == "--" {
@@ -133,10 +146,7 @@ func reorderArgs(args []string) []string {
 		flags = append(flags, a)
 
 		name := strings.TrimLeft(a, "-")
-		if idx := strings.Index(name, "="); idx >= 0 {
-			continue // value already attached
-		}
-		if boolFlags[name] {
+		if strings.Contains(name, "=") || isBool(name) {
 			continue
 		}
 		if i+1 < len(args) {
@@ -163,7 +173,7 @@ func resolveTool(sc *core.Scope) error {
 func cmdLs(args []string) error {
 	fs := flag.NewFlagSet("ls", flag.ExitOnError)
 	sc, asJSON, group := scopeFlags(fs)
-	if err := fs.Parse(reorderArgs(args)); err != nil {
+	if err := fs.Parse(reorderArgs(fs, args)); err != nil {
 		return err
 	}
 	if err := resolveTool(sc); err != nil {
@@ -273,7 +283,7 @@ func oneLiner(s core.Session, instruction string) string {
 func cmdShow(args []string) error {
 	fs := flag.NewFlagSet("show", flag.ExitOnError)
 	asJSON := fs.Bool("json", false, "machine-readable output")
-	if err := fs.Parse(reorderArgs(args)); err != nil {
+	if err := fs.Parse(reorderArgs(fs, args)); err != nil {
 		return err
 	}
 	if fs.NArg() < 1 {
@@ -331,7 +341,7 @@ func cmdShow(args []string) error {
 func cmdResume(args []string) error {
 	fs := flag.NewFlagSet("resume", flag.ExitOnError)
 	with := fs.String("with", "", "instruction to deliver on resume")
-	if err := fs.Parse(reorderArgs(args)); err != nil {
+	if err := fs.Parse(reorderArgs(fs, args)); err != nil {
 		return err
 	}
 	if fs.NArg() < 1 {
@@ -362,7 +372,7 @@ func cmdResume(args []string) error {
 func cmdDoctor(args []string) error {
 	fs := flag.NewFlagSet("doctor", flag.ExitOnError)
 	sc, asJSON, _ := scopeFlags(fs)
-	if err := fs.Parse(reorderArgs(args)); err != nil {
+	if err := fs.Parse(reorderArgs(fs, args)); err != nil {
 		return err
 	}
 	if err := resolveTool(sc); err != nil {

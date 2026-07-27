@@ -1,9 +1,46 @@
 # Status
 
+## M1 — Protect ✅ shipped
+
+The milestone that stops the data loss. Still **zero LLM calls**.
+
+```
+midden watch     warn before a session hits the resume cliff (--once for schedulers)
+midden brief     harvest a session into a handoff brief (--handoff for a paste-able prompt)
+```
+
+### The result that matters
+
+A session past the cliff cannot be resumed — but its context can be recovered:
+
+| Measure | Result |
+|---|---|
+| Source | `ac0c39cf`, **681.4 MiB**, unresumable |
+| Harvest time | **2.1 s** |
+| Peak memory | **19.8 MB** — bounded, not O(file size) |
+| Recovered | original goal, 37 user turns counted, last 3 exchanges, 4,668 records scanned |
+| Token cost | **zero** |
+
+`midden watch --once` exits **3** when attention is needed, so Task Scheduler, cron or a
+git hook can act on it. It currently finds all four sessions that died.
+
+### Design notes
+
+- **Streaming with a ring buffer.** The first user turn (the original goal) is kept
+  separately, plus a bounded window of the most recent turns. A 774 MiB transcript costs
+  O(turns) memory, never O(file).
+- **`eachLine`, not `bufio.Scanner`.** Scanner stops dead at the first line larger than its
+  buffer, which would silently truncate a harvest — tool-result lines reach tens of MB.
+  Oversized lines are truncated and the scan continues.
+- **Cheap reject before parsing.** Copilot transcripts are ~68% tool events; a substring test
+  skips them before any JSON decoding. That is why 681 MiB parses in 2 s.
+- **`data.content`, not `transformedContent`.** The latter carries injected wrappers.
+- **Handoff tells the next session to verify.** The prior session's final claims may describe
+  actions that never completed — exactly the failure that motivated the project.
+
 ## M0 — See ✅ shipped
 
 Deterministic, read-only session mapping across Copilot CLI, Claude Code and opencode.
-**No LLM calls anywhere in this milestone.**
 
 ```
 midden ls        list sessions across every installed AI CLI
@@ -61,15 +98,18 @@ all correctly scored `critical`. A regression test pins those exact sizes.
   scale to ASSAY.
 - Copilot has no live-session marker, so `open now` is Claude-only.
 - Windows-verified only; the shell dialect switch exists but is untested on POSIX.
+- `watch` polls rather than using filesystem notifications — cheap, but a session can cross
+  the cliff between ticks. Default interval is 5 minutes.
 
 ---
 
 ## Next
 
-**M1 — Protect.** `midden watch`: warn before the resume cliff and offer harvest-and-handoff.
-This is the milestone that stops the data loss which motivated the project.
-
 **M2 — Speak.** MCP server over the same core, with hard token budgets
-(~200 tokens/session listing, ~1.5k for a session brief).
+(~200 tokens/session listing, ~1.5k for a session brief). This is the differentiator: no
+existing tool lets an agent reason about session history cheaply.
+
+**M3 — Sort.** ASSAY: classify every event as signal / exhaust / artifact and report the
+compression ratio, which governs every downstream cost.
 
 See [README.md](README.md) §11 for the full M0–M8 build order.
