@@ -356,3 +356,70 @@ textarea { resize: vertical; margin-bottom: 8px; }
 
 /* The hidden attribute must win over any display rule above. */
 [hidden] { display: none !important; }
+
+/* ── guidance ───────────────────────────────────────────────────── */
+
+.next-panel { border-left: 3px solid var(--accent); }
+
+.next {
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  padding: 12px 14px;
+  margin-bottom: 8px;
+}
+.next .top { display: flex; gap: 9px; align-items: baseline; margin-bottom: 7px; }
+.next .title { font-weight: 550; }
+.next .cmd {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  background: var(--bg); border-radius: 5px; padding: 6px 9px; color: var(--fg);
+}
+.next .cmd span { overflow-x: auto; white-space: nowrap; }
+.next .meta { margin-top: 6px; }
+.next .btn { margin-top: 9px; }
+
+.cheap {
+  margin-top: 18px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 12px 16px;
+  background: var(--panel);
+}
+.cheap summary { cursor: pointer; font-size: 13px; color: var(--dim); }
+.cheap summary:hover { color: var(--fg); }
+.cheap ul { margin: 10px 0 2px; padding-left: 18px; color: var(--dim); font-size: 12.5px; }
+.cheap li { margin-bottom: 5px; }
+
+/* ── motion ─────────────────────────────────────────────────────── */
+/* Feedback loops: every state change should be visible, but motion must
+   never delay comprehension. Short, eased, and fully disabled for anyone
+   who asks for reduced motion. */
+
+@keyframes reveal {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: none; }
+}
+.reveal { animation: reveal 240ms cubic-bezier(.2,.7,.3,1) both; }
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: .45; }
+}
+.job.running .top .meta { animation: pulse 1.4s ease-in-out infinite; }
+
+@keyframes flash {
+  from { background: rgba(110,231,183,.16); }
+  to   { background: transparent; }
+}
+.job.done { animation: flash 900ms ease-out; }
+
+.btn, .copy, .tab, .row { transition: border-color 140ms ease, color 140ms ease, background 140ms ease; }
+.toast { animation: reveal 200ms ease both; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

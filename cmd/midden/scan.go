@@ -368,7 +368,7 @@ func printTotals(t index.Totals) {
 		fmt.Printf("  %-13s %10d  %s\n", "images", t.Images,
 			render.Dim(fmt.Sprintf("in %d clusters", t.Clusters)))
 	}
-	fmt.Printf("\n  %s\n\n", render.Dim("midden prune --dry-run   # preview what disposal would recover"))
+	suggestNext(collectState())
 }
 
 var _ = strings.TrimSpace

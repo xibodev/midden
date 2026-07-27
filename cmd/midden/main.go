@@ -14,15 +14,21 @@ import (
 
 	"github.com/mekjr1/midden/internal/adapter"
 	"github.com/mekjr1/midden/internal/core"
+	"github.com/mekjr1/midden/internal/guide"
 	"github.com/mekjr1/midden/internal/render"
 )
 
-const version = "1.1.0"
+const version = "1.2.0"
 
 func main() {
+	// A bare invocation used to print twenty commands with no ordering and no
+	// cost information. Guiding is more useful than listing.
 	if len(os.Args) < 2 {
-		usage()
-		os.Exit(2)
+		if err := cmdStart(nil); err != nil {
+			fmt.Fprintln(os.Stderr, "error:", err)
+			os.Exit(1)
+		}
+		return
 	}
 
 	var err error
@@ -67,6 +73,8 @@ func main() {
 		err = cmdAdvise(os.Args[2:])
 	case "cost":
 		err = cmdCost(os.Args[2:])
+	case "start":
+		err = cmdStart(os.Args[2:])
 	case "version", "--version", "-v":
 		fmt.Println("midden", version)
 	case "help", "--help", "-h":
@@ -86,56 +94,63 @@ func main() {
 func usage() {
 	fmt.Print(`midden - a materials recovery facility for AI coding exhaust
 
+  New here?  Run  midden start  for a guided first run.
+
 USAGE
   midden <command> [flags]
 
-COMMANDS
-  ls        List sessions across every installed AI CLI
-  show      Show one session in detail (deterministic, no LLM)
-  resume    Print the walk-to-workspace + resume one-liner
-  brief     Harvest a session into a handoff brief (deterministic, no LLM)
-  doctor    Health check: at-risk sessions, dead workspaces, footprint
-  watch     Warn before a session hits the resume cliff
-  scan      Build/refresh the index (--assay to classify transcripts)
-  assay     Report what a scope is made of and what is reclaimable
-  prune     Rewrite transcripts with bulk payloads replaced (dry run by default)
-  archive   Move a transcript out of the tool's active path
-  ops       Audit log of every mutating operation
-  reclaim   Mine sessions for reusable knowledge (scoped, budgeted)
-  nuggets   Browse what has been reclaimed
-  catalog   Propose artifacts the reclaimed evidence can support
-  refine    Generate artifacts from nuggets (batched in one warm context)
-  artifacts List what has been generated
-  ui        Serve the embedded web interface on loopback
-  advise    Recommendations for producing less exhaust, with evidence
-  cost      What midden has actually spent, and estimate accuracy
-  mcp       Run as an MCP server on stdio (token-budgeted tools for agents)
-  version   Print version
+`)
 
-SCOPE FLAGS (ls, doctor)
+	// Commands are listed in pipeline order with their cost class, because
+	// alphabetical ordering put `advise` first and `scan` near the end — the
+	// reverse of how the tool is used — and nothing said which ones spend.
+	for _, stage := range guide.Stages {
+		cmds := guide.InStage(stage.Name)
+		if len(cmds) == 0 {
+			continue
+		}
+		fmt.Printf("%s\n", strings.ToUpper(stage.Label))
+		for _, c := range cmds {
+			tag := "     "
+			if c.Cost == guide.Spends {
+				tag = "$$$  "
+			}
+			fmt.Printf("  %s%-10s %s\n", tag, c.Name, c.Blurb)
+		}
+		fmt.Println()
+	}
+
+	fmt.Printf("COST\n  Everything is free except %s, which call a model\n"+
+		"  through the AI CLI you are already signed in to. Both preview with\n"+
+		"  --dry-run before charging anything. Run `midden cost` for what you\n"+
+		"  have actually spent.\n\n", strings.Join(guide.Spending(), " and "))
+
+	fmt.Print(`SCOPE FLAGS (most commands)
   --tool <copilot|claude|opencode>   Limit to one tool
   --days <n>                         Only sessions touched in the last n days
   --workspace <substr>               Match the session directory
-  --repo <substr>                    Match the repository
   --all                              Include automated/trivial sessions
-  --limit <n>                        Cap results
   --json                             Machine-readable output
 
+SPENDING LESS
+`)
+	for _, tip := range guide.Cheapest() {
+		fmt.Printf("  · %s\n", tip)
+	}
+
+	fmt.Print(`
 EXAMPLES
-  midden ls --days 7 --group
-  midden ls --tool opencode --workspace brlex
-  midden show 3877847f
-  midden resume 3877847f --with "re-run the audit, writing incrementally"
-  midden brief ac0c39cf --handoff
-  midden watch --once
-  midden scan --assay
-  midden assay --workspace orvantix
-  midden prune --min-session 400
-  midden reclaim --days 14 --dry-run
-  midden catalog
-  midden refine tsg adr
-  midden advise
-  midden ui
+  midden start                       Guided first run
+  midden doctor                      What is wrong right now
+  midden ls --days 7 --group         Recent sessions, grouped by tool
+  midden brief ac0c39cf --handoff    Rescue a session too big to resume
+  midden scan --assay                Measure what your exhaust is made of
+  midden prune                       Preview disk recovery (dry run)
+  midden reclaim --workspace foo --dry-run    Estimate before spending
+  midden catalog                     What your evidence can support
+  midden refine tsg adr              Write both from one warm context
+  midden cost                        What you have spent
+  midden ui                          The same thing in a browser
 `)
 }
 
@@ -519,14 +534,16 @@ func cmdDoctor(args []string) error {
 
 	fmt.Printf("\n  %s  %d\n", render.Dim("dead dirs"), len(rep.DeadDirs))
 	for i, s := range rep.DeadDirs {
-		if i >= 8 {
-			fmt.Printf("             %s\n", render.Dim(fmt.Sprintf("... and %d more", len(rep.DeadDirs)-8)))
+		if i >= 5 {
+			fmt.Printf("             %s\n", render.Dim(fmt.Sprintf("... and %d more", len(rep.DeadDirs)-5)))
 			break
 		}
 		fmt.Printf("             %s  %s\n", render.ToolColour(s.Tool), render.Dim(s.Dir))
 	}
 
-	fmt.Println()
+	// Alarm without instruction is a dead end. Every finding above should
+	// resolve into something the operator can actually run.
+	suggestNext(collectState())
 	return nil
 }
 

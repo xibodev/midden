@@ -25,9 +25,23 @@
 <main>
 
 <section id="do" class="view active">
-  <h2 class="lead">What do you want to do?</h2>
-  <p class="note">Nothing here spends anything until you approve an estimate.</p>
+  <div class="panel next-panel" id="next-panel" hidden>
+    <h2>Worth doing now</h2>
+    <p class="note">Ordered by consequence: losing work outranks saving disk, which outranks writing docs.</p>
+    <div id="next-list"></div>
+  </div>
+
+  <h2 class="lead">Or pick something</h2>
+  <p class="note">
+    Everything is free except <strong>Mine</strong> and <strong>Write</strong>, which call a
+    model through the CLI you are already signed in to. Both show a cost estimate before charging.
+  </p>
   <div class="actions" id="action-cards"></div>
+
+  <details class="cheap">
+    <summary>How to spend less</summary>
+    <ul id="cheap-list"></ul>
+  </details>
 
   <div class="panel" id="job-panel" hidden>
     <h2>Running</h2>

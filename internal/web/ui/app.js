@@ -122,23 +122,72 @@ const ACTIONS = [
   },
 ];
 
-loaders.do = () => {
+loaders.do = async () => {
   const wrap = $('#action-cards');
   wrap.replaceChildren();
   ACTIONS.forEach((a) => {
-    const c = el('div', 'action');
+    const c = el('div', 'action reveal');
     c.append(el('h3', null, a.title));
     c.append(el('p', null, a.blurb));
     const foot = el('div', 'foot');
-    foot.append(el('span', 'pill' + (a.costly ? ' warn' : ''), a.costly ? 'uses a model' : 'free'));
+    foot.append(el('span', 'pill' + (a.costly ? ' warn' : ''), a.costly ? 'SPENDS' : 'FREE'));
     const go = el('button', 'btn primary', 'Start');
     go.addEventListener('click', () => openModal((box) => a.build(box, a)));
     foot.append(go);
     c.append(foot);
     wrap.append(c);
   });
+
   refreshJobs();
+  loadGuidance();
 };
+
+// Guidance is computed from real state, so the first thing you see is what
+// actually matters today rather than a fixed menu.
+async function loadGuidance() {
+  let d;
+  try { d = await get('/api/next'); } catch { return; }
+
+  const cheap = $('#cheap-list');
+  cheap.replaceChildren();
+  (d.cheapest || []).forEach((t) => cheap.append(el('li', null, t)));
+
+  const panel = $('#next-panel');
+  const list = $('#next-list');
+  const steps = d.steps || [];
+  if (!steps.length) { panel.hidden = true; return; }
+
+  panel.hidden = false;
+  list.replaceChildren();
+
+  steps.slice(0, 4).forEach((s, i) => {
+    const row = el('div', 'next reveal');
+    row.style.animationDelay = (i * 60) + 'ms';
+
+    const top = el('div', 'top');
+    top.append(el('span', 'pill' + (s.cost === 'SPENDS' ? ' warn' : ''), s.cost));
+    top.append(el('span', 'title', s.why));
+    row.append(top);
+
+    const cmd = el('div', 'cmd mono');
+    cmd.append(el('span', null, s.command));
+    cmd.append(copyBtn(s.command));
+    row.append(cmd);
+    row.append(el('div', 'meta', s.value));
+
+    // Actions the UI can perform directly get a button; the rest are
+    // copy-and-run, which is honest rather than pretending everything is
+    // clickable.
+    const opMatch = /^midden (prune|archive|reclaim|refine|catalog)\b/.exec(s.command);
+    if (opMatch && ACTIONS.some((a) => a.op === opMatch[1])) {
+      const act = ACTIONS.find((a) => a.op === opMatch[1]);
+      const b = el('button', 'btn', 'Do it here');
+      b.addEventListener('click', () => openModal((box) => act.build(box, act)));
+      row.append(b);
+    }
+    list.append(row);
+  });
+}
 
 function field(label, node) {
   const w = el('label', 'field');

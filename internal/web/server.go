@@ -21,6 +21,7 @@ import (
 
 	"github.com/mekjr1/midden/internal/adapter"
 	"github.com/mekjr1/midden/internal/core"
+	"github.com/mekjr1/midden/internal/guide"
 	"github.com/mekjr1/midden/internal/index"
 	"github.com/mekjr1/midden/internal/refine"
 )
@@ -60,6 +61,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/cost", s.handleCost)
 	mux.HandleFunc("/api/templates", s.handleTemplates)
 	mux.HandleFunc("/api/resume", s.handleResume)
+	mux.HandleFunc("/api/next", s.handleNext)
 
 	return localOnly(mux)
 }
@@ -420,4 +422,75 @@ func (s *Server) handleJobStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, job)
+}
+
+// handleNext returns what is worth doing now, computed from observed state.
+//
+// The UI previously opened on four action cards in a fixed order with no
+// indication of which mattered today. This is the same guidance the CLI
+// prints, so both surfaces agree.
+func (s *Server) handleNext(w http.ResponseWriter, r *http.Request) {
+	st := s.guideState()
+	writeJSON(w, map[string]any{
+		"state":    st,
+		"steps":    guide.Next(st),
+		"cheapest": guide.Cheapest(),
+		"spending": guide.Spending(),
+	})
+}
+
+// guideState gathers current state for the guidance engine.
+func (s *Server) guideState() guide.State {
+	st := guide.State{HasIndex: true}
+
+	sessions, _ := adapter.Collect(core.Scope{IncludeNoise: true})
+	st.Sessions = len(sessions)
+
+	var largest int64
+	byWorkspace := map[string]int{}
+	cutoff := time.Now().AddDate(0, 0, -14)
+
+	for _, x := range sessions {
+		if x.Live != nil {
+			st.LiveSessions++
+		}
+		if !x.DirExists() {
+			st.DeadDirs++
+		}
+		switch x.Risk() {
+		case core.RiskCritical:
+			st.CriticalRisk++
+			st.AtRisk++
+			if x.Bytes > largest {
+				largest, st.LargestAtRiskID = x.Bytes, shortID(x.ID)
+			}
+		case core.RiskWarn, core.RiskWatch:
+			st.AtRisk++
+		}
+		if !x.Noise && x.Updated.After(cutoff) && x.Dir != "" {
+			byWorkspace[x.Dir]++
+		}
+	}
+	best := 0
+	for dir, n := range byWorkspace {
+		if n > best {
+			best, st.BusiestWorkspace = n, dir
+		}
+	}
+	for _, n := range adapter.Footprints() {
+		st.FootprintByte += n
+	}
+	if t, err := s.db.Aggregate(""); err == nil {
+		st.Assayed = int(t.Assayed)
+		st.ReclaimBytes = t.Reclaimable()
+	}
+	if counts, err := s.db.NuggetCounts(); err == nil {
+		for _, n := range counts {
+			st.Nuggets += int(n)
+		}
+	}
+	if as, err := s.db.Artifacts(1); err == nil {
+		st.Artifacts = len(as)
+	}
+	return st
 }

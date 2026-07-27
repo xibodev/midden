@@ -212,3 +212,14 @@ func recordRun(db *index.DB, op, scope, backend string, est int) cost.Run {
 		StartedAt: time.Now(),
 	}
 }
+
+// spentCredits reports credits charged so far, used to enforce a hard cap
+// mid-run. Reads the ledger rather than an estimate, so the cap is honest.
+func spentCredits(db *index.DB) float64 {
+	reconcile(db)
+	t, err := db.Costs()
+	if err != nil {
+		return 0
+	}
+	return t.AIU
+}

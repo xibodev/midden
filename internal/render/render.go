@@ -148,3 +148,6 @@ func Size(s core.Session) string {
 
 // Rule prints a horizontal separator.
 func Rule(n int) string { return Dim(strings.Repeat("-", n)) }
+
+// Warn renders text in the colour reserved for "this will cost you".
+func Warn(s string) string { return c(yellow, s) }

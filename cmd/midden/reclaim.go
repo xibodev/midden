@@ -31,6 +31,7 @@ func cmdReclaim(args []string) error {
 	model := fs.String("model", "", "model to pass to the backend (cheap models are fine for extraction)")
 	maxRecords := fs.Int("records", 120, "evidence records per session")
 	budgetCalls := fs.Int("budget", 20, "maximum model invocations for this run")
+	budgetCredits := fs.Float64("max-credits", 0, "stop once this many credits have been charged (0 = no cap)")
 	dryRun := fs.Bool("dry-run", false, "show the plan and estimated cost, invoke nothing")
 	yes := fs.Bool("yes", false, "skip the confirmation prompt")
 	if err := fs.Parse(reorderArgs(fs, args)); err != nil {
@@ -112,8 +113,17 @@ func cmdReclaim(args []string) error {
 	if *model != "" {
 		fmt.Printf("  %-16s %s\n", render.Dim("model"), *model)
 	}
+	if *budgetCredits > 0 {
+		fmt.Printf("  %-16s stop after %.0f credits\n", render.Dim("hard cap"), *budgetCredits)
+	}
 	if s := redact.Summary(mergeFindings(allFindings)); s != "" {
 		fmt.Printf("  %-16s %s\n", render.Dim("redaction"), s)
+	}
+
+	// The cheapest levers were previously buried in an alphabetical flag list.
+	// Surface them at the moment the operator is deciding whether to spend.
+	if !*yes {
+		fmt.Printf("\n  %s\n", render.Dim("spend less: --records 40 · --workspace <name> · --model <smaller>"))
 	}
 	fmt.Println()
 
@@ -137,6 +147,17 @@ func cmdReclaim(args []string) error {
 		if err := budget.Allow(j.slice.EstTokens()); err != nil {
 			fmt.Fprintf(os.Stderr, "  %s %v\n", render.Dim("stopping:"), err)
 			break
+		}
+
+		// A credit cap is the control an operator actually wants: capping
+		// invocations is meaningless until you know what one costs, and at
+		// ~80 credits each the old default of 20 calls permitted ~1,600.
+		if *budgetCredits > 0 {
+			if spentCredits(db) >= *budgetCredits {
+				fmt.Fprintf(os.Stderr, "  %s credit cap of %.0f reached\n",
+					render.Dim("stopping:"), *budgetCredits)
+				break
+			}
 		}
 
 		fmt.Fprintf(os.Stderr, "\r  mining %d/%d  %-44s", i+1, len(jobs),
