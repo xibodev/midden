@@ -51,6 +51,16 @@ func main() {
 		err = cmdArchive(os.Args[2:])
 	case "ops":
 		err = cmdOps(os.Args[2:])
+	case "reclaim":
+		err = cmdReclaim(os.Args[2:])
+	case "nuggets":
+		err = cmdNuggets(os.Args[2:])
+	case "catalog":
+		err = cmdCatalog(os.Args[2:])
+	case "refine":
+		err = cmdRefine(os.Args[2:])
+	case "artifacts":
+		err = cmdArtifacts(os.Args[2:])
 	case "version", "--version", "-v":
 		fmt.Println("midden", version)
 	case "help", "--help", "-h":
@@ -85,6 +95,11 @@ COMMANDS
   prune     Rewrite transcripts with bulk payloads replaced (dry run by default)
   archive   Move a transcript out of the tool's active path
   ops       Audit log of every mutating operation
+  reclaim   Mine sessions for reusable knowledge (scoped, budgeted)
+  nuggets   Browse what has been reclaimed
+  catalog   Propose artifacts the reclaimed evidence can support
+  refine    Generate artifacts from nuggets (batched in one warm context)
+  artifacts List what has been generated
   mcp       Run as an MCP server on stdio (token-budgeted tools for agents)
   version   Print version
 
