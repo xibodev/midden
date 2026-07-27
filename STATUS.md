@@ -1,5 +1,42 @@
 # Status
 
+## M2 — Speak ✅ shipped
+
+The differentiator: an MCP server so any AI CLI can reason about session history cheaply.
+Still **zero LLM calls** — Midden costs tokens only in the sense that its output enters
+your context.
+
+```
+midden mcp     JSON-RPC 2.0 over stdio, stdlib only, no SDK dependency
+```
+
+### Measured against 682 real sessions / 36.3 GiB
+
+| Tool | Actual | Budget |
+|---|---|---|
+| `midden_health` | **158** tokens | 400 |
+| `midden_list_sessions` (all 682) | **3,859** tokens | 4,000 |
+| `midden_search` | 514 | 1,500 |
+| `midden_session_brief` (681 MiB session) | **283** | 1,500 |
+| `midden_resume_command` | 61 | 200 |
+
+**An entire multi-gigabyte session history is surveyable for under 4k tokens.** No existing
+tool offers this; incumbents render for humans and dump raw transcript.
+
+See [docs/MCP.md](docs/MCP.md) for registration in Copilot CLI, Claude Code and opencode.
+
+### Design notes
+
+- **Budgets are ceilings, not targets.** `budgetLines` drops whole records rather than
+  cutting mid-line, because a half-written session entry is worse than a short list.
+- **Truncation is always announced** with the omitted count and a hint to narrow scope.
+  Silent truncation would let a model conclude it had seen everything.
+- **Budgets are ordered** (`small < health < brief < list`) and a test pins that ordering, so
+  the cheap-survey-then-drill-down flow cannot invert.
+- **Tool errors are results with `isError`, not protocol errors**, so a model can read and
+  recover from them instead of the transport failing.
+- **Notifications get no reply.** Answering one is a protocol violation that confuses clients.
+
 ## M1 — Protect ✅ shipped
 
 The milestone that stops the data loss. Still **zero LLM calls**.
@@ -105,11 +142,9 @@ all correctly scored `critical`. A regression test pins those exact sizes.
 
 ## Next
 
-**M2 — Speak.** MCP server over the same core, with hard token budgets
-(~200 tokens/session listing, ~1.5k for a session brief). This is the differentiator: no
-existing tool lets an agent reason about session history cheaply.
-
 **M3 — Sort.** ASSAY: classify every event as signal / exhaust / artifact and report the
-compression ratio, which governs every downstream cost.
+compression ratio, which governs every downstream cost. This is where the index arrives.
+
+**M4 — Clean.** prune / compact / archive, gated on verify-by-resume.
 
 See [README.md](README.md) §11 for the full M0–M8 build order.

@@ -17,7 +17,7 @@ import (
 	"github.com/mekjr1/midden/internal/render"
 )
 
-const version = "0.2.0-m1"
+const version = "0.3.0-m2"
 
 func main() {
 	if len(os.Args) < 2 {
@@ -39,6 +39,8 @@ func main() {
 		err = cmdBrief(os.Args[2:])
 	case "watch":
 		err = cmdWatch(os.Args[2:])
+	case "mcp":
+		err = cmdMCP(os.Args[2:])
 	case "version", "--version", "-v":
 		fmt.Println("midden", version)
 	case "help", "--help", "-h":
@@ -68,6 +70,7 @@ COMMANDS
   brief     Harvest a session into a handoff brief (deterministic, no LLM)
   doctor    Health check: at-risk sessions, dead workspaces, footprint
   watch     Warn before a session hits the resume cliff
+  mcp       Run as an MCP server on stdio (token-budgeted tools for agents)
   version   Print version
 
 SCOPE FLAGS (ls, doctor)

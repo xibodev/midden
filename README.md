@@ -5,9 +5,9 @@
 > *midden* (n.) — an archaeological refuse heap. Not what a civilisation claimed in its
 > monuments, but what it actually ate, made, and threw away. The most honest record we have.
 
-> **Status: M0 + M1 shipped.** `ls` · `show` · `resume` · `doctor` · `brief` · `watch` work
-> across Copilot CLI, Claude Code and opencode — read-only, zero LLM calls.
-> See [STATUS.md](STATUS.md).
+> **Status: M0 + M1 + M2 shipped.** `ls` · `show` · `resume` · `doctor` · `brief` · `watch` ·
+> `mcp` work across Copilot CLI, Claude Code and opencode — read-only, zero LLM calls.
+> See [STATUS.md](STATUS.md) and [docs/MCP.md](docs/MCP.md).
 
 ```console
 $ midden doctor
@@ -23,6 +23,9 @@ $ midden watch --once          # exit 3 when attention is needed
 
 $ midden brief ac0c39cf --handoff
   # 681 MiB unresumable session -> handoff prompt in 2.1s, 19.8 MB RAM, zero tokens
+
+$ midden mcp                   # register with any AI CLI; see docs/MCP.md
+  # all 682 sessions surveyable for 3,859 tokens
 ```
 
 ```bash
