@@ -15,12 +15,17 @@ import (
 	"github.com/mekjr1/midden/internal/adapter"
 	"github.com/mekjr1/midden/internal/core"
 	"github.com/mekjr1/midden/internal/guide"
+	"github.com/mekjr1/midden/internal/index"
 	"github.com/mekjr1/midden/internal/render"
 )
 
 const version = "1.3.1"
 
 func main() {
+	// Adapters that must open transcripts to describe a session reuse what
+	// the last scan derived, so an unchanged file is never opened twice.
+	index.WarmPeekCache()
+
 	// A bare invocation used to print twenty commands with no ordering and no
 	// cost information. Guiding is more useful than listing.
 	if len(os.Args) < 2 {
@@ -248,8 +253,28 @@ func cmdLs(args []string) error {
 		return err
 	}
 
-	sessions, errs := adapter.Collect(*sc)
+	// One collect answers both questions. Asking twice — once filtered, once
+	// wide, to learn how many the filter hid — doubled the cost of every
+	// listing, and describing a session is the expensive part.
+	wide := *sc
+	wide.IncludeNoise = true
+	wide.Limit = 0
+
+	all, errs := adapter.Collect(wide)
 	reportErrs(errs)
+
+	sessions := make([]core.Session, 0, len(all))
+	hidden := 0
+	for _, s := range all {
+		if s.Noise && !sc.IncludeNoise {
+			hidden++
+			continue
+		}
+		sessions = append(sessions, s)
+	}
+	if sc.Limit > 0 && len(sessions) > sc.Limit {
+		sessions = sessions[:sc.Limit]
+	}
 
 	if *asJSON {
 		return emitJSON(sessions)
@@ -257,16 +282,6 @@ func cmdLs(args []string) error {
 	if len(sessions) == 0 {
 		fmt.Println("No sessions match.")
 		return nil
-	}
-
-	// Count what the noise filter is hiding so it is never silent.
-	hidden := 0
-	if !sc.IncludeNoise {
-		wide := *sc
-		wide.IncludeNoise = true
-		if all, _ := adapter.Collect(wide); len(all) > len(sessions) {
-			hidden = len(all) - len(sessions)
-		}
 	}
 
 	if *group {

@@ -70,7 +70,18 @@ func (c *Claude) Sessions(sc core.Scope) ([]core.Session, error) {
 			return nil // cheap reject before parsing the file
 		}
 
-		cwd, title, created := c.peek(path)
+		cwd, title, created := "", "", time.Time{}
+		noise := false
+
+		// Reuse what an earlier scan derived from this exact file revision.
+		// Opening the transcript is by far the most expensive thing this
+		// adapter does, and its answer only changes when the file does.
+		if e, hit := cachedPeek(path, fi.Size(), updated); hit {
+			cwd, title, created, noise = e.Cwd, e.Title, e.Created, e.Noise
+		} else {
+			cwd, title, created = c.peek(path)
+			noise = core.IsNoise(title, filepath.Clean(cwd), 2)
+		}
 		if cwd == "" {
 			return nil
 		}
@@ -91,7 +102,7 @@ func (c *Claude) Sessions(sc core.Scope) ([]core.Session, error) {
 		if l, ok := live[id]; ok {
 			s.Live = l
 		}
-		s.Noise = core.IsNoise(title, s.Dir, 2)
+		s.Noise = noise
 
 		if sc.Match(s) {
 			out = append(out, s)

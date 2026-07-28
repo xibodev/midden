@@ -127,3 +127,24 @@ func Footprints() map[core.Tool]int64 {
 func coreScopeForID(id string) core.Scope {
 	return core.Scope{IDPrefix: id, IncludeNoise: true}
 }
+
+// LiveSessions maps session id to live status for every tool that can report
+// it.
+//
+// Only Claude writes per-session markers, so this is cheap: a few small JSON
+// files plus a PID liveness check. It exists separately from Sessions() so a
+// cached or indexed session list can be refreshed with current liveness
+// without re-reading any transcript.
+func LiveSessions() map[string]*core.Live {
+	out := map[string]*core.Live{}
+	for _, a := range All() {
+		l, ok := a.(interface{ liveMap() map[string]*core.Live })
+		if !ok {
+			continue
+		}
+		for id, live := range l.liveMap() {
+			out[id] = live
+		}
+	}
+	return out
+}

@@ -32,6 +32,20 @@ function bytes(n) {
   return `${n.toFixed(i === 0 ? 0 : 1)} ${u[i]}`;
 }
 
+// indexAge says how old the indexed view is. The page is served from an index,
+// not from a live read of the stores; hiding that is how a dashboard starts
+// showing yesterday's world as though it were now.
+function indexAge(iso) {
+  if (!iso) return 'not yet scanned';
+  const mins = (Date.now() - new Date(iso).getTime()) / 60000;
+  if (!isFinite(mins) || mins < 0) return '';
+  if (mins < 2) return 'indexed just now';
+  if (mins < 90) return `indexed ${Math.round(mins)}m ago`;
+  const hrs = mins / 60;
+  if (hrs < 36) return `indexed ${Math.round(hrs)}h ago`;
+  return `indexed ${Math.round(hrs / 24)}d ago \u2014 run a scan`;
+}
+
 function tok(n) {
   if (!n) return '0';
   if (n >= 1e6) return (n / 1e6).toFixed(1) + 'M';
@@ -716,8 +730,11 @@ loaders.overview = async () => {
   const nugTotal = Object.values(h.nuggets || {}).reduce((a, b) => a + b, 0);
 
   cards.append(
-    card('on disk', bytes(h.footprint), tools),
-    card('sessions', h.sessions, (h.dead_workspaces || 0) + ' dead workspaces'),
+    card('on disk', h.footprint_pending ? 'measuring…' : bytes(h.footprint), tools),
+    card('sessions', h.sessions, [
+      (h.dead_workspaces || 0) + ' dead workspaces',
+      indexAge(h.indexed_at),
+    ].filter(Boolean).join(' \u00b7 ')),
     card('open now', h.live, 'live terminals'),
     card('at risk', (h.at_risk || []).length, 'may fail to resume'),
     card('nuggets', nugTotal, 'reclaimed')

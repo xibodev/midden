@@ -17,6 +17,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/mekjr1/midden/internal/adapter"
@@ -33,12 +34,22 @@ var uiFS embed.FS
 
 // Server exposes the index and adapters over HTTP.
 type Server struct {
-	db   *index.DB
-	jobs *Jobs
+	db    *index.DB
+	jobs  *Jobs
+	cache *snapshotCache
+
+	reindexMu   sync.Mutex
+	reindexing  bool
+	reindexedAt time.Time
 }
 
 func NewServer(db *index.DB) *Server {
-	return &Server{db: db, jobs: NewJobs()}
+	s := &Server{db: db, jobs: NewJobs(), cache: newSnapshotCache()}
+	// Start the expensive disk walk immediately so the headline figure is
+	// usually ready by the time the operator looks at it, without any request
+	// ever waiting on it.
+	go s.cache.footprints()
+	return s
 }
 
 // Handler builds the route table.
@@ -158,10 +169,19 @@ func toView(s core.Session) sessionView {
 }
 
 func (s *Server) handleSessions(w http.ResponseWriter, r *http.Request) {
-	sessions, _ := adapter.Collect(s.scopeFrom(r))
-	out := make([]sessionView, 0, len(sessions))
-	for _, x := range sessions {
+	// Filter the shared snapshot rather than re-reading every store.
+	sc := s.scopeFrom(r)
+	snap := s.cache.get(s)
+
+	out := make([]sessionView, 0, 64)
+	for _, x := range snap.Sessions {
+		if !sc.Match(x) {
+			continue
+		}
 		out = append(out, toView(x))
+		if sc.Limit > 0 && len(out) >= sc.Limit {
+			break
+		}
 	}
 	writeJSON(w, out)
 }
@@ -231,12 +251,12 @@ func (s *Server) handleAssay(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
-	sessions, _ := adapter.Collect(core.Scope{IncludeNoise: true})
+	snap := s.cache.get(s)
 
 	byTool := map[string]int{}
 	var atRisk []sessionView
 	live, dead := 0, 0
-	for _, x := range sessions {
+	for _, x := range snap.Sessions {
 		byTool[string(x.Tool)]++
 		if x.Risk() != core.RiskNone {
 			atRisk = append(atRisk, toView(x))
@@ -250,19 +270,29 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	}
 	sort.Slice(atRisk, func(i, j int) bool { return atRisk[i].Bytes > atRisk[j].Bytes })
 
-	footprints := adapter.Footprints()
-	var total int64
+	footprints, total := s.cache.footprints()
 	stores := map[string]int64{}
 	for t, n := range footprints {
 		stores[string(t)] = n
-		total += n
 	}
 
 	counts, _ := s.db.NuggetCounts()
+
+	// The page is served from an index, so say when that index was built.
+	// Serving indexed data as though it were live is how a tool starts
+	// lying quietly.
+	indexedAt := ""
+	if t := s.db.IndexedAt(); !t.IsZero() {
+		indexedAt = t.Format(time.RFC3339)
+	}
+
 	writeJSON(w, map[string]any{
-		"sessions": len(sessions), "by_tool": byTool, "footprint": total,
+		"sessions": len(snap.Sessions), "by_tool": byTool, "footprint": total,
 		"stores": stores, "live": live, "dead_workspaces": dead,
 		"at_risk": atRisk, "nuggets": counts,
+		"as_of":             snap.TakenAt.Format(time.RFC3339),
+		"indexed_at":        indexedAt,
+		"footprint_pending": total == 0,
 	})
 }
 
@@ -442,60 +472,12 @@ func (s *Server) handleNext(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// guideState gathers current state for the guidance engine.
+// guideState reads the shared snapshot rather than re-deriving from disk.
+//
+// This used to walk ~40 GiB and read every session on every call, which made
+// the polling UI hang the server.
 func (s *Server) guideState() guide.State {
-	st := guide.State{HasIndex: true}
-
-	sessions, _ := adapter.Collect(core.Scope{IncludeNoise: true})
-	st.Sessions = len(sessions)
-
-	var largest int64
-	byWorkspace := map[string]int{}
-	cutoff := time.Now().AddDate(0, 0, -14)
-
-	for _, x := range sessions {
-		if x.Live != nil {
-			st.LiveSessions++
-		}
-		if !x.DirExists() {
-			st.DeadDirs++
-		}
-		switch x.Risk() {
-		case core.RiskCritical:
-			st.CriticalRisk++
-			st.AtRisk++
-			if x.Bytes > largest {
-				largest, st.LargestAtRiskID = x.Bytes, shortID(x.ID)
-			}
-		case core.RiskWarn, core.RiskWatch:
-			st.AtRisk++
-		}
-		if !x.Noise && x.Updated.After(cutoff) && x.Dir != "" {
-			byWorkspace[x.Dir]++
-		}
-	}
-	best := 0
-	for dir, n := range byWorkspace {
-		if n > best {
-			best, st.BusiestWorkspace = n, dir
-		}
-	}
-	for _, n := range adapter.Footprints() {
-		st.FootprintByte += n
-	}
-	if t, err := s.db.Aggregate(""); err == nil {
-		st.Assayed = int(t.Assayed)
-		st.ReclaimBytes = t.Reclaimable()
-	}
-	if counts, err := s.db.NuggetCounts(); err == nil {
-		for _, n := range counts {
-			st.Nuggets += int(n)
-		}
-	}
-	if as, err := s.db.Artifacts(1); err == nil {
-		st.Artifacts = len(as)
-	}
-	return st
+	return s.cache.get(s).State
 }
 
 // buildBrief assembles the compressed picture the oracle reasons over.
@@ -511,7 +493,7 @@ func (s *Server) buildBrief(st guide.State) oracle.Brief {
 		b.Costs = t
 	}
 
-	sessions, _ := adapter.Collect(core.Scope{IncludeNoise: true})
+	sessions := s.cache.get(s).Sessions
 	totals, _ := s.db.Aggregate("")
 	counts, _ := s.db.NuggetCounts()
 
