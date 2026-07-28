@@ -159,6 +159,10 @@ indistinguishable from a hang.
 - opencode per-session byte accounting needs a full `part` scan (~190s over 341k rows), so it
   is opt-in behind `--sizes`.
 - Copilot and opencode write no live-session marker, so `open now` is Claude-only.
+  `~/.copilot/restart/<pid>.json` looks like one — PID-named, carries a `sessionId` — and is
+  not. It records restart intent, persists after the process dies, and is absent for a
+  normally-running session: verified with Copilot live, its session had no marker while seven
+  stale ones remained. Wiring it up would report seven closed sessions as open.
 - Liveness on Windows needs `GetExitCodeProcess`, not `os.FindProcess`: the latter succeeds
   for a process that has already exited, which made every stale marker report its session as
   open forever. The process start time is also checked against the marker's, because PIDs are

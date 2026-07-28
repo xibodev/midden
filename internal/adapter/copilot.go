@@ -35,6 +35,16 @@ func (c *Copilot) transcriptPath(id string) string {
 	return filepath.Join(c.Root, "session-state", id, "events.jsonl")
 }
 
+// Copilot reports no liveness, and the thing that looks like it is not.
+//
+// ~/.copilot/restart/<pid>.json is PID-named and carries a sessionId, which
+// makes it read exactly like Claude's live markers. It is not one: it records
+// restart intent, survives the process that wrote it, and is never written for
+// a session that is merely running. Checked with Copilot live on this machine —
+// the running session had no marker, while seven markers for dead processes
+// remained. Treating them as liveness would report seven closed sessions as
+// open, which is worse than reporting none.
+
 func (c *Copilot) Sessions(sc core.Scope) ([]core.Session, error) {
 	db, closeDB, err := openRO(c.storeDB())
 	if err != nil {
