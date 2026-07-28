@@ -14,6 +14,8 @@ import (
 	"fmt"
 	"io/fs"
 	"net/http"
+	"os"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -66,6 +68,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/session", s.handleSession)
 	mux.HandleFunc("/api/nuggets", s.handleNuggets)
 	mux.HandleFunc("/api/artifacts", s.handleArtifacts)
+	mux.HandleFunc("/api/artifact", s.handleArtifactBody)
 	mux.HandleFunc("/api/assay", s.handleAssay)
 	mux.HandleFunc("/api/ops", s.handleOps)
 	mux.HandleFunc("/api/action", s.handleAction)
@@ -320,6 +323,50 @@ func (s *Server) handleArtifacts(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, as)
+}
+
+// handleArtifactBody reads one generated document back.
+//
+// The list showed a path and nothing else, so the only way to read something
+// midden had written was to leave and open a file — the tool produced work it
+// could not show you.
+//
+// Reads are confined to the artifacts directory. The path is resolved and
+// checked against that root rather than pattern-matched, so symlinks and
+// traversal both fail closed: this server binds to loopback, but "only I can
+// reach it" is not a reason to serve arbitrary files.
+func (s *Server) handleArtifactBody(w http.ResponseWriter, r *http.Request) {
+	root, err := filepath.Abs(filepath.Join(index.Dir(), "artifacts"))
+	if err != nil {
+		http.Error(w, "artifacts unavailable", http.StatusInternalServerError)
+		return
+	}
+
+	want, err := filepath.EvalSymlinks(r.URL.Query().Get("path"))
+	if err != nil {
+		http.Error(w, "not found", http.StatusNotFound)
+		return
+	}
+	if realRoot, err := filepath.EvalSymlinks(root); err == nil {
+		root = realRoot
+	}
+
+	rel, err := filepath.Rel(root, want)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		http.Error(w, "outside the artifacts directory", http.StatusForbidden)
+		return
+	}
+
+	body, err := os.ReadFile(want)
+	if err != nil {
+		http.Error(w, "not found", http.StatusNotFound)
+		return
+	}
+	writeJSON(w, map[string]any{
+		"path": want,
+		"name": filepath.Base(want),
+		"body": string(body),
+	})
 }
 
 func (s *Server) handleOps(w http.ResponseWriter, r *http.Request) {

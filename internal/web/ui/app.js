@@ -1037,13 +1037,51 @@ loaders.artifacts = async () => {
       p.append(el('span', null, a.path));
       p.append(copyBtn(a.path, 'copy path'));
       d.append(p);
-      d.append(el('div', 'meta', `${(a.nugget_ids || []).length} nuggets \u00b7 ${a.model}`));
+      const meta = el('div', 'meta',
+        `${(a.nugget_ids || []).length} nuggets \u00b7 ${a.model || ''}`);
+      d.append(meta);
+
+      // A path is not the document. Reading back what midden wrote used to
+      // mean leaving the tool and opening a file.
+      const read = el('button', 'btn', 'Read');
+      read.addEventListener('click', () => openModal((box) => artifactReader(box, a)));
+      d.append(read);
+
       list.append(d);
     });
   } catch (e) {
     list.replaceChildren(el('p', 'bad', 'failed: ' + e.message));
   }
 };
+
+// artifactReader shows a generated document without leaving the page.
+function artifactReader(box, a) {
+  box.append(costHeading({ costly: false, title: a.title || a.kind }));
+  box.append(el('p', 'note', a.path));
+
+  const out = el('div', 'result');
+  out.append(el('p', 'note', 'reading...'));
+  box.append(out);
+
+  get('/api/artifact?path=' + encodeURIComponent(a.path))
+    .then((r) => {
+      out.replaceChildren();
+      const pre = el('pre', 'brief-body mono');
+      pre.textContent = r.body;
+      out.append(pre);
+
+      const bar = el('div', 'modal-foot');
+      bar.append(el('span', 'foot-note', r.name));
+      const copy = el('button', 'btn primary', 'Copy');
+      copy.addEventListener('click', async () => {
+        await navigator.clipboard.writeText(r.body);
+        toast('Copied');
+      });
+      bar.append(copy);
+      out.append(bar);
+    })
+    .catch((e) => out.replaceChildren(el('p', 'bad', e.message)));
+}
 
 // ---- ask -------------------------------------------------------------------
 
