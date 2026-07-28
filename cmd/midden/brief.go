@@ -9,6 +9,7 @@ import (
 
 	"github.com/mekjr1/midden/internal/adapter"
 	"github.com/mekjr1/midden/internal/core"
+	handoffpkg "github.com/mekjr1/midden/internal/handoff"
 	"github.com/mekjr1/midden/internal/render"
 )
 
@@ -61,7 +62,7 @@ func cmdBrief(args []string) error {
 	}
 
 	if *handoff {
-		printHandoff(s, hv, *clipAt)
+		fmt.Println(handoffpkg.Text(s, hv, *clipAt))
 		return nil
 	}
 
@@ -95,44 +96,8 @@ func cmdBrief(args []string) error {
 	return nil
 }
 
-// printHandoff emits a block designed to be pasted into a NEW session, which
-// is the recommended action for a transcript past the resume cliff.
-func printHandoff(s core.Session, hv core.Harvest, clipAt int) {
-	var b strings.Builder
-
-	b.WriteString("You are picking up work from a previous session that cannot be resumed")
-	if s.Bytes > 0 {
-		fmt.Fprintf(&b, " (its transcript reached %s, past the point where --resume loads)", render.Bytes(s.Bytes))
-	}
-	b.WriteString(".\n\n")
-
-	fmt.Fprintf(&b, "WORKSPACE: %s\n", s.Dir)
-	if s.Repo != "" {
-		fmt.Fprintf(&b, "REPO: %s\n", s.Repo)
-	}
-	fmt.Fprintf(&b, "PRIOR SESSION: %s (%s), %d user turns between %s and %s\n\n",
-		s.ID, s.Tool, hv.UserTurns,
-		s.Created.Format("2006-01-02"), s.Updated.Format("2006-01-02"))
-
-	if hv.Goal != nil {
-		b.WriteString("ORIGINAL GOAL\n")
-		b.WriteString(clip(hv.Goal.Text, clipAt))
-		b.WriteString("\n\n")
-	}
-
-	if len(hv.Recent) > 0 {
-		b.WriteString("MOST RECENT EXCHANGES (oldest first)\n")
-		for _, t := range hv.Recent {
-			fmt.Fprintf(&b, "\n[%s] %s\n", strings.ToUpper(t.Role), clip(t.Text, clipAt))
-		}
-		b.WriteString("\n")
-	}
-
-	b.WriteString("\nBefore doing anything, confirm the current state of the workspace against " +
-		"the claims above — the prior session's last actions may not have completed.\n")
-
-	fmt.Println(b.String())
-}
+// printHandoff moved to internal/handoff so the CLI and the web UI cannot
+// drift: a rescue brief that differs by surface is one you cannot trust.
 
 func indent(s, prefix string) string {
 	lines := strings.Split(s, "\n")
@@ -143,12 +108,7 @@ func indent(s, prefix string) string {
 }
 
 func clip(s string, n int) string {
-	s = strings.TrimSpace(s)
-	r := []rune(s)
-	if len(r) <= n {
-		return s
-	}
-	return string(r[:n]) + "\n[... truncated]"
+	return handoffpkg.Clip(s, n)
 }
 
 func shortID(id string) string {

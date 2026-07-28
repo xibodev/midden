@@ -232,6 +232,20 @@ func Next(s State) []Step {
 		})
 	}
 
+	// Succeeding once used to end the guidance: with a nugget and an artifact
+	// on record, every remaining suggestion was housekeeping, and the loop
+	// that produces the value disappeared at the exact moment it was proven
+	// to work. Mining is not a one-off setup step.
+	if s.Nuggets > 0 && s.Artifacts > 0 && s.Assayed > 0 {
+		steps = append(steps, Step{
+			Why:      fmt.Sprintf("%d nugget(s) and %d artifact(s) so far — the rest is still unmined", s.Nuggets, s.Artifacts),
+			Command:  "midden catalog",
+			Cost:     Free,
+			Priority: 35,
+			Value:    "see what your evidence can support now, before spending again",
+		})
+	}
+
 	if s.DeadDirs > 20 {
 		steps = append(steps, Step{
 			Why:      fmt.Sprintf("%d session(s) point at workspaces that no longer exist", s.DeadDirs),

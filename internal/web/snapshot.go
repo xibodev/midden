@@ -208,12 +208,7 @@ func (s *Server) buildSnapshot(c *snapshotCache) *snapshot {
 		}
 	}
 
-	best := 0
-	for dir, n := range byWorkspace {
-		if n > best {
-			best, st.BusiestWorkspace = n, dir
-		}
-	}
+	st.BusiestWorkspace = guide.BusiestScope(byWorkspace)
 
 	_, st.FootprintByte = c.footprints()
 

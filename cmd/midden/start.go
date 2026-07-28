@@ -54,13 +54,9 @@ func collectState() guide.State {
 		}
 	}
 
-	// The busiest recent workspace is the cheapest useful scope to suggest.
-	best := 0
-	for dir, n := range byWorkspace {
-		if n > best {
-			best, st.BusiestWorkspace = n, dir
-		}
-	}
+	// The busiest recent workspace is the cheapest useful scope to suggest,
+	// as long as it is actually a project and not the home directory.
+	st.BusiestWorkspace = guide.BusiestScope(byWorkspace)
 
 	for _, n := range adapter.Footprints() {
 		st.FootprintByte += n
@@ -162,7 +158,9 @@ func cmdStart(args []string) error {
 	if unit := unitCostLine(); unit != "" {
 		fmt.Printf("    %s\n", render.Dim(unit))
 	} else {
-		fmt.Printf("    %s\n", render.Dim("no spend recorded yet — both preview with --dry-run before charging anything"))
+		fmt.Printf("    %s\n", render.Dim(fmt.Sprintf(
+			"no spend recorded yet — all %d preview with --dry-run before charging anything",
+			len(spending))))
 	}
 
 	// What to do, in consequence order.

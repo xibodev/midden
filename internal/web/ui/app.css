@@ -398,7 +398,42 @@ td.mono, td:first-child { font-variant-numeric: tabular-nums; }
   font-size: 23px; cursor: pointer; line-height: 1;
 }
 .modal-box h2 { margin: 0 0 7px; font-size: 15px; }
-.modal-foot { display: flex; gap: 9px; justify-content: flex-end; margin-top: 20px; }
+.modal-foot {
+  display: flex;
+  gap: 9px;
+  align-items: center;
+  justify-content: flex-end;
+  margin-top: 20px;
+}
+
+/* The cost promise sits with the buttons that honour it, so it is read at
+   the moment of deciding rather than remembered from the card behind. */
+.foot-note {
+  flex: 1;
+  font-size: 11.5px;
+  color: var(--dim);
+  line-height: 1.4;
+  text-align: left;
+}
+
+.modal h2 { display: flex; align-items: center; gap: 9px; }
+.modal h2 .h2-text { flex: 1; }
+
+/* A rescued handoff is meant to be read before it is trusted, so it gets
+   room and a scrollbar rather than being hidden behind a copy button. */
+.brief-body {
+  max-height: 40vh;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  margin: 13px 0 0;
+  padding: 13px;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  font-size: 11.5px;
+  line-height: 1.5;
+}
 
 .field { display: block; margin: 13px 0; }
 .field > span {

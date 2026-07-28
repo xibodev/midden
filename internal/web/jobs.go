@@ -27,10 +27,12 @@ import (
 	"github.com/mekjr1/midden/internal/cost"
 	"github.com/mekjr1/midden/internal/dispose"
 	"github.com/mekjr1/midden/internal/exec"
+	"github.com/mekjr1/midden/internal/handoff"
 	"github.com/mekjr1/midden/internal/index"
 	"github.com/mekjr1/midden/internal/reclaim"
 	"github.com/mekjr1/midden/internal/redact"
 	"github.com/mekjr1/midden/internal/refine"
+	"github.com/mekjr1/midden/internal/render"
 	"github.com/mekjr1/midden/internal/summary"
 )
 
@@ -187,7 +189,7 @@ func (s *Server) handleAction(w http.ResponseWriter, r *http.Request) {
 	}
 
 	switch req.Op {
-	case "prune", "archive", "reclaim", "refine", "summarize", "ask":
+	case "prune", "archive", "reclaim", "refine", "summarize", "ask", "brief":
 	default:
 		http.Error(w, "unknown op: "+req.Op, http.StatusBadRequest)
 		return
@@ -233,6 +235,8 @@ func (s *Server) runJob(id string, req actionRequest) {
 		result, err = s.doRefine(id, req)
 	case "summarize":
 		result, err = s.doSummarize(id, req)
+	case "brief":
+		result, err = s.doBrief(id, req)
 	case "ask":
 		result, err = s.doAsk(id, req)
 	}
@@ -790,4 +794,55 @@ func truncate(s string, n int) string {
 		return s
 	}
 	return string(r[:n]) + "..."
+}
+
+// doBrief harvests a session into a paste-able handoff.
+//
+// This is the remedy for the one problem the tool ranks above everything
+// else — a transcript past the resume cliff — and it was reachable only by
+// copying a command into a terminal. The most urgent action in the product
+// was the one action the product could not perform.
+//
+// It is free, deterministic and read-only, so there is no estimate step and
+// no apply gate: previewing it and running it are the same operation.
+func (s *Server) doBrief(id string, req actionRequest) (any, error) {
+	if req.SessionID == "" {
+		return nil, fmt.Errorf("a session is required")
+	}
+
+	matches, _ := adapter.Collect(core.Scope{IDPrefix: req.SessionID, IncludeNoise: true})
+	if len(matches) == 0 {
+		return nil, fmt.Errorf("session not found")
+	}
+	sess := matches[0]
+
+	h, ok := adapter.Find(sess.Tool).(core.Harvester)
+	if !ok {
+		return nil, fmt.Errorf("%s sessions cannot be harvested yet", sess.Tool)
+	}
+
+	// Large transcripts are exactly the ones that need this, so say what is
+	// happening rather than appearing to stall.
+	s.jobs.update(id, func(j *Job) {
+		j.Progress = fmt.Sprintf("reading %s transcript", render.Bytes(sess.Bytes))
+	})
+
+	turns := req.Records
+	if turns <= 0 {
+		turns = 10
+	}
+	hv, err := h.Harvest(sess, turns)
+	if err != nil {
+		return nil, fmt.Errorf("harvest: %w", err)
+	}
+
+	return map[string]any{
+		"free":       true,
+		"session":    shortID(sess.ID),
+		"title":      sess.Title,
+		"dir":        sess.Dir,
+		"user_turns": hv.UserTurns,
+		"records":    hv.TotalRecords,
+		"body":       handoff.Text(sess, hv, handoff.DefaultClip),
+	}, nil
 }

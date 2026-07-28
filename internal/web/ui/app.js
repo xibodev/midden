@@ -192,15 +192,80 @@ async function loadGuidance() {
     // Actions the UI can perform directly get a button; the rest are
     // copy-and-run, which is honest rather than pretending everything is
     // clickable.
-    const opMatch = /^midden (prune|archive|reclaim|refine|catalog)\b/.exec(s.command);
-    if (opMatch && ACTIONS.some((a) => a.op === opMatch[1])) {
-      const act = ACTIONS.find((a) => a.op === opMatch[1]);
-      const b = el('button', 'btn', 'Do it here');
-      b.addEventListener('click', () => openModal((box) => act.build(box, act)));
+    const briefMatch = /^midden brief (\S+)/.exec(s.command);
+    if (briefMatch) {
+      const b = el('button', 'btn', 'Rescue it here');
+      b.addEventListener('click', () => openModal((box) => briefForm(box, briefMatch[1])));
       row.append(b);
+    } else {
+      const opMatch = /^midden (prune|archive|reclaim|refine|catalog)\b/.exec(s.command);
+      if (opMatch && ACTIONS.some((a) => a.op === opMatch[1])) {
+        const act = ACTIONS.find((a) => a.op === opMatch[1]);
+        const b = el('button', 'btn', 'Do it here');
+        b.addEventListener('click', () => openModal((box) => act.build(box, act)));
+        row.append(b);
+      }
     }
     list.append(row);
   });
+}
+
+// briefForm rescues a session that is past the resume cliff.
+//
+// This is the action the tool ranks above every other, and it used to be the
+// only one you could not perform here — the most urgent thing in the product
+// was a string to copy into a terminal. It is free, read-only and
+// deterministic, so it runs on open rather than making you ask twice.
+function briefForm(box, sessionID) {
+  box.append(costHeading({ costly: false, title: 'Rescue this session' }));
+  box.append(el('p', 'note',
+    'Reads the transcript and writes a paste-able prompt that carries the work '
+    + 'into a fresh session. Nothing is modified, and no model is called.'));
+
+  const out = el('div', 'result');
+  out.append(el('p', 'note', 'reading transcript...'));
+  box.append(out);
+
+  post('/api/action', { op: 'brief', session_id: sessionID, apply: false })
+    .then((job) => pollJob(job.id, (j) => {
+      out.replaceChildren(el('p', 'note', j.progress || 'working...'));
+    }))
+    .then((done) => {
+      const r = (done && done.result) || {};
+      if (!r.body) throw new Error(done && done.error ? done.error : 'no brief produced');
+
+      out.replaceChildren();
+      out.append(el('p', 'note',
+        `${r.user_turns} user turn(s) recovered from ${r.records} records \u00b7 ${r.dir || ''}`));
+
+      const pre = el('pre', 'brief-body mono');
+      pre.textContent = r.body;
+      out.append(pre);
+
+      const bar = el('div', 'modal-foot');
+      bar.append(el('span', 'foot-note',
+        'Paste this into a new session in that workspace to continue the work.'));
+      const copy = el('button', 'btn primary', 'Copy handoff');
+      copy.addEventListener('click', async () => {
+        await navigator.clipboard.writeText(r.body);
+        toast('Handoff copied \u2014 paste it into a fresh session');
+      });
+      bar.append(copy);
+      out.append(bar);
+    })
+    .catch((e) => out.replaceChildren(el('p', 'bad', e.message)));
+}
+
+// costHeading puts the cost class on the dialog itself.
+//
+// The badge was on the card behind the dialog and nowhere inside it, so the
+// one fact worth knowing disappeared at the exact moment of committing, and a
+// free action and a paid one looked identical.
+function costHeading(action) {
+  const h = el('h2');
+  h.append(el('span', 'pill' + (action.costly ? ' warn' : ''), action.costly ? 'SPENDS' : 'FREE'));
+  h.append(el('span', 'h2-text', action.title));
+  return h;
 }
 
 function field(label, node) {
@@ -211,7 +276,7 @@ function field(label, node) {
 }
 
 function scopeForm(box, action) {
-  box.append(el('h2', null, action.title));
+  box.append(costHeading(action));
   box.append(el('p', 'note', action.blurb));
 
   const ws = el('input');
@@ -235,9 +300,18 @@ function scopeForm(box, action) {
   box.append(out);
 
   const bar = el('div', 'modal-foot');
-  const preview = el('button', 'btn', action.costly ? 'Estimate cost' : 'Preview');
-  const run = el('button', 'btn primary', 'Run');
+  const preview = el('button', 'btn primary', action.costly ? 'Estimate cost' : 'Preview');
+  const run = el('button', 'btn', 'Run');
   run.disabled = true;
+  // Run is gated behind a preview, which is the safest thing this dialog
+  // does — but a greyed button with no explanation reads as broken rather
+  // than as protection, so say what unlocks it.
+  run.title = action.costly
+    ? 'Estimate the cost first — the estimate is free'
+    : 'Preview first — nothing is written until you do';
+  bar.append(el('span', 'foot-note', action.costly
+    ? 'The estimate is free. Nothing is charged until you press Run.'
+    : 'Preview is free and writes nothing. Nothing changes until you press Run.'));
   bar.append(preview, run);
   box.append(bar);
 
@@ -256,7 +330,11 @@ function scopeForm(box, action) {
         out.replaceChildren(el('p', 'note', j.progress || 'working...'));
       });
       renderPreview(out, done, action);
+      // The preview has been seen, so Run becomes the primary action and the
+      // preview steps back. Emphasis follows what is now safe to do.
       run.disabled = false;
+      run.className = 'btn primary';
+      preview.className = 'btn';
     } catch (e) {
       out.replaceChildren(el('p', 'bad', e.message));
     }
