@@ -1,6 +1,7 @@
 package adapter
 
 import (
+	"fmt"
 	"sync"
 	"time"
 )
@@ -56,4 +57,35 @@ func cachedPeek(path string, size int64, mod time.Time) (PeekEntry, bool) {
 		return PeekEntry{}, false
 	}
 	return e, true
+}
+
+// Progress receives a description of what the adapter layer is doing, or an
+// empty string when it finishes.
+//
+// The first run on a machine has nothing cached, so describing ~900 sessions
+// means opening every transcript the stores do not describe themselves —
+// minutes of virus-scanned reads on Windows. Silence during that window is
+// indistinguishable from a hang, which is the same defect that made the web
+// UI look broken. A caller that wants to narrate the wait sets this.
+var Progress func(string)
+
+func reportProgress(msg string) {
+	if Progress != nil {
+		Progress(msg)
+	}
+}
+
+// byteCount formats a size for progress messages. Local rather than borrowed
+// from render so the adapter layer keeps no dependency on presentation.
+func byteCount(n int64) string {
+	const unit = 1024
+	if n < unit {
+		return fmt.Sprintf("%d B", n)
+	}
+	div, exp := int64(unit), 0
+	for x := n / unit; x >= unit && exp < 4; x /= unit {
+		div *= unit
+		exp++
+	}
+	return fmt.Sprintf("%.0f %ciB", float64(n)/float64(div), "KMGTP"[exp])
 }

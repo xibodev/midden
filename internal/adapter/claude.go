@@ -39,6 +39,11 @@ func (c *Claude) Sessions(sc core.Scope) ([]core.Session, error) {
 	live := c.liveMap()
 	cutoff := sc.Since()
 
+	// Only transcripts that have to be opened are counted, because those are
+	// the only ones that take real time. A cache hit is instant and reporting
+	// it would just make the counter lie about progress.
+	read := 0
+
 	var out []core.Session
 	err := filepath.WalkDir(c.projectsDir(), func(path string, d os.DirEntry, err error) error {
 		if err != nil {
@@ -79,6 +84,8 @@ func (c *Claude) Sessions(sc core.Scope) ([]core.Session, error) {
 		if e, hit := cachedPeek(path, fi.Size(), updated); hit {
 			cwd, title, created, noise = e.Cwd, e.Title, e.Created, e.Noise
 		} else {
+			read++
+			reportProgress(fmt.Sprintf("reading claude transcript %d (%s)", read, byteCount(fi.Size())))
 			cwd, title, created = c.peek(path)
 			noise = core.IsNoise(title, filepath.Clean(cwd), 2)
 		}

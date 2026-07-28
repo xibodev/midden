@@ -3,7 +3,6 @@ package main
 import (
 	"flag"
 	"fmt"
-	"os"
 	"sort"
 	"strings"
 	"time"
@@ -120,8 +119,10 @@ func cmdStart(args []string) error {
 		return err
 	}
 
-	fmt.Fprintf(os.Stderr, "  %s\n", render.Dim("looking at your machine..."))
+	// Narrate the wait. Installed globally in main, so nothing extra is
+	// needed here.
 	st := collectState()
+
 	steps := guide.Next(st)
 
 	if *asJSON {

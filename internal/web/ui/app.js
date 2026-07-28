@@ -146,9 +146,21 @@ loaders.do = async () => {
     const foot = el('div', 'foot');
     foot.append(el('span', 'pill' + (a.costly ? ' warn' : ''), a.costly ? 'SPENDS' : 'FREE'));
     const go = el('button', 'btn primary', 'Start');
-    go.addEventListener('click', () => openModal((box) => a.build(box, a)));
+    const open = () => openModal((box) => a.build(box, a));
+    go.addEventListener('click', open);
     foot.append(go);
     c.append(foot);
+
+    // The card looks like the target, so it should be one. Only the small
+    // button responded, which meant the obvious click did nothing at all.
+    c.tabIndex = 0;
+    c.setAttribute('role', 'button');
+    c.setAttribute('aria-label', a.title);
+    c.addEventListener('click', (e) => { if (e.target !== go) open(); });
+    c.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(); }
+    });
+
     wrap.append(c);
   });
 

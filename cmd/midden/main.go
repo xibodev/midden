@@ -26,6 +26,15 @@ func main() {
 	// the last scan derived, so an unchanged file is never opened twice.
 	index.WarmPeekCache()
 
+	// Narrate slow work on every interactive command. The first run on a
+	// machine has nothing cached and can take minutes; silence for that long
+	// is indistinguishable from a hang, which is exactly the failure this
+	// tool exists to notice. MCP is excluded: it speaks a protocol, not to a
+	// person.
+	if len(os.Args) < 2 || os.Args[1] != "mcp" {
+		defer narrate()()
+	}
+
 	// A bare invocation used to print twenty commands with no ordering and no
 	// cost information. Guiding is more useful than listing.
 	if len(os.Args) < 2 {

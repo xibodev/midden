@@ -55,6 +55,7 @@ func Collect(sc core.Scope) ([]core.Session, []error) {
 		if !sc.WantsTool(a.Tool()) {
 			continue
 		}
+		reportProgress("reading " + string(a.Tool()) + " sessions")
 		s, err := a.Sessions(sc)
 		if err != nil {
 			errs = append(errs, err)
@@ -62,6 +63,7 @@ func Collect(sc core.Scope) ([]core.Session, []error) {
 		}
 		out = append(out, s...)
 	}
+	reportProgress("")
 
 	sort.Slice(out, func(i, j int) bool { return out[i].Updated.After(out[j].Updated) })
 
