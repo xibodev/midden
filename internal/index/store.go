@@ -202,12 +202,20 @@ type Artifact struct {
 }
 
 // PutArtifact records a generated artifact and the nuggets behind it.
+//
+// One file, one record. Writing the same path twice — re-rescuing a session,
+// or regenerating a document — overwrites the file on disk, so leaving the
+// old row behind would list a version that no longer exists next to the one
+// that does.
 func (d *DB) PutArtifact(a Artifact) error {
 	if a.UID == "" {
 		a.UID = NewUID()
 	}
 	if a.CreatedAt.IsZero() {
 		a.CreatedAt = time.Now()
+	}
+	if a.Path != "" {
+		d.sql.Exec(`DELETE FROM artifacts WHERE path = ?`, a.Path)
 	}
 	ids, _ := json.Marshal(a.NuggetIDs)
 	_, err := d.sql.Exec(`

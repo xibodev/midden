@@ -836,6 +836,34 @@ func (s *Server) doBrief(id string, req actionRequest) (any, error) {
 		return nil, fmt.Errorf("harvest: %w", err)
 	}
 
+	body := handoff.Text(sess, hv, handoff.DefaultClip)
+
+	// Keep it. A rescue that lives only in the clipboard is lost the moment
+	// the tab closes — the one artifact that saves work would be the one the
+	// tool does not keep. Failing to save is not failing to rescue, so a
+	// write error degrades to clipboard-only rather than losing the brief.
+	saved, warning := "", ""
+	if scan := redact.Scan(body); len(scan) > 0 {
+		body = redact.Text(body).Text
+		warning = redact.Summary(scan)
+	}
+	dir := filepath.Join(index.Dir(), "artifacts")
+	if os.MkdirAll(dir, 0o755) == nil {
+		name := fmt.Sprintf("handoff-%s-%s.md", string(sess.Tool), shortID(sess.ID))
+		path := filepath.Join(dir, name)
+		header := fmt.Sprintf("<!-- midden handoff · %s %s · %s · rescued %s -->\n\n",
+			sess.Tool, shortID(sess.ID), sess.Dir, time.Now().Format("2006-01-02 15:04"))
+		if os.WriteFile(path, []byte(header+body), 0o644) == nil {
+			saved = path
+			s.db.PutArtifact(index.Artifact{
+				Kind:  "handoff",
+				Title: core.Truncate(sess.Title, 80),
+				Path:  path,
+				Scope: sess.Dir,
+			})
+		}
+	}
+
 	return map[string]any{
 		"free":       true,
 		"session":    shortID(sess.ID),
@@ -843,6 +871,8 @@ func (s *Server) doBrief(id string, req actionRequest) (any, error) {
 		"dir":        sess.Dir,
 		"user_turns": hv.UserTurns,
 		"records":    hv.TotalRecords,
-		"body":       handoff.Text(sess, hv, handoff.DefaultClip),
+		"body":       body,
+		"saved":      saved,
+		"warning":    warning,
 	}, nil
 }

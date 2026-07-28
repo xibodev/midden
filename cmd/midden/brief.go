@@ -4,12 +4,14 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/mekjr1/midden/internal/adapter"
 	"github.com/mekjr1/midden/internal/core"
 	handoffpkg "github.com/mekjr1/midden/internal/handoff"
+	"github.com/mekjr1/midden/internal/index"
 	"github.com/mekjr1/midden/internal/render"
 )
 
@@ -62,7 +64,13 @@ func cmdBrief(args []string) error {
 	}
 
 	if *handoff {
-		fmt.Println(handoffpkg.Text(s, hv, *clipAt))
+		text := handoffpkg.Text(s, hv, *clipAt)
+		fmt.Println(text)
+		// Keep it, so a rescue survives closing the terminal. Saving is
+		// best-effort: the brief is already on stdout either way.
+		if path, err := saveHandoff(s, text); err == nil {
+			fmt.Fprintf(os.Stderr, "  %s\n", render.Dim("saved "+path))
+		}
 		return nil
 	}
 
@@ -116,4 +124,35 @@ func shortID(id string) string {
 		return id[:8]
 	}
 	return id
+}
+
+// saveHandoff writes a rescued brief alongside the other artifacts and
+// records it in the index.
+//
+// A rescue that exists only in a terminal scrollback is one you have to redo.
+// This is the same path and the same artifact kind the web UI writes, so a
+// brief taken from either surface shows up in `midden artifacts`.
+func saveHandoff(s core.Session, text string) (string, error) {
+	dir := filepath.Join(index.Dir(), "artifacts")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return "", err
+	}
+
+	path := filepath.Join(dir, fmt.Sprintf("handoff-%s-%s.md", s.Tool, shortID(s.ID)))
+	header := fmt.Sprintf("<!-- midden handoff · %s %s · %s · rescued %s -->\n\n",
+		s.Tool, shortID(s.ID), s.Dir, time.Now().Format("2006-01-02 15:04"))
+	if err := os.WriteFile(path, []byte(header+text), 0o644); err != nil {
+		return "", err
+	}
+
+	if db, err := index.Open(); err == nil {
+		defer db.Close()
+		db.PutArtifact(index.Artifact{
+			Kind:  "handoff",
+			Title: core.Truncate(s.Title, 80),
+			Path:  path,
+			Scope: s.Dir,
+		})
+	}
+	return path, nil
 }

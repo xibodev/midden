@@ -249,14 +249,18 @@ function briefForm(box, sessionID) {
       out.replaceChildren();
       out.append(el('p', 'note',
         `${r.user_turns} user turn(s) recovered from ${r.records} records \u00b7 ${r.dir || ''}`));
+      if (r.warning) out.append(el('p', 'warn-note', r.warning));
 
       const pre = el('pre', 'brief-body mono');
       pre.textContent = r.body;
       out.append(pre);
 
       const bar = el('div', 'modal-foot');
-      bar.append(el('span', 'foot-note',
-        'Paste this into a new session in that workspace to continue the work.'));
+      // Say where it was kept. A rescue you cannot find again is one you
+      // have to redo.
+      bar.append(el('span', 'foot-note', r.saved
+        ? 'Saved \u2014 also on the Artifacts tab. Paste it into a new session in that workspace.'
+        : 'Paste this into a new session in that workspace to continue the work.'));
       const copy = el('button', 'btn primary', 'Copy handoff');
       copy.addEventListener('click', async () => {
         await navigator.clipboard.writeText(r.body);
