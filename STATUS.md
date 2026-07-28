@@ -1,6 +1,6 @@
 # Status
 
-**All milestones shipped (M0–M8).** Version 1.0.0.
+**All milestones shipped (M0–M11).** Version 1.4.0.
 
 Every measurement below comes from a real workstation running Copilot CLI, Claude Code and
 opencode across 688 sessions and 37 GiB.
@@ -117,6 +117,40 @@ browser with provenance, artifact list, and the operation log.
 Real output: 4 sessions past the cliff (2.8 GiB) · 4 of 688 sessions hold half the transcript
 bytes · tool output is 49% of classified bytes · 4,478 screenshots collapse to 977 distinct
 moments · 198 sessions point at deleted workspaces.
+
+### M9 — Account
+`cost`. Per-run usage read back from each tool's own records, with calibration.
+
+Estimates were wrong by 70–200× before calibration. After it, a prediction of 76.5 AIU landed
+against 75.6 actual — within 1%.
+
+### M10 — Act
+Operations run from the UI rather than being described by it. A panel that only reports is an
+instrument, not a tool.
+
+### M11 — Guide
+`start`, tiered summaries, `ask`. The pipeline order stopped living only in the author's head.
+
+---
+
+## Performance
+
+Reads come from the index. Re-deriving them from the source stores meant opening every Claude
+transcript, because Claude keeps cwd and title inside the file. On Windows each open triggers
+an on-access virus scan of the whole file for the ~60 lines actually read — 1.7s per
+transcript cold, 0.16s warm, measured over 135 files.
+
+| | before | after |
+|---|---|---|
+| `midden ls` | 551s | **0.17s** |
+| `/api/health` | 180s+ | **0.14s** |
+| `/api/sessions` | hung | **0.05s** |
+
+It stayed hidden because every result was *correct*. Nothing measured latency, and the CLI
+always passed a narrow scope while the UI asked for everything.
+
+Anything still slow now says what it is doing. Silence during a multi-minute first run is
+indistinguishable from a hang.
 
 ---
 

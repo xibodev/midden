@@ -5,8 +5,9 @@
 > *midden* (n.) — an archaeological refuse heap. Not what a civilisation claimed in its
 > monuments, but what it actually ate, made, and threw away. The most honest record we have.
 
-> **Status: complete — M0 through M8 shipped, v1.0.0.** Read-only on your session stores;
-> deterministic everywhere except the two stages that explicitly ask a model.
+> **Status: complete — M0 through M11 shipped, v1.4.0.** Read-only on your session stores;
+> deterministic everywhere except the three commands that explicitly ask a model
+> (`reclaim`, `refine`, `ask`), each of which estimates before it charges.
 > See [STATUS.md](STATUS.md) and [docs/MCP.md](docs/MCP.md).
 
 ```console
@@ -322,6 +323,19 @@ Notes that cost real time to learn:
   sub-agent sessions.
 - Claude keys sessions by encoded cwd; resume requires the original directory.
 - All source stores opened **read-only** (`mode=ro`). A live CLI may be writing.
+- Claude stores cwd and title **inside** the transcript, so describing a session means opening
+  the file. On Windows that triggers an on-access virus scan of the whole file for the ~60
+  lines actually read — measured at 1.7s per transcript cold. Derived metadata is cached by
+  path, validated against size and mtime, so an unchanged file is never opened twice.
+
+### Reads come from the index
+
+The index is the read path. Touching a source store to answer a read is a bug: it was the
+difference between `midden ls` taking 551s and taking 0.17s. The stores are read on `scan`,
+and on a cold index as a fallback that populates it.
+
+Anything slow says what it is doing. Silence during a multi-minute first run is
+indistinguishable from a hang — which is the failure this tool exists to notice.
 
 ### Execution model
 
@@ -417,10 +431,29 @@ midden mcp                           # MCP server on stdio
 
 ### Web UI
 
-Session map (by tool / workspace / drive / date, with growth over time) · session detail with
-deterministic stats and optional tiered summary · one-click copy of resume one-liners ·
-instruction composer · disposal queue with reclaimed-bytes preview · nugget browser with
-provenance · artifact studio ("what do you want to make today?") · budget + credit dashboard.
+Eight tabs on loopback, served from the binary. Reads come from the index, never from the
+source stores — re-deriving them on every request took minutes and made the page look hung.
+
+| Tab | What it does |
+|---|---|
+| **Do** | What is worth doing now, ordered by consequence: losing work outranks saving disk, which outranks writing docs. Every row carries `FREE` or `SPENDS`. |
+| **Overview** | Footprint, session count, live terminals, at-risk sessions, and when the index was last built. |
+| **Sessions** | Filter by tool, age, workspace or drive; resume one-liners; risk badges. |
+| **Nuggets** | Reclaimed knowledge with provenance back to the session it came from. |
+| **Artifacts** | Everything midden has written, readable in place. |
+| **Ask** | Questions about your own history, with an estimate before it charges. |
+| **Cost** | What has been spent, and how close the estimates were. |
+| **Log** | Every mutating operation, with before/after bytes and verification. |
+
+Three things the UI is strict about:
+
+- **Rescue is one click.** A session past the resume cliff is the highest-ranked action in the
+  product, so it runs here — no dropping to a terminal. The brief is saved and indexed, not
+  just copied.
+- **Cost is stated where the decision happens.** The class appears on the dialog itself, not
+  only on the card behind it. `Run` stays inert until a free preview or estimate has been seen,
+  and the dialog says so rather than showing an unexplained grey button.
+- **Nothing is written without an explicit apply.** Previews are free and mutate nothing.
 
 ### MCP server — *the differentiator*
 
@@ -458,6 +491,9 @@ continuously**; everything expensive is explicitly invoked.
 | **M6 — Make** | REFINE, catalog-then-generate, templates | Content from exhaust |
 | **M7 — Show** | Web UI via `embed.FS` | The commodity layer, built last |
 | **M8 — Advise** | ADVISE analytics + oracle | Reduce future exhaust |
+| **M9 — Account** | Cost ledger, per-run usage, calibrated estimates | You can see what a decision costs before making it |
+| **M10 — Act** | Operations run from the UI, not just described by it | A panel that only reports is not a tool |
+| **M11 — Guide** | `start`, tiered summaries, conversational oracle | The pipeline order stops living only in the author's head |
 
 M0–M2 are deterministic, free to run, and independently useful. A refinery nobody visits
 processes nothing — earn daily use first.
