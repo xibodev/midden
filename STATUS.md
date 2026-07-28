@@ -158,7 +158,11 @@ indistinguishable from a hang.
 
 - opencode per-session byte accounting needs a full `part` scan (~190s over 341k rows), so it
   is opt-in behind `--sizes`.
-- Copilot has no live-session marker, so `open now` is Claude-only.
+- Copilot and opencode write no live-session marker, so `open now` is Claude-only.
+- Liveness on Windows needs `GetExitCodeProcess`, not `os.FindProcess`: the latter succeeds
+  for a process that has already exited, which made every stale marker report its session as
+  open forever. The process start time is also checked against the marker's, because PIDs are
+  recycled and marker files are not.
 - Cross-compiles cleanly to linux/amd64, linux/arm64 and darwin/arm64 (pure-Go SQLite, no
   cgo), but has only been *run* on Windows.
 - `watch` polls rather than using filesystem notifications; a session can cross the cliff

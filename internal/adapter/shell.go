@@ -1,29 +1,19 @@
 package adapter
 
 import (
-	"os"
 	"runtime"
 	"strings"
+	"time"
 )
 
 func isWindows() bool { return runtime.GOOS == "windows" }
 
 // processAlive reports whether a PID belongs to a running process.
 //
-// os.FindProcess always succeeds on Unix, so liveness needs an explicit
-// signal-0 probe there. On Windows a failed lookup is conclusive.
+// Retained for callers with no marker file to date the process against.
+// Prefer processAliveSince, which also rejects a recycled PID.
 func processAlive(pid int) bool {
-	if pid <= 0 {
-		return false
-	}
-	p, err := os.FindProcess(pid)
-	if err != nil {
-		return false
-	}
-	if isWindows() {
-		return true
-	}
-	return p.Signal(nil) == nil
+	return processAliveSince(pid, time.Time{})
 }
 
 // shellQuote quotes a string for the host shell so instructions containing

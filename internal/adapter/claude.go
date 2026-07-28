@@ -189,7 +189,8 @@ func (c *Claude) liveMap() map[string]*core.Live {
 		if e.IsDir() || filepath.Ext(e.Name()) != ".json" {
 			continue
 		}
-		b, err := os.ReadFile(filepath.Join(c.Root, "sessions", e.Name()))
+		marker := filepath.Join(c.Root, "sessions", e.Name())
+		b, err := os.ReadFile(marker)
 		if err != nil {
 			continue
 		}
@@ -202,7 +203,14 @@ func (c *Claude) liveMap() map[string]*core.Live {
 		if json.Unmarshal(b, &m) != nil || m.SessionID == "" || m.PID == 0 {
 			continue
 		}
-		if !processAlive(m.PID) {
+		// Date the process against the marker that claims it. A process that
+		// started after the file was written cannot be the one that wrote it,
+		// which is how a recycled PID resurrects a session that has ended.
+		var written time.Time
+		if fi, err := e.Info(); err == nil {
+			written = fi.ModTime()
+		}
+		if !processAliveSince(m.PID, written) {
 			continue
 		}
 		out[m.SessionID] = &core.Live{PID: m.PID, Status: m.Status, Name: m.Name}
