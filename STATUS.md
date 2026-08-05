@@ -133,6 +133,26 @@ instrument, not a tool.
 
 ---
 
+## Index authority
+
+The index is the fast read path, but it is not a source of truth by itself.
+Every complete scan now reconciles it against the source stores:
+
+- sessions absent from a fully read source are removed before a stale resume
+  command can silently start a new session;
+- manifests whose source changed, orphan manifests, and duplicate artifact
+  rows are removed;
+- partial adapters preserve their existing rows and withhold deletion
+  authority;
+- scan generations, tombstones, cross-process locks, and SQLite triggers
+  prevent overlapping or pre-upgrade writers from resurrecting deleted rows.
+
+The web UI exposes this as **Refresh data**. Sessions state how many rows are
+shown, in range, automated-hidden, or not loaded, and freshness travels with
+the same cache snapshot that supplied the rows.
+
+---
+
 ## Performance
 
 Reads come from the index. Re-deriving them from the source stores meant opening every Claude

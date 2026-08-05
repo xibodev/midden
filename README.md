@@ -438,7 +438,7 @@ source stores — re-deriving them on every request took minutes and made the pa
 |---|---|
 | **Do** | What is worth doing now, ordered by consequence: losing work outranks saving disk, which outranks writing docs. Every row carries `FREE` or `SPENDS`. |
 | **Overview** | Footprint, session count, live terminals, at-risk sessions, and when the index was last built. |
-| **Sessions** | Filter by tool, age, workspace or drive; resume one-liners; risk badges. |
+| **Sessions** | Filter by tool, age, workspace or drive; resume one-liners; risk badges; shown/in-range/hidden/unloaded counts and index age. |
 | **Nuggets** | Reclaimed knowledge with provenance back to the session it came from. |
 | **Artifacts** | Everything midden has written, readable in place. |
 | **Ask** | Questions about your own history, with an estimate before it charges. |
@@ -454,6 +454,9 @@ Three things the UI is strict about:
   only on the card behind it. `Run` stays inert until a free preview or estimate has been seen,
   and the dialog says so rather than showing an unexplained grey button.
 - **Nothing is written without an explicit apply.** Previews are free and mutate nothing.
+- **Freshness is explicit.** `Refresh data` performs a complete source read, reconciles stale
+  derived rows, and reports partial sources instead of calling an incomplete index current. A
+  Sessions list always carries its denominator and cache generation.
 
 ### MCP server — *the differentiator*
 
