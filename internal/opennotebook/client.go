@@ -38,6 +38,7 @@ type Client struct {
 	authScheme   string
 	authEnv      string
 	authOptional bool
+	password     string
 	link         string
 	http         *http.Client
 }
@@ -144,9 +145,6 @@ func New(m plugins.Manifest) (*Client, error) {
 		link:         m.Link,
 		http:         exportHTTPClient(),
 	}
-	if err := client.CredentialsReady(); err != nil {
-		return nil, err
-	}
 	return client, nil
 }
 
@@ -163,6 +161,15 @@ func exportHTTPClient() *http.Client {
 			return http.ErrUseLastResponse
 		},
 	}
+}
+
+// WithPassword returns an action-scoped client. The password stays only in
+// process memory for this request; it is never written to settings, the index,
+// a job result, or a manifest.
+func (c *Client) WithPassword(password string) *Client {
+	copy := *c
+	copy.password = password
+	return &copy
 }
 
 // CreateTextSource sends a text source using the multipart contract Open
@@ -223,6 +230,9 @@ func (c *Client) CreateTextSource(ctx context.Context, push plugins.Push, notebo
 	}
 	defer resp.Body.Close()
 	if !statusAllowed(resp.StatusCode, push.ExpectStatus) {
+		if req.Header.Get(c.authHeader) != "" {
+			return Source{}, authenticatedHTTPError(resp)
+		}
 		return Source{}, httpError(resp)
 	}
 	return decodeSource(resp.Body)
@@ -256,7 +266,12 @@ func (c *Client) WaitSource(ctx context.Context, poll plugins.Poll, sourceID str
 			return Source{}, fmt.Errorf("poll source: %w", err)
 		}
 		if resp.StatusCode != http.StatusOK {
-			err := httpError(resp)
+			var err error
+			if req.Header.Get(c.authHeader) != "" {
+				err = authenticatedHTTPError(resp)
+			} else {
+				err = httpError(resp)
+			}
 			resp.Body.Close()
 			return Source{}, err
 		}
@@ -342,8 +357,11 @@ func (c *Client) applyAuth(req *http.Request) error {
 	if err := c.CredentialsReady(); err != nil {
 		return err
 	}
-	value, ok := os.LookupEnv(c.authEnv)
-	if !ok || value == "" {
+	value := c.password
+	if value == "" {
+		value, _ = os.LookupEnv(c.authEnv)
+	}
+	if value == "" {
 		return nil
 	}
 	if c.authScheme != "" {
@@ -358,11 +376,14 @@ func (c *Client) applyAuth(req *http.Request) error {
 	return nil
 }
 
-// CredentialsReady validates that a required local password is configured
-// without returning it. This is part of action readiness so the UI never
-// offers an export that must fail after it starts.
+// CredentialsReady validates that a required local password is available
+// without returning it. A caller may provide an action-scoped password or use
+// the pre-existing environment variable contract.
 func (c *Client) CredentialsReady() error {
 	if c.authHeader == "" || c.authEnv == "" || c.authOptional {
+		return nil
+	}
+	if c.password != "" {
 		return nil
 	}
 	if value, ok := os.LookupEnv(c.authEnv); !ok || value == "" {
@@ -465,4 +486,11 @@ func httpError(resp *http.Response) error {
 		detail = resp.Status
 	}
 	return fmt.Errorf("Open Notebook returned %d: %s", resp.StatusCode, detail)
+}
+
+// authenticatedHTTPError intentionally omits a loopback service's response
+// body. Some services echo request headers in diagnostics; retaining that
+// body would turn an action-scoped password into a job-history secret.
+func authenticatedHTTPError(resp *http.Response) error {
+	return fmt.Errorf("Open Notebook returned %d", resp.StatusCode)
 }

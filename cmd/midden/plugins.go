@@ -47,7 +47,7 @@ func cmdPlugins(args []string) error {
 
 	fmt.Printf("\n  %s  %s\n", render.Bold("INTEGRATIONS"), render.Dim(*dir))
 	if len(loaded) == 0 {
-		fmt.Printf("\n  %s\n\n", render.Dim("No manifests found. Add ~/.midden/plugins/<name>.yaml."))
+		fmt.Printf("\n  %s\n\n", render.Dim("No advanced manifests found. Run `midden ui` and open Integrations to set up built-in tools."))
 		return nil
 	}
 
@@ -75,7 +75,7 @@ func cmdPlugins(args []string) error {
 			}
 		}
 	}
-	fmt.Printf("\n  %s\n\n", render.Dim("Listing is passive. Run `midden plugins probe` (or `verify`) to check a target."))
+	fmt.Printf("\n  %s\n\n", render.Dim("Advanced manifests are listed passively. Run `midden plugins probe` (or `verify`) to check one."))
 	return nil
 }
 

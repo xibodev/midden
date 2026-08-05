@@ -144,7 +144,9 @@ USAGE
 		fmt.Println()
 	}
 
-	fmt.Printf("INTEGRATIONS\n  %-10s %s\n\n", "plugins", "List, probe, and verify configured integrations")
+	fmt.Printf("INTEGRATIONS\n  %-10s %s\n  %-10s %s\n\n",
+		"ui", "Set up built-in integrations in the browser",
+		"plugins", "Advanced manifest list, probe, and verify")
 
 	fmt.Printf("COST\n  Everything is free except %s, which call a model\n"+
 		"  through the AI CLI you are already signed in to. Both preview with\n"+

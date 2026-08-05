@@ -140,6 +140,13 @@ second-redacted, bounded set of stored nuggets to an existing notebook as one
 multipart text source, then returns its local UI link. It never sends raw
 transcripts, creates notebooks, or waits for destination-side processing.
 
+Built-in integrations now have a human setup path in the UI: discover the
+optional tool, open its official setup guide, save local settings without
+editing YAML, then explicitly test it. Existing advanced manifests remain
+available under a collapsed Advanced section and can be adopted or recovered
+without silent overwrite. Passwords are action-scoped and never persist in
+Midden settings, its index, or job history.
+
 ---
 
 ## Index authority

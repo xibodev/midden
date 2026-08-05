@@ -108,6 +108,32 @@ func TestCreateTextSourceBindsExactlyOneRequestedNotebook(t *testing.T) {
 	}
 }
 
+func TestAuthenticatedExportDoesNotRetainRemoteErrorBody(t *testing.T) {
+	const password = "action-only-password"
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = w.Write([]byte("reflected Authorization: Bearer " + password))
+	}))
+	defer server.Close()
+
+	manifest := testManifest(server.URL)
+	manifest.API.Auth.Optional = false
+	client, err := New(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = client.WithPassword(password).CreateTextSource(context.Background(), testPush(), "notebook:abc", "title", "body")
+	if err == nil {
+		t.Fatal("expected export error")
+	}
+	if strings.Contains(err.Error(), password) || strings.Contains(err.Error(), "reflected") {
+		t.Fatalf("authenticated error leaked response body: %v", err)
+	}
+	if got, want := err.Error(), "Open Notebook returned 401"; got != want {
+		t.Fatalf("error=%q, want %q", got, want)
+	}
+}
+
 func TestWaitSourceAndNotebookLink(t *testing.T) {
 	polls := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -161,12 +187,30 @@ func TestOptionalAuthDoesNotSendEmptyHeader(t *testing.T) {
 	}
 }
 
-func TestNewRequiresConfiguredRequiredPassword(t *testing.T) {
+func TestRequiredPasswordCanBeActionScoped(t *testing.T) {
 	t.Setenv("OPEN_NOTEBOOK_PASSWORD", "")
 	manifest := testManifest("http://127.0.0.1:5055")
 	manifest.API.Auth.Optional = false
-	if _, err := New(manifest); err == nil || !strings.Contains(err.Error(), "OPEN_NOTEBOOK_PASSWORD") {
+	client, err := New(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := client.CredentialsReady(); err == nil || !strings.Contains(err.Error(), "OPEN_NOTEBOOK_PASSWORD") {
 		t.Fatalf("required password error=%v", err)
+	}
+	actionClient := client.WithPassword("session-only")
+	if err := actionClient.CredentialsReady(); err != nil {
+		t.Fatal(err)
+	}
+	req, err := http.NewRequest(http.MethodGet, "http://127.0.0.1", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := actionClient.applyAuth(req); err != nil {
+		t.Fatal(err)
+	}
+	if got := req.Header.Get("Authorization"); got != "Bearer session-only" {
+		t.Fatalf("authorization=%q, want action-scoped password", got)
 	}
 }
 

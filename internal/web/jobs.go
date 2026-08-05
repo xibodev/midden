@@ -123,21 +123,22 @@ func (j *Jobs) list() []*Job {
 
 // actionRequest is the body every action endpoint accepts.
 type actionRequest struct {
-	Op            string   `json:"op"`
-	SessionID     string   `json:"session_id"`
-	Workspace     string   `json:"workspace"`
-	Tool          string   `json:"tool"`
-	Days          int      `json:"days"`
-	Instruction   string   `json:"instruction"`
-	Templates     []string `json:"templates"`
-	Backend       string   `json:"backend"`
-	Model         string   `json:"model"`
-	Records       int      `json:"records"`
-	Depth         string   `json:"depth"`
-	Question      string   `json:"question"`
-	Plugin        string   `json:"plugin"`
-	NotebookID    string   `json:"notebook_id"`
-	AllWorkspaces bool     `json:"all_workspaces"`
+	Op                   string   `json:"op"`
+	SessionID            string   `json:"session_id"`
+	Workspace            string   `json:"workspace"`
+	Tool                 string   `json:"tool"`
+	Days                 int      `json:"days"`
+	Instruction          string   `json:"instruction"`
+	Templates            []string `json:"templates"`
+	Backend              string   `json:"backend"`
+	Model                string   `json:"model"`
+	Records              int      `json:"records"`
+	Depth                string   `json:"depth"`
+	Question             string   `json:"question"`
+	Plugin               string   `json:"plugin"`
+	NotebookID           string   `json:"notebook_id"`
+	OpenNotebookPassword string   `json:"open_notebook_password"`
+	AllWorkspaces        bool     `json:"all_workspaces"`
 
 	// Apply must be explicitly true for anything destructive. A missing field
 	// means dry run, so a malformed request can never delete.
@@ -369,29 +370,9 @@ func (s *Server) doOpenNotebookPush(id string, req actionRequest) (any, error) {
 	}
 
 	s.jobs.update(id, func(j *Job) { j.Progress = "validating Open Notebook" })
-	loaded, err := plugins.LoadDir(filepath.Join(index.Dir(), "plugins"))
+	manifest, managed, err := s.effectiveIntegration("open-notebook")
 	if err != nil {
 		return nil, err
-	}
-	var (
-		manifest plugins.Manifest
-		found    bool
-	)
-	for _, loaded := range loaded {
-		if loaded.Manifest.Name != "open-notebook" {
-			continue
-		}
-		if loaded.Error != nil {
-			return nil, fmt.Errorf("Open Notebook manifest is unparseable: %w", loaded.Error)
-		}
-		manifest, found = loaded.Manifest, true
-		break
-	}
-	if !found {
-		return nil, fmt.Errorf("Open Notebook manifest not found in %s", filepath.Join(index.Dir(), "plugins"))
-	}
-	if errs := plugins.Validate(manifest); len(errs) > 0 {
-		return nil, fmt.Errorf("Open Notebook manifest is invalid: %s", strings.Join(errs, "; "))
 	}
 	if !manifest.IsEnabled() {
 		return nil, fmt.Errorf("Open Notebook integration is disabled")
@@ -403,6 +384,14 @@ func (s *Server) doOpenNotebookPush(id string, req actionRequest) (any, error) {
 
 	prepared, err := opennotebook.Prepare(manifest)
 	if err != nil {
+		return nil, err
+	}
+	if managed && manifest.API.Auth.Header != "" && !manifest.API.Auth.Optional &&
+		strings.TrimSpace(req.OpenNotebookPassword) == "" {
+		return nil, fmt.Errorf("an action-scoped Open Notebook password is required for this send")
+	}
+	client := prepared.Client.WithPassword(req.OpenNotebookPassword)
+	if err := client.CredentialsReady(); err != nil {
 		return nil, err
 	}
 
@@ -426,11 +415,11 @@ func (s *Server) doOpenNotebookPush(id string, req actionRequest) (any, error) {
 	defer cancel()
 
 	s.jobs.update(id, func(j *Job) { j.Progress = "uploading source to Open Notebook" })
-	source, err := prepared.Client.CreateTextSource(ctx, prepared.Push, req.NotebookID, title, body)
+	source, err := client.CreateTextSource(ctx, prepared.Push, req.NotebookID, title, body)
 	if err != nil {
 		return nil, err
 	}
-	link, err := prepared.Client.NotebookLink(req.NotebookID)
+	link, err := client.NotebookLink(req.NotebookID)
 	if err != nil {
 		return nil, err
 	}

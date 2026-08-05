@@ -37,6 +37,12 @@
     <div id="next-list"></div>
   </div>
 
+  <div class="panel" id="integration-setup-prompt" hidden>
+    <h2>Optional: connect your next tool</h2>
+    <p class="note" id="integration-setup-copy"></p>
+    <button class="btn" id="open-integrations" type="button">Set up integrations</button>
+  </div>
+
   <h2 class="lead">Or pick something</h2>
   <p class="note">
     Everything is free except <strong>Mine</strong>, <strong>Write</strong> and
@@ -120,10 +126,18 @@
 </section>
 
 <section id="integrations" class="view">
-  <p class="note">Listing is passive. Check local integrations to probe configured targets; an
-    unavailable target is shown with its reason, never as an action that fails when pressed.</p>
-  <button id="probe-plugins" class="btn" type="button">Check local integrations</button>
-  <div id="plugin-list"></div>
+  <h2 class="lead">Connect optional tools</h2>
+  <p class="note">Set up a local tool here; Midden keeps the settings it needs and never asks
+    you to edit its source code or a manifest. Opening this page does not contact anything.
+    Testing a connection is always an explicit action.</p>
+  <div id="integration-list"></div>
+  <details class="advanced-config">
+    <summary>Advanced configuration</summary>
+    <p class="note">Existing plugin manifests still work. If Midden finds one for a built-in
+      integration, it will offer to adopt it into these settings without overwriting it silently.</p>
+    <button id="probe-advanced-plugins" class="btn" type="button">Check advanced configurations</button>
+    <div id="advanced-plugin-list"></div>
+  </details>
 </section>
 
 <section id="ask" class="view">

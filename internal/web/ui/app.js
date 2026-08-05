@@ -145,18 +145,29 @@ $('#refresh-data').addEventListener('click', refreshData);
 
 // ---- modal ------------------------------------------------------------------
 
+function clearModalContent() {
+  const box = $('#modal-body');
+  box.querySelectorAll('input[type=password]').forEach((input) => { input.value = ''; });
+  box.replaceChildren();
+}
+
+function closeModal() {
+  clearModalContent();
+  $('#modal').hidden = true;
+}
+
 function openModal(build) {
   const box = $('#modal-body');
-  box.replaceChildren();
+  clearModalContent();
   build(box);
   $('#modal').hidden = false;
 }
-$('#modal-close').addEventListener('click', () => { $('#modal').hidden = true; });
+$('#modal-close').addEventListener('click', closeModal);
 $('#modal').addEventListener('click', (e) => {
-  if (e.target.id === 'modal') $('#modal').hidden = true;
+  if (e.target.id === 'modal') closeModal();
 });
 document.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape') { $('#modal').hidden = true; $('#drawer').hidden = true; }
+  if (e.key === 'Escape') { closeModal(); $('#drawer').hidden = true; }
 });
 
 // ---- DO: the action surface -------------------------------------------------
@@ -214,6 +225,7 @@ loaders.do = async () => {
 
   refreshJobs();
   loadGuidance();
+  loadIntegrationPrompt();
 };
 
 // Guidance is computed from real state, so the first thing you see is what
@@ -269,6 +281,30 @@ async function loadGuidance() {
     list.append(row);
   });
 }
+
+async function loadIntegrationPrompt() {
+  const panel = $('#integration-setup-prompt');
+  const copy = $('#integration-setup-copy');
+  try {
+    const items = await get('/api/integrations');
+    const unconfigured = items.filter((item) => item.state === 'not_set_up');
+    const legacy = items.filter((item) => item.state === 'legacy');
+    if (!unconfigured.length && !legacy.length) {
+      panel.hidden = true;
+      return;
+    }
+    panel.hidden = false;
+    if (legacy.length) {
+      copy.textContent = 'Midden found an older advanced integration setup. Adopt it into Settings to manage it without editing files.';
+    } else {
+      copy.textContent = 'Connect a local knowledge notebook or video-production workspace when you are ready. Setup is optional and stays on this machine.';
+    }
+  } catch {
+    panel.hidden = true;
+  }
+}
+
+$('#open-integrations').addEventListener('click', () => show('integrations'));
 
 // briefForm rescues a session that is past the resume cliff.
 //
@@ -409,7 +445,7 @@ function scopeForm(box, action) {
     run.disabled = true;
     try {
       const job = await post('/api/action', { ...req(), apply: true, confirm: true });
-      $('#modal').hidden = true;
+      closeModal();
       show('do');
       trackJob(job.id);
       toast('Started \u2014 progress below');
@@ -487,7 +523,7 @@ function refineForm(box, action) {
     run.disabled = true;
     try {
       const job = await post('/api/action', { ...req(), apply: true });
-      $('#modal').hidden = true;
+      closeModal();
       show('do');
       trackJob(job.id);
       toast('Writing \u2014 progress below');
@@ -844,7 +880,7 @@ function sessionActionForm(box, s, op) {
     run.disabled = true;
     try {
       const job = await post('/api/action', { ...req, apply: true, confirm: true });
-      $('#modal').hidden = true;
+      closeModal();
       show('do');
       trackJob(job.id);
       toast('Started');
@@ -1155,57 +1191,355 @@ loaders.artifacts = async () => {
 
 // ---- integrations -----------------------------------------------------------
 
-async function loadIntegrations(probe = false) {
-  const list = $('#plugin-list');
-  const button = $('#probe-plugins');
+const integrationStates = {
+  not_set_up: 'Not set up',
+  ready_to_test: 'Ready to test',
+  connected: 'Connected',
+  needs_attention: 'Needs attention',
+  turned_off: 'Turned off',
+  legacy: 'Advanced setup found',
+};
+
+function integrationStateClass(state) {
+  if (state === 'connected') return 'live';
+  if (state === 'needs_attention') return 'crit';
+  if (state === 'not_set_up' || state === 'ready_to_test' || state === 'legacy') return 'warn';
+  return '';
+}
+
+function externalLink(label, href) {
+  const link = el('a', 'btn', label);
+  link.href = href;
+  link.target = '_blank';
+  link.rel = 'noopener noreferrer';
+  return link;
+}
+
+function integrationLastVerified(item) {
+  if (!item.last_verified) return '';
+  const when = new Date(item.last_verified);
+  if (isNaN(when.getTime())) return '';
+  return `Last verified ${when.toLocaleString()}`;
+}
+
+async function loadIntegrations() {
+  const list = $('#integration-list');
+  list.replaceChildren(el('p', 'note', 'loading optional tools...'));
+  try {
+    const integrations = await get('/api/integrations');
+    list.replaceChildren();
+    if (!integrations.length) {
+      list.append(el('p', 'empty', 'No optional tools are available in this build.'));
+      return;
+    }
+    integrations.forEach((item) => list.append(integrationCard(item)));
+  } catch (e) {
+    list.replaceChildren(el('p', 'bad', 'failed: ' + e.message));
+  }
+}
+
+loaders.integrations = () => loadIntegrations(false);
+
+function advancedPluginRow(plugin) {
+  const row = el('div', 'row');
+  const top = el('div', 'top');
+  top.append(el('span', 'pill', plugin.kind || 'unknown'));
+  top.append(el('span', 'title', plugin.name || '(unnamed manifest)'));
+  top.append(el('span', 'pill' + (plugin.cost === 'spends' ? ' warn' : ''), (plugin.cost || '?').toUpperCase()));
+  const statusClass = plugin.status === 'available' ? 'live' :
+    (plugin.status === 'disabled' || plugin.status === 'not_checked' ? '' : 'crit');
+  const status = plugin.status === 'not_checked' ? 'not checked' : (plugin.status || 'invalid');
+  top.append(el('span', 'pill ' + statusClass, status));
+  row.append(top);
+  row.append(el('p', 'note', plugin.detail || 'no status detail'));
+  return row;
+}
+
+async function loadAdvancedPlugins(probe = false) {
+  const list = $('#advanced-plugin-list');
+  const button = $('#probe-advanced-plugins');
   if (button) {
     button.disabled = probe;
-    button.textContent = probe ? 'Checking...' : 'Check local integrations';
+    button.textContent = probe ? 'Checking...' : 'Check advanced configurations';
   }
-  list.replaceChildren(el('p', 'note', probe ? 'checking configured integrations...' : 'loading configured integrations...'));
+  list.replaceChildren(el('p', 'note', probe ? 'checking advanced configurations...' : 'loading advanced configurations...'));
   try {
     const plugins = probe
       ? await post('/api/plugins/probe', {})
       : await get('/api/plugins');
     list.replaceChildren();
     if (!plugins.length) {
-      list.append(el('p', 'empty',
-        'No integration manifests yet. Add ~/.midden/plugins/<name>.yaml, then refresh this view.'));
+      list.append(el('p', 'note', 'No advanced manifests are configured.'));
       return;
     }
-    plugins.forEach((plugin) => {
-      const row = el('div', 'row');
-      const top = el('div', 'top');
-      top.append(el('span', 'pill', plugin.kind || 'unknown'));
-      top.append(el('span', 'title', plugin.name || '(unnamed manifest)'));
-      top.append(el('span', 'pill' + (plugin.cost === 'spends' ? ' warn' : ''), (plugin.cost || '?').toUpperCase()));
-      const statusClass = plugin.status === 'available' ? 'live' :
-        (plugin.status === 'disabled' || plugin.status === 'not_checked' ? '' : 'crit');
-      const status = plugin.status === 'not_checked' ? 'not checked' : (plugin.status || 'invalid');
-      top.append(el('span', 'pill ' + statusClass, status));
-      row.append(top);
-      row.append(el('p', 'note', plugin.detail || 'no status detail'));
-      if (plugin.name === 'open-notebook' && plugin.status === 'available') {
-        const send = el('button', 'btn', 'Send nuggets');
-        send.addEventListener('click', () => openModal((box) => openNotebookForm(box, plugin)));
-        row.append(send);
-      }
-      list.append(row);
-    });
+    plugins.forEach((plugin) => list.append(advancedPluginRow(plugin)));
   } catch (e) {
     list.replaceChildren(el('p', 'bad', 'failed: ' + e.message));
   } finally {
     if (button) {
       button.disabled = false;
-      button.textContent = 'Check local integrations';
+      button.textContent = 'Check advanced configurations';
     }
   }
 }
 
-loaders.integrations = () => loadIntegrations(false);
-$('#probe-plugins').addEventListener('click', () => loadIntegrations(true));
+$('.advanced-config').addEventListener('toggle', (event) => {
+  if (event.currentTarget.open && !$('#advanced-plugin-list').children.length) {
+    loadAdvancedPlugins(false);
+  }
+});
+$('#probe-advanced-plugins').addEventListener('click', () => loadAdvancedPlugins(true));
 
-function openNotebookForm(box, plugin) {
+function integrationCard(item) {
+  const card = el('article', 'integration-card');
+  const top = el('div', 'integration-top');
+  const identity = el('div');
+  const eyebrow = el('div', 'eyebrow', item.kind === 'service' ? 'LOCAL SERVICE' : 'LOCAL CAPABILITY');
+  identity.append(eyebrow, el('h3', null, item.name));
+  top.append(identity);
+  const badges = el('div', 'integration-badges');
+  badges.append(
+    el('span', 'pill' + (item.cost === 'spends' ? ' warn' : ''), (item.cost || '?').toUpperCase()),
+    el('span', 'pill ' + integrationStateClass(item.state), integrationStates[item.state] || 'Unknown')
+  );
+  top.append(badges);
+  card.append(top);
+  card.append(el('p', 'integration-description', item.description || 'Optional local integration.'));
+  if (item.state_detail) card.append(el('p', 'note', item.state_detail));
+  const verified = integrationLastVerified(item);
+  if (verified) card.append(el('p', 'meta', verified));
+  if (item.detail) {
+    const technical = el('details', 'integration-detail');
+    technical.append(el('summary', null, 'Technical detail'));
+    technical.append(el('p', 'meta', item.detail));
+    card.append(technical);
+  }
+
+  const actions = el('div', 'integration-actions');
+  if (item.github_url) actions.append(externalLink('Official setup', item.github_url));
+  if (item.migration_pending) {
+    const finish = el('button', 'btn primary', 'Finish migration');
+    finish.addEventListener('click', () => finishIntegrationMigration(item));
+    actions.append(finish);
+  } else if (item.configuration_conflict) {
+    const remove = el('button', 'btn', 'Remove Settings and return to advanced setup');
+    remove.addEventListener('click', () => removeIntegration(item));
+    actions.append(remove);
+  } else if (item.legacy) {
+    const adopt = el('button', 'btn primary', 'Adopt into settings');
+    adopt.addEventListener('click', () => adoptIntegration(item));
+    const replace = el('button', 'btn', 'Set up in Settings');
+    replace.addEventListener('click', () => openModal((box) => configureIntegration(box, item)));
+    const test = el('button', 'btn', 'Test existing setup');
+    test.addEventListener('click', () => testIntegration(item));
+    actions.append(adopt, replace, test);
+    if (item.id === 'open-notebook' && item.state === 'connected') {
+      const send = el('button', 'btn primary', 'Send nuggets');
+      send.addEventListener('click', () => openModal((box) => openNotebookForm(box, item)));
+      actions.append(send);
+    }
+  } else if (item.state === 'not_set_up') {
+    const setup = el('button', 'btn primary', 'Set up');
+    setup.addEventListener('click', () => openModal((box) => configureIntegration(box, item)));
+    actions.append(setup);
+  } else {
+    const edit = el('button', 'btn', 'Edit setup');
+    edit.addEventListener('click', () => openModal((box) => configureIntegration(box, item)));
+    actions.append(edit);
+    if (item.state !== 'turned_off') {
+      const test = el('button', 'btn primary', 'Test connection');
+      test.addEventListener('click', () => testIntegration(item));
+      actions.append(test);
+    }
+    if (item.id === 'open-notebook' && item.state === 'connected') {
+      const send = el('button', 'btn primary', 'Send nuggets');
+      send.addEventListener('click', () => openModal((box) => openNotebookForm(box, item)));
+      actions.append(send);
+    }
+    const remove = el('button', 'btn', 'Remove setup');
+    remove.addEventListener('click', () => removeIntegration(item));
+    actions.append(remove);
+  }
+  card.append(actions);
+  return card;
+}
+
+async function adoptIntegration(item) {
+  if (!confirm(`Adopt the existing ${item.name} configuration? Midden will preserve a backup and use its settings screen from then on.`)) return;
+  try {
+    await post('/api/integrations/adopt', { id: item.id });
+    toast(`${item.name} is now managed in Settings`, 'good');
+    await loadIntegrations();
+  } catch (e) {
+    toast(e.message, 'bad');
+  }
+}
+
+async function removeIntegration(item) {
+  if (!confirm(`Remove Midden's saved ${item.name} setup? This does not uninstall the upstream tool.`)) return;
+  try {
+    await post('/api/integrations/remove', { id: item.id });
+    toast(`${item.name} setup removed`, 'good');
+    await loadIntegrations();
+  } catch (e) {
+    toast(e.message, 'bad');
+  }
+}
+
+async function finishIntegrationMigration(item) {
+  try {
+    await post('/api/integrations/finish-migration', { id: item.id });
+    toast(`${item.name} migration finished`, 'good');
+    await loadIntegrations();
+  } catch (e) {
+    toast(e.message, 'bad');
+    await loadIntegrations();
+  }
+}
+
+async function testIntegration(item) {
+  try {
+    await post('/api/integrations/test', { id: item.id });
+    await loadIntegrations();
+  } catch (e) {
+    toast(`Test failed: ${e.message}`, 'bad');
+    await loadIntegrations();
+  }
+}
+
+async function saveIntegration(settings, testAfterSave) {
+  await post('/api/integrations/configure', settings);
+  if (testAfterSave) await post('/api/integrations/test', { id: settings.id });
+  await loadIntegrations();
+}
+
+function setupFooter(box, save, saveAndTest, replaceLegacy) {
+  const bar = el('div', 'modal-foot');
+  bar.append(el('span', 'foot-note',
+    replaceLegacy
+      ? 'Saving preserves the advanced file as a backup, then uses these local Settings. It does not install, start, or contact anything.'
+      : 'Saving keeps local Midden settings only. It does not install, start, or contact anything.'));
+  const saveButton = el('button', 'btn', replaceLegacy ? 'Save and preserve backup' : 'Save setup');
+  saveButton.addEventListener('click', save);
+  const testButton = el('button', 'btn primary', 'Save and test');
+  testButton.addEventListener('click', saveAndTest);
+  bar.append(saveButton, testButton);
+  box.append(bar);
+}
+
+function configureIntegration(box, item) {
+  if (item.id === 'open-notebook') return configureOpenNotebook(box, item);
+  if (item.id === 'openmontage') return configureOpenMontage(box, item);
+  box.append(el('p', 'bad', 'This integration does not yet have a settings form.'));
+}
+
+function configureOpenNotebook(box, item) {
+  box.append(costHeading({ costly: false, title: 'Set up Open Notebook' }));
+  box.append(el('p', 'note',
+    'Open Notebook owns its own notebooks and models. Midden only sends selected, redacted nuggets after you ask it to.'));
+  if (item.install_summary) box.append(el('p', 'note', item.install_summary));
+  if (item.github_url) box.append(externalLink('Open official Open Notebook setup', item.github_url));
+
+  const settings = item.settings || {};
+  const api = el('input');
+  api.type = 'text';
+  api.value = settings.api_url || 'http://127.0.0.1:5055';
+  const ui = el('input');
+  ui.type = 'text';
+  ui.value = settings.ui_url || 'http://127.0.0.1:8502';
+  const enabled = el('input');
+  enabled.type = 'checkbox';
+  enabled.checked = item.state === 'not_set_up' ? true : item.enabled;
+  const password = el('input');
+  password.type = 'checkbox';
+  password.checked = !!settings.password_required;
+  box.append(field('Local API address', api));
+  box.append(field('Open Notebook web address', ui));
+  const enabledLabel = el('label', 'check');
+  enabledLabel.append(enabled, document.createTextNode(' Enable this integration'));
+  const passwordLabel = el('label', 'check');
+  passwordLabel.append(password, document.createTextNode(' This instance requires a password'));
+  box.append(enabledLabel, passwordLabel);
+  box.append(el('p', 'note',
+    'Midden never stores an Open Notebook password. If needed, it is requested only when you send a source.'));
+
+  const out = el('div', 'result');
+  box.append(out);
+  const request = () => ({
+    id: item.id,
+    enabled: enabled.checked,
+    api_url: api.value.trim(),
+    ui_url: ui.value.trim(),
+    password_required: password.checked,
+    replace_legacy: item.legacy,
+  });
+  const save = async (testAfterSave) => {
+    out.replaceChildren(el('p', 'note', testAfterSave ? 'saving and testing...' : 'saving...'));
+    try {
+      await saveIntegration(request(), testAfterSave);
+      closeModal();
+      toast(testAfterSave ? 'Saved and tested' : 'Open Notebook setup saved', 'good');
+    } catch (e) {
+      out.replaceChildren(el('p', 'bad', e.message));
+    }
+  };
+  setupFooter(box, () => save(false), () => save(true), item.legacy);
+}
+
+function configureOpenMontage(box, item) {
+  box.append(costHeading({ costly: true, title: 'Set up OpenMontage' }));
+  box.append(el('p', 'note',
+    'OpenMontage runs from its own local repository through an agentic CLI. Its runs can spend through that CLI; setting it up is free.'));
+  if (item.install_summary) box.append(el('p', 'note', item.install_summary));
+  if (item.github_url) box.append(externalLink('Open official OpenMontage setup', item.github_url));
+
+  const settings = item.settings || {};
+  const home = el('input');
+  home.type = 'text';
+  home.placeholder = 'C:\\path\\to\\OpenMontage';
+  home.value = settings.home || '';
+  const backend = el('select');
+  [['copilot', 'Copilot CLI'], ['claude', 'Claude Code'], ['opencode', 'OpenCode']]
+    .forEach(([value, label]) => {
+      const option = el('option', null, label);
+      option.value = value;
+      backend.append(option);
+    });
+  backend.value = settings.backend || 'copilot';
+  const enabled = el('input');
+  enabled.type = 'checkbox';
+  enabled.checked = item.state === 'not_set_up' ? true : item.enabled;
+  box.append(field('OpenMontage installation folder', home));
+  box.append(field('Agent CLI', backend));
+  const enabledLabel = el('label', 'check');
+  enabledLabel.append(enabled, document.createTextNode(' Enable this integration'));
+  box.append(enabledLabel);
+  box.append(el('p', 'note',
+    'Testing reads the selected folder only after you explicitly press Save and test. It may touch a network-mounted folder.'));
+
+  const out = el('div', 'result');
+  box.append(out);
+  const request = () => ({
+    id: item.id,
+    enabled: enabled.checked,
+    home: home.value.trim(),
+    backend: backend.value,
+    replace_legacy: item.legacy,
+  });
+  const save = async (testAfterSave) => {
+    out.replaceChildren(el('p', 'note', testAfterSave ? 'saving and testing...' : 'saving...'));
+    try {
+      await saveIntegration(request(), testAfterSave);
+      closeModal();
+      toast(testAfterSave ? 'Saved and tested' : 'OpenMontage setup saved', 'good');
+    } catch (e) {
+      out.replaceChildren(el('p', 'bad', e.message));
+    }
+  };
+  setupFooter(box, () => save(false), () => save(true), item.legacy);
+}
+
+function openNotebookForm(box, integration) {
   box.append(costHeading({ costly: false, title: 'Send nuggets to Open Notebook' }));
   box.append(el('p', 'note',
     'Midden sends stored, redacted nuggets only. This does not spend your Midden CLI budget; Open Notebook may use its own configured models.'));
@@ -1223,6 +1557,14 @@ function openNotebookForm(box, plugin) {
   box.append(field('Open Notebook ID', notebook));
   box.append(field('Workspace', workspace));
   box.append(allLabel);
+  const passwordRequired = !!(integration.settings && integration.settings.password_required);
+  const password = el('input');
+  password.type = 'password';
+  password.autocomplete = 'current-password';
+  if (passwordRequired) {
+    box.append(field('Open Notebook password', password));
+    box.append(el('p', 'note', 'Used for this send only; Midden does not save it.'));
+  }
 
   const out = el('div', 'result');
   box.append(out);
@@ -1235,10 +1577,12 @@ function openNotebookForm(box, plugin) {
   const updateSend = () => {
     workspace.disabled = allWorkspaces.checked;
     send.disabled = !notebook.value.trim() ||
-      (!workspace.value.trim() && !allWorkspaces.checked);
+      (!workspace.value.trim() && !allWorkspaces.checked) ||
+      (passwordRequired && !password.value);
   };
   notebook.addEventListener('input', updateSend);
   workspace.addEventListener('input', updateSend);
+  password.addEventListener('input', updateSend);
   allWorkspaces.addEventListener('change', () => {
     if (allWorkspaces.checked) workspace.value = '';
     updateSend();
@@ -1246,14 +1590,18 @@ function openNotebookForm(box, plugin) {
   send.addEventListener('click', async () => {
     send.disabled = true;
     out.replaceChildren(el('p', 'note', 'preparing source...'));
+    let actionPassword = password.value;
+    password.value = '';
     try {
       const job = await post('/api/action', {
         op: 'open_notebook_push',
-        plugin: plugin.name,
+        plugin: integration.id,
         notebook_id: notebook.value.trim(),
         workspace: workspace.value.trim(),
         all_workspaces: allWorkspaces.checked,
+        open_notebook_password: actionPassword,
       });
+      actionPassword = '';
       const done = await pollJob(job.id, (j) => {
         out.replaceChildren(el('p', 'note', j.progress || 'working...'));
       });
@@ -1272,6 +1620,8 @@ function openNotebookForm(box, plugin) {
     } catch (e) {
       out.replaceChildren(el('p', 'bad', e.message));
       send.disabled = false;
+    } finally {
+      actionPassword = '';
     }
   });
 }

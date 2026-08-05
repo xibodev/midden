@@ -44,14 +44,17 @@ type Server struct {
 	jobs  *Jobs
 	cache *snapshotCache
 
-	reindexMu   sync.Mutex
-	reindexing  bool
-	reindexedAt time.Time
-	retryAt     time.Time
+	integrationMu sync.Mutex
+	legacyTestMu  sync.RWMutex
+	legacyTests   map[string]legacyIntegrationTest
+	reindexMu     sync.Mutex
+	reindexing    bool
+	reindexedAt   time.Time
+	retryAt       time.Time
 }
 
 func NewServer(db *index.DB) *Server {
-	s := &Server{db: db, jobs: NewJobs(), cache: newSnapshotCache()}
+	s := &Server{db: db, jobs: NewJobs(), cache: newSnapshotCache(), legacyTests: map[string]legacyIntegrationTest{}}
 	// Start the expensive disk walk immediately so the headline figure is
 	// usually ready by the time the operator looks at it, without any request
 	// ever waiting on it.
@@ -85,6 +88,12 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/resume", s.handleResume)
 	mux.HandleFunc("/api/next", s.handleNext)
 	mux.HandleFunc("/api/ask-suggestions", s.handleAskSuggestions)
+	mux.HandleFunc("/api/integrations", s.handleIntegrations)
+	mux.HandleFunc("/api/integrations/configure", s.handleIntegrationConfigure)
+	mux.HandleFunc("/api/integrations/adopt", s.handleIntegrationAdopt)
+	mux.HandleFunc("/api/integrations/finish-migration", s.handleIntegrationFinishMigration)
+	mux.HandleFunc("/api/integrations/remove", s.handleIntegrationRemove)
+	mux.HandleFunc("/api/integrations/test", s.handleIntegrationTest)
 	mux.HandleFunc("/api/plugins", s.handlePlugins)
 	mux.HandleFunc("/api/plugins/probe", s.handlePluginProbe)
 

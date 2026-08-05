@@ -1,8 +1,70 @@
 # Integrations
 
-Midden integrations are declarative manifests under `~/.midden/plugins/`.
-They are discovered dynamically, but discovery is deliberately **passive**:
-listing manifests does not contact a service.
+## Set up a built-in integration
+
+Open **Integrations** in `midden ui`. Midden always shows the built-in options,
+even before anything is installed:
+
+1. Read what the tool does, its cost class, and its upstream requirements.
+2. Open the upstream GitHub setup guide or connect a tool you already installed.
+3. Save its local address or folder in Midden's settings.
+4. Explicitly test it when you are ready.
+
+The settings screen writes `~/.midden/integrations.json`, a bounded,
+credential-free file owned by Midden. You do **not** need to edit a source
+file or YAML manifest to configure Open Notebook or OpenMontage. Saving or
+enabling a setup never contacts it; only **Test connection** does.
+
+Midden records when a test last succeeded or failed. **Connected** therefore
+means "last verified", not a hidden background health check.
+
+### Open Notebook
+
+Open Notebook is an optional local knowledge workspace. Its upstream project is
+[lfnovo/open-notebook](https://github.com/lfnovo/open-notebook) (MIT) and its
+official quick start uses Docker Desktop and Docker Compose.
+
+Before first use, follow its upstream guidance to change its encryption key.
+The upstream Compose defaults expose the web UI and API beyond loopback, so
+review and restrict those bindings on a shared or networked machine. Then use
+Midden's setup form to enter the local API and web addresses. Midden accepts
+only loopback targets.
+
+If the Open Notebook instance uses a password, enable that setting. Midden
+asks for the password only for a source-send action, keeps it in memory for
+that action, and never writes it to its settings, index, manifests, or job
+history.
+
+### OpenMontage
+
+OpenMontage is an optional local video-production capability. Its upstream
+project is [calesthio/OpenMontage](https://github.com/calesthio/OpenMontage).
+It is a host-side project, not a service Compose stack: its documented setup
+needs a local repository, Python 3.10+, Node 18+, FFmpeg, and an agentic CLI.
+
+Use the setup form to select the installed repository and CLI. A test reads
+that folder only after you explicitly request it; this matters if the folder
+is on a network mount. Its runs can spend through the selected CLI, so setup
+is free but eventual production actions retain Midden's cost gates.
+
+OpenMontage is licensed upstream under AGPLv3. Review its upstream licence
+before redistributing or bundling it.
+
+## Advanced manifests
+
+Midden integrations can also be declared in manifests under
+`~/.midden/plugins/`. This is an advanced escape hatch for custom integrations,
+not the normal setup path. Existing `open-notebook.yaml` or
+`openmontage.yaml` files remain usable; the UI can explicitly adopt a
+supported legacy setup into Settings and retains a backup rather than
+silently overwriting it.
+
+If a migration is interrupted, Midden marks it as needing attention and shows
+**Finish migration**. It will not use either configuration until that explicit
+recovery step completes.
+
+Advanced manifest discovery is deliberately **passive**: listing manifests
+does not contact a service.
 
 ```powershell
 midden plugins list                 # parse + validate; no network
@@ -11,7 +73,7 @@ midden plugins verify               # check declared service operations against 
 midden plugins probe --allow-network # explicit authorization for non-loopback targets
 ```
 
-## Manifest contract
+### Manifest contract
 
 Every manifest requires:
 
@@ -30,7 +92,7 @@ Midden's estimate-before-spend contract.
 Unknown YAML keys are rejected. A typo such as `enable: false` must not quietly
 become an enabled integration.
 
-## Probe policy
+### Probe policy
 
 An HTTP probe is bounded, credential-free, redirect-free, and loopback-only by
 default. It never expands process environment variables in its URL, so a
@@ -46,7 +108,7 @@ that permission.
 An unavailable target is normal. Midden renders its reason rather than showing
 a runnable action that will fail later.
 
-## Open Notebook
+### Open Notebook wire contract
 
 Open Notebook owns its own UI and data. The explicit **Send nuggets** action
 requires an existing notebook ID, sends only stored nuggets after a second
@@ -64,19 +126,18 @@ The source endpoint has an unusual but verified wire contract:
 - `notebooks` is a JSON string such as `["notebook:abc123"]`;
 - a notebook deep link URL-encodes the colon in its ID.
 
-If `OPEN_NOTEBOOK_PASSWORD` is configured, Midden sends the configured
-password only in the Authorization header of the explicit export request. It
-is never stored in the index, rendered in the UI, used during passive
-listing/probes, or sent through an environment-configured HTTP proxy.
+When password protection is enabled, Midden asks for the password only in the
+explicit export dialog and sends it only in that request's Authorization
+header. `OPEN_NOTEBOOK_PASSWORD` remains an optional non-UI fallback for
+existing advanced setups. Neither path stores the password in the index,
+settings, manifests, rendered UI, or job history, and export requests never
+use an environment-configured HTTP proxy.
 After the source is accepted, the job reports **submitted** and returns the
 notebook link. The manifest verifies the lightweight
 `/sources/{source_id}/status` operation, but Midden does not wait for
 destination-side processing; Open Notebook continues it in its own UI.
 
-The configured manifest can be copied from the user's local
-`~/.midden/plugins/open-notebook.yaml` once Open Notebook is installed.
-
-## OpenMontage
+### OpenMontage execution model
 
 OpenMontage is a capability integration, not a service client. Its own
 architecture makes the coding agent the orchestration plane; Midden therefore

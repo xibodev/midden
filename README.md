@@ -28,9 +28,21 @@ $ midden ui                        # embedded web UI on loopback
 
 ## Install
 
+From a downloaded binary, run:
+
+```bash
+midden start
+midden ui
+```
+
+`start` explains what Midden found; the browser is where a person can explore
+sessions and set up optional integrations without editing source or YAML.
+
+To build from source:
+
 ```bash
 go build -o midden ./cmd/midden
-./midden doctor
+./midden start
 ```
 
 ## The pipeline
@@ -428,8 +440,8 @@ midden advise    [--scope global|tool|repo|workspace]
 midden watch                         # prevention daemon
 midden ui                            # localhost web app
 midden mcp                           # MCP server on stdio
-midden plugins list                  # configured integrations (passive)
-midden plugins probe                 # check local integration targets
+midden plugins list                  # advanced manifests only (passive)
+midden plugins probe                 # explicitly check an advanced manifest
 ```
 
 ### Web UI
@@ -444,7 +456,7 @@ source stores — re-deriving them on every request took minutes and made the pa
 | **Sessions** | Filter by tool, age, workspace or drive; resume one-liners; risk badges; shown/in-range/hidden/unloaded counts and index age. |
 | **Nuggets** | Reclaimed knowledge with provenance back to the session it came from. |
 | **Artifacts** | Everything midden has written, readable in place. |
-| **Integrations** | Manifest-derived capability cards. Listing is passive; local probes are explicit, and unavailable targets state why instead of offering a broken action. |
+| **Integrations** | A setup center for optional local tools: official install handoffs, editable local settings, explicit tests, recovery states, and advanced-manifest adoption. |
 | **Ask** | Questions about your own history, with an estimate before it charges. |
 | **Cost** | What has been spent, and how close the estimates were. |
 | **Log** | Every mutating operation, with before/after bytes and verification. |
@@ -461,9 +473,12 @@ Three things the UI is strict about:
 - **Freshness is explicit.** `Refresh data` performs a complete source read, reconciles stale
   derived rows, and reports partial sources instead of calling an incomplete index current. A
   Sessions list always carries its denominator and cache generation.
-- **Integrations are declarative and distrustful by default.** A manifest needs a `cost` class,
-  an `enabled` switch, and a probe. Listing makes no network request; `midden plugins probe`
-  checks loopback targets only unless `--allow-network` is an explicit operator choice.
+- **Integrations are human-configured and distrustful by default.** Built-in
+  settings are local, credential-free, and passive until an explicit test.
+  Declarative manifests remain an advanced escape hatch: they need a `cost`
+  class, an `enabled` switch, and a probe. `midden plugins probe` checks
+  loopback targets only unless `--allow-network` is an explicit operator
+  choice.
 
 ### MCP server — *the differentiator*
 
