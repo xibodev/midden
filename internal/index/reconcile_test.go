@@ -18,6 +18,7 @@ func TestReconcileRemovesOnlyProvenDerivedDrift(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	defer db.Close()
 
 	now := time.Now().Add(-time.Minute).Round(time.Second)
@@ -563,6 +564,40 @@ func TestEmptyReconcileReportUsesArraysInJSON(t *testing.T) {
 	} {
 		if !strings.Contains(string(data), want) {
 			t.Errorf("JSON %s missing %s", data, want)
+		}
+	}
+}
+
+func TestNuggetWorkspaceFiltersTreatWildcardsLiterally(t *testing.T) {
+	t.Setenv("MIDDEN_HOME", t.TempDir())
+	db, err := Open()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	if err := db.PutNuggets([]Nugget{
+		{UID: "percent-literal", Tool: "claude", SessionID: "one", Kind: "decision", Body: "one", Workspace: "project%literal"},
+		{UID: "percent-broadened", Tool: "claude", SessionID: "two", Kind: "decision", Body: "two", Workspace: "projectXliteral"},
+		{UID: "underscore-literal", Tool: "claude", SessionID: "three", Kind: "decision", Body: "three", Workspace: "team_literal"},
+		{UID: "underscore-broadened", Tool: "claude", SessionID: "four", Kind: "decision", Body: "four", Workspace: "teamXliteral"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, test := range []struct {
+		workspace string
+		want      string
+	}{
+		{workspace: "project%", want: "percent-literal"},
+		{workspace: "team_", want: "underscore-literal"},
+	} {
+		got, err := db.Nuggets(NuggetQuery{Workspace: test.workspace})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(got) != 1 || got[0].UID != test.want {
+			t.Fatalf("workspace %q returned %#v, want only %q", test.workspace, got, test.want)
 		}
 	}
 }

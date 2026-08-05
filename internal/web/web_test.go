@@ -1,6 +1,7 @@
 package web
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/mekjr1/midden/internal/core"
 	"github.com/mekjr1/midden/internal/index"
+	"github.com/mekjr1/midden/internal/plugins"
 )
 
 func TestNonLoopbackIsRejected(t *testing.T) {
@@ -294,5 +296,164 @@ func TestPluginProbeRequiresExplicitSameOriginPost(t *testing.T) {
 	server.handlePluginProbe(rec, post)
 	if rec.Code != http.StatusForbidden {
 		t.Fatalf("cross-origin probe status=%d, want 403", rec.Code)
+	}
+}
+
+func TestOpenNotebookPushSendsNuggetsNotRawSessions(t *testing.T) {
+	t.Setenv("MIDDEN_HOME", t.TempDir())
+	db, err := index.Open()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if err := db.PutNuggets([]index.Nugget{{
+		Tool:      "claude",
+		SessionID: "session-123",
+		Kind:      "decision",
+		Title:     "Use explicit refresh",
+		Body:      "The index must be reconciled before it is called fresh.",
+		Workspace: "project",
+	}}); err != nil {
+		t.Fatal(err)
+	}
+
+	var uploaded string
+	serverHTTP := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/openapi.json":
+			_, _ = w.Write([]byte(`{"paths":{"/api/sources":{"post":{}},"/api/sources/{source_id}/status":{"get":{}}}}`))
+		case r.Method == http.MethodPost && r.URL.Path == "/api/sources":
+			if err := r.ParseMultipartForm(1 << 20); err != nil {
+				t.Fatal(err)
+			}
+			if got, want := r.FormValue("type"), "text"; got != want {
+				t.Fatalf("type=%q, want %q", got, want)
+			}
+			if got, want := r.FormValue("notebooks"), `["notebook:abc123"]`; got != want {
+				t.Fatalf("notebooks=%q, want %q", got, want)
+			}
+			uploaded = r.FormValue("content")
+			w.WriteHeader(http.StatusCreated)
+			_, _ = w.Write([]byte(`{"id":"source:xyz","status":"new"}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer serverHTTP.Close()
+
+	dir := filepath.Join(index.Dir(), "plugins")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	manifest := `
+name: open-notebook
+kind: service
+enabled: true
+cost: free
+probe:
+  kind: http
+  url: ` + serverHTTP.URL + `/openapi.json
+api:
+  base: ` + serverHTTP.URL + `/api
+uses:
+  - method: POST
+    path: /sources
+  - method: GET
+    path: /sources/{source_id}/status
+push:
+  - endpoint: /sources
+    encoding: multipart
+    fields:
+      type: text
+      content: "{{body}}"
+      title: "{{title}}"
+      notebooks: "[\"{{notebook_id}}\"]"
+      embed: "true"
+      async_processing: "true"
+    expect_status: [201]
+    poll:
+      url: /sources/{{source_id}}
+      until: completed
+link: ` + serverHTTP.URL + `/notebooks/{{notebook_id|urlencode}}
+`
+	if err := os.WriteFile(filepath.Join(dir, "open-notebook.yaml"), []byte(manifest), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	server := &Server{db: db, cache: newSnapshotCache(), jobs: NewJobs()}
+	result, err := server.doOpenNotebookPush("job-test", actionRequest{
+		Plugin:     "open-notebook",
+		NotebookID: "notebook:abc123",
+		Workspace:  "project",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(uploaded, "Use explicit refresh") || strings.Contains(uploaded, "raw transcript") {
+		t.Fatalf("uploaded content=%q", uploaded)
+	}
+	got := result.(map[string]any)
+	if got["source_id"] != "source:xyz" || got["source_status"] != "new" {
+		t.Fatalf("result=%#v", got)
+	}
+	if link, _ := got["notebook_url"].(string); !strings.Contains(link, "notebook%3Aabc123") {
+		t.Fatalf("deep link=%q", link)
+	}
+}
+
+func TestOpenNotebookPushRequiresExplicitScope(t *testing.T) {
+	server := &Server{}
+	_, err := server.doOpenNotebookPush("job-test", actionRequest{NotebookID: "notebook:abc123"})
+	if err == nil || !strings.Contains(err.Error(), "explicitly include all") {
+		t.Fatalf("unscoped Open Notebook export error=%v", err)
+	}
+	_, err = server.doOpenNotebookPush("job-test", actionRequest{
+		NotebookID: "notebook:abc123", Workspace: "project", AllWorkspaces: true,
+	})
+	if err == nil || !strings.Contains(err.Error(), "not both") {
+		t.Fatalf("ambiguous Open Notebook export error=%v", err)
+	}
+}
+
+func TestOpenNotebookStatusRequiresActionReadyManifest(t *testing.T) {
+	t.Setenv("MIDDEN_HOME", t.TempDir())
+	db, err := index.Open()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"paths":{"/api/sources":{"post":{}}}}`))
+	}))
+	defer api.Close()
+	dir := filepath.Join(index.Dir(), "plugins")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// Reachable service + declared route, but no source push contract.
+	if err := os.WriteFile(filepath.Join(dir, "open-notebook.yaml"), []byte(`
+name: open-notebook
+kind: service
+enabled: true
+cost: free
+probe:
+  kind: http
+  url: `+api.URL+`/openapi.json
+api:
+  base: `+api.URL+`/api
+uses:
+  - method: POST
+    path: /sources
+link: http://127.0.0.1:8502/notebooks/{{notebook_id|urlencode}}
+`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	server := &Server{db: db, cache: newSnapshotCache(), jobs: NewJobs()}
+	status, err := server.pluginStatus(context.Background(), true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(status) != 1 || status[0].Status != plugins.Unavailable || !strings.Contains(status[0].Detail, "no source push") {
+		t.Fatalf("status=%#v, want unavailable action contract", status)
 	}
 }

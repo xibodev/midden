@@ -69,6 +69,55 @@ enable: false
 	}
 }
 
+func TestLoadDirRejectsDuplicateActionNames(t *testing.T) {
+	dir := t.TempDir()
+	for _, name := range []string{"a.yaml", "b.yaml"} {
+		writeManifest(t, dir, name, "name: same\nkind: capability\ncost: free\nprobe:\n  kind: directory\n  path: /tmp\n")
+	}
+	loaded, err := LoadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(loaded) != 2 {
+		t.Fatalf("loaded=%d, want 2", len(loaded))
+	}
+	for _, item := range loaded {
+		if item.Error == nil || !strings.Contains(item.Error.Error(), "duplicate manifest name") {
+			t.Fatalf("duplicate not rejected: %#v", item)
+		}
+	}
+}
+
+func TestLoadDirRejectsMalformedDuplicateActionName(t *testing.T) {
+	dir := t.TempDir()
+	writeManifest(t, dir, "a-broken.yaml", `
+name: open-notebook
+kind: service
+cost: free
+unknown_field: true
+`)
+	writeManifest(t, dir, "b-valid.yaml", `
+name: open-notebook
+kind: service
+cost: free
+probe:
+  kind: http
+  url: http://127.0.0.1:5055/openapi.json
+`)
+	loaded, err := LoadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(loaded) != 2 {
+		t.Fatalf("loaded=%d, want 2", len(loaded))
+	}
+	for _, item := range loaded {
+		if item.Error == nil || !strings.Contains(item.Error.Error(), "duplicate manifest name") {
+			t.Fatalf("malformed duplicate escaped collision detection: %#v", item)
+		}
+	}
+}
+
 func TestLoadDirRejectsLinksAndOversizedManifests(t *testing.T) {
 	dir := t.TempDir()
 	target := filepath.Join(dir, "target.yaml")

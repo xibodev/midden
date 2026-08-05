@@ -29,6 +29,8 @@ import (
 	"github.com/mekjr1/midden/internal/exec"
 	"github.com/mekjr1/midden/internal/handoff"
 	"github.com/mekjr1/midden/internal/index"
+	"github.com/mekjr1/midden/internal/opennotebook"
+	"github.com/mekjr1/midden/internal/plugins"
 	"github.com/mekjr1/midden/internal/reclaim"
 	"github.com/mekjr1/midden/internal/redact"
 	"github.com/mekjr1/midden/internal/refine"
@@ -121,18 +123,21 @@ func (j *Jobs) list() []*Job {
 
 // actionRequest is the body every action endpoint accepts.
 type actionRequest struct {
-	Op          string   `json:"op"`
-	SessionID   string   `json:"session_id"`
-	Workspace   string   `json:"workspace"`
-	Tool        string   `json:"tool"`
-	Days        int      `json:"days"`
-	Instruction string   `json:"instruction"`
-	Templates   []string `json:"templates"`
-	Backend     string   `json:"backend"`
-	Model       string   `json:"model"`
-	Records     int      `json:"records"`
-	Depth       string   `json:"depth"`
-	Question    string   `json:"question"`
+	Op            string   `json:"op"`
+	SessionID     string   `json:"session_id"`
+	Workspace     string   `json:"workspace"`
+	Tool          string   `json:"tool"`
+	Days          int      `json:"days"`
+	Instruction   string   `json:"instruction"`
+	Templates     []string `json:"templates"`
+	Backend       string   `json:"backend"`
+	Model         string   `json:"model"`
+	Records       int      `json:"records"`
+	Depth         string   `json:"depth"`
+	Question      string   `json:"question"`
+	Plugin        string   `json:"plugin"`
+	NotebookID    string   `json:"notebook_id"`
+	AllWorkspaces bool     `json:"all_workspaces"`
 
 	// Apply must be explicitly true for anything destructive. A missing field
 	// means dry run, so a malformed request can never delete.
@@ -182,6 +187,9 @@ func (s *Server) handleAction(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "POST required", http.StatusMethodNotAllowed)
 		return
 	}
+	if !requireExplicitMiddenRequest(w, r) {
+		return
+	}
 	var req actionRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "bad request: "+err.Error(), http.StatusBadRequest)
@@ -189,7 +197,7 @@ func (s *Server) handleAction(w http.ResponseWriter, r *http.Request) {
 	}
 
 	switch req.Op {
-	case "prune", "archive", "reclaim", "refine", "summarize", "ask", "brief", "refresh":
+	case "prune", "archive", "reclaim", "refine", "summarize", "ask", "brief", "refresh", "open_notebook_push":
 	default:
 		http.Error(w, "unknown op: "+req.Op, http.StatusBadRequest)
 		return
@@ -241,6 +249,8 @@ func (s *Server) runJob(id string, req actionRequest) {
 		result, err = s.doAsk(id, req)
 	case "refresh":
 		result, err = s.doRefresh(id)
+	case "open_notebook_push":
+		result, err = s.doOpenNotebookPush(id, req)
 	}
 
 	s.jobs.update(id, func(j *Job) {
@@ -334,6 +344,122 @@ func (s *Server) doRefresh(id string) (any, error) {
 		"partial":    len(messages) > 0 || !completeAll,
 		"errors":     messages,
 	}, nil
+}
+
+// doOpenNotebookPush prepares a source for an existing Open Notebook
+// notebook. It is deliberately an explicit, free-to-Midden action: the
+// destination may use its own configured models and billing, but this does
+// not spend the agentic CLI budget tracked by Midden.
+//
+// Only indexed nuggets leave Midden. Raw transcripts never cross this
+// boundary, and the prepared document is redacted once more immediately
+// before network transmission.
+func (s *Server) doOpenNotebookPush(id string, req actionRequest) (any, error) {
+	if req.Plugin != "" && req.Plugin != "open-notebook" {
+		return nil, fmt.Errorf("Open Notebook action cannot use plugin %q", req.Plugin)
+	}
+	if strings.TrimSpace(req.NotebookID) == "" {
+		return nil, fmt.Errorf("notebook id is required")
+	}
+	if req.AllWorkspaces && strings.TrimSpace(req.Workspace) != "" {
+		return nil, fmt.Errorf("choose a workspace or all workspaces, not both")
+	}
+	if !req.AllWorkspaces && strings.TrimSpace(req.Workspace) == "" {
+		return nil, fmt.Errorf("choose a workspace or explicitly include all workspaces")
+	}
+
+	s.jobs.update(id, func(j *Job) { j.Progress = "validating Open Notebook" })
+	loaded, err := plugins.LoadDir(filepath.Join(index.Dir(), "plugins"))
+	if err != nil {
+		return nil, err
+	}
+	var (
+		manifest plugins.Manifest
+		found    bool
+	)
+	for _, loaded := range loaded {
+		if loaded.Manifest.Name != "open-notebook" {
+			continue
+		}
+		if loaded.Error != nil {
+			return nil, fmt.Errorf("Open Notebook manifest is unparseable: %w", loaded.Error)
+		}
+		manifest, found = loaded.Manifest, true
+		break
+	}
+	if !found {
+		return nil, fmt.Errorf("Open Notebook manifest not found in %s", filepath.Join(index.Dir(), "plugins"))
+	}
+	if errs := plugins.Validate(manifest); len(errs) > 0 {
+		return nil, fmt.Errorf("Open Notebook manifest is invalid: %s", strings.Join(errs, "; "))
+	}
+	if !manifest.IsEnabled() {
+		return nil, fmt.Errorf("Open Notebook integration is disabled")
+	}
+	verification := plugins.VerifyService(context.Background(), manifest, nil)
+	if verification.Result.Status != plugins.Available {
+		return nil, fmt.Errorf("Open Notebook is unavailable: %s", verification.Result.Detail)
+	}
+
+	prepared, err := opennotebook.Prepare(manifest)
+	if err != nil {
+		return nil, err
+	}
+
+	s.jobs.update(id, func(j *Job) { j.Progress = "preparing redacted nuggets" })
+	nuggets, err := s.db.Nuggets(index.NuggetQuery{Workspace: req.Workspace, Limit: 100})
+	if err != nil {
+		return nil, err
+	}
+	if len(nuggets) == 0 {
+		return nil, fmt.Errorf("no nuggets match this scope")
+	}
+	body := redact.Text(notebookSourceBody(nuggets)).Text
+	title := "Midden reclaimed evidence"
+	if req.AllWorkspaces {
+		title += " · all workspaces"
+	} else {
+		title += " · " + req.Workspace
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	s.jobs.update(id, func(j *Job) { j.Progress = "uploading source to Open Notebook" })
+	source, err := prepared.Client.CreateTextSource(ctx, prepared.Push, req.NotebookID, title, body)
+	if err != nil {
+		return nil, err
+	}
+	link, err := prepared.Client.NotebookLink(req.NotebookID)
+	if err != nil {
+		return nil, err
+	}
+
+	return map[string]any{
+		"free":          true,
+		"nuggets":       len(nuggets),
+		"source_id":     source.ID,
+		"source_status": source.Status,
+		"notebook_url":  link,
+		"note":          "Source submitted. Open Notebook continues processing in its own UI; Midden did not spend your CLI budget.",
+	}, nil
+}
+
+func notebookSourceBody(nuggets []index.Nugget) string {
+	var b strings.Builder
+	b.WriteString("# Midden reclaimed evidence\n\n")
+	b.WriteString("This source was prepared from stored nuggets, not raw AI CLI transcripts.\n\n")
+	for _, nugget := range nuggets {
+		fmt.Fprintf(&b, "## %s\n\n", nugget.Title)
+		fmt.Fprintf(&b, "- kind: %s\n- source session: %s\n", nugget.Kind, nugget.SessionID)
+		if nugget.Workspace != "" {
+			fmt.Fprintf(&b, "- workspace: %s\n", nugget.Workspace)
+		}
+		b.WriteString("\n")
+		b.WriteString(nugget.Body)
+		b.WriteString("\n\n")
+	}
+	return b.String()
 }
 
 // doPrune previews or applies transcript pruning. Dry run unless Apply is set.

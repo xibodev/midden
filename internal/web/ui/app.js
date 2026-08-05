@@ -1185,6 +1185,11 @@ async function loadIntegrations(probe = false) {
       top.append(el('span', 'pill ' + statusClass, status));
       row.append(top);
       row.append(el('p', 'note', plugin.detail || 'no status detail'));
+      if (plugin.name === 'open-notebook' && plugin.status === 'available') {
+        const send = el('button', 'btn', 'Send nuggets');
+        send.addEventListener('click', () => openModal((box) => openNotebookForm(box, plugin)));
+        row.append(send);
+      }
       list.append(row);
     });
   } catch (e) {
@@ -1199,6 +1204,77 @@ async function loadIntegrations(probe = false) {
 
 loaders.integrations = () => loadIntegrations(false);
 $('#probe-plugins').addEventListener('click', () => loadIntegrations(true));
+
+function openNotebookForm(box, plugin) {
+  box.append(costHeading({ costly: false, title: 'Send nuggets to Open Notebook' }));
+  box.append(el('p', 'note',
+    'Midden sends stored, redacted nuggets only. This does not spend your Midden CLI budget; Open Notebook may use its own configured models.'));
+
+  const notebook = el('input');
+  notebook.type = 'text';
+  notebook.placeholder = 'notebook:abc123';
+  const workspace = el('input');
+  workspace.type = 'text';
+  workspace.placeholder = 'workspace filter';
+  const allWorkspaces = el('input');
+  allWorkspaces.type = 'checkbox';
+  const allLabel = el('label', 'check');
+  allLabel.append(allWorkspaces, document.createTextNode(' Include nuggets from all workspaces'));
+  box.append(field('Open Notebook ID', notebook));
+  box.append(field('Workspace', workspace));
+  box.append(allLabel);
+
+  const out = el('div', 'result');
+  box.append(out);
+  const bar = el('div', 'modal-foot');
+  const send = el('button', 'btn primary', 'Send');
+  send.disabled = true;
+  bar.append(el('span', 'foot-note', 'One source contains at most 100 newest matching nuggets. The destination link appears after Open Notebook accepts it.'), send);
+  box.append(bar);
+
+  const updateSend = () => {
+    workspace.disabled = allWorkspaces.checked;
+    send.disabled = !notebook.value.trim() ||
+      (!workspace.value.trim() && !allWorkspaces.checked);
+  };
+  notebook.addEventListener('input', updateSend);
+  workspace.addEventListener('input', updateSend);
+  allWorkspaces.addEventListener('change', () => {
+    if (allWorkspaces.checked) workspace.value = '';
+    updateSend();
+  });
+  send.addEventListener('click', async () => {
+    send.disabled = true;
+    out.replaceChildren(el('p', 'note', 'preparing source...'));
+    try {
+      const job = await post('/api/action', {
+        op: 'open_notebook_push',
+        plugin: plugin.name,
+        notebook_id: notebook.value.trim(),
+        workspace: workspace.value.trim(),
+        all_workspaces: allWorkspaces.checked,
+      });
+      const done = await pollJob(job.id, (j) => {
+        out.replaceChildren(el('p', 'note', j.progress || 'working...'));
+      });
+      if (done.status === 'failed') throw new Error(done.error || 'Open Notebook push failed');
+      const r = done.result || {};
+      out.replaceChildren();
+      out.append(el('p', 'note', `${r.nuggets || 0} nugget(s) submitted · source ${r.source_id || 'created'}`));
+      if (r.note) out.append(el('p', 'note', r.note));
+      if (r.notebook_url) {
+        const link = el('a', 'btn primary', 'Open notebook');
+        link.href = r.notebook_url;
+        link.target = '_blank';
+        link.rel = 'noopener noreferrer';
+        out.append(link);
+      }
+    } catch (e) {
+      out.replaceChildren(el('p', 'bad', e.message));
+      send.disabled = false;
+    }
+  });
+}
 
 // artifactReader shows a generated document without leaving the page.
 function artifactReader(box, a) {

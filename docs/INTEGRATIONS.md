@@ -48,12 +48,14 @@ a runnable action that will fail later.
 
 ## Open Notebook
 
-Open Notebook owns its own UI and data. Midden currently validates the
-declarative contract—manifest shape, local probe, and declared OpenAPI
-paths/verbs—but **does not yet push evidence, create notebooks, validate
-multipart bodies, or construct deep links at runtime**. Those actions are P3:
-they will be separately gated, preflighted, and tested against a live Open
-Notebook instance before they become runnable.
+Open Notebook owns its own UI and data. The explicit **Send nuggets** action
+requires an existing notebook ID, sends only stored nuggets after a second
+redaction pass, creates one multipart text source, then opens Open Notebook's
+own UI. It never sends raw transcripts, creates notebooks, mirrors content, or
+waits long enough to call a destination-side async job failed.
+
+Choose one workspace, or explicitly opt in to all workspaces. Each source is
+bounded to the 100 newest matching nuggets.
 
 The source endpoint has an unusual but verified wire contract:
 
@@ -61,6 +63,15 @@ The source endpoint has an unusual but verified wire contract:
 - `embed` and `async_processing` are **strings** (`"true"`), not JSON booleans;
 - `notebooks` is a JSON string such as `["notebook:abc123"]`;
 - a notebook deep link URL-encodes the colon in its ID.
+
+If `OPEN_NOTEBOOK_PASSWORD` is configured, Midden sends the configured
+password only in the Authorization header of the explicit export request. It
+is never stored in the index, rendered in the UI, used during passive
+listing/probes, or sent through an environment-configured HTTP proxy.
+After the source is accepted, the job reports **submitted** and returns the
+notebook link. The manifest verifies the lightweight
+`/sources/{source_id}/status` operation, but Midden does not wait for
+destination-side processing; Open Notebook continues it in its own UI.
 
 The configured manifest can be copied from the user's local
 `~/.midden/plugins/open-notebook.yaml` once Open Notebook is installed.

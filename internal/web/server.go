@@ -29,6 +29,7 @@ import (
 	"github.com/mekjr1/midden/internal/core"
 	"github.com/mekjr1/midden/internal/guide"
 	"github.com/mekjr1/midden/internal/index"
+	"github.com/mekjr1/midden/internal/opennotebook"
 	"github.com/mekjr1/midden/internal/oracle"
 	"github.com/mekjr1/midden/internal/plugins"
 	"github.com/mekjr1/midden/internal/refine"
@@ -445,16 +446,7 @@ func (s *Server) handlePluginProbe(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "POST required", http.StatusMethodNotAllowed)
 		return
 	}
-	if r.Header.Get("X-Midden-Request") != "1" {
-		http.Error(w, "explicit Midden request required", http.StatusForbidden)
-		return
-	}
-	if !isLoopbackHostHeader(r.Host) {
-		http.Error(w, "loopback host required", http.StatusForbidden)
-		return
-	}
-	if origin := r.Header.Get("Origin"); origin != "" && origin != "http://"+r.Host {
-		http.Error(w, "cross-origin probe denied", http.StatusForbidden)
+	if !requireExplicitMiddenRequest(w, r) {
 		return
 	}
 	out, err := s.pluginStatus(r.Context(), true)
@@ -463,6 +455,25 @@ func (s *Server) handlePluginProbe(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, out)
+}
+
+// requireExplicitMiddenRequest protects operations that can write derived
+// state, probe a target, or export evidence. Local TCP alone is insufficient:
+// a DNS-rebound page can reach loopback with an attacker-controlled Host.
+func requireExplicitMiddenRequest(w http.ResponseWriter, r *http.Request) bool {
+	if r.Header.Get("X-Midden-Request") != "1" {
+		http.Error(w, "explicit Midden request required", http.StatusForbidden)
+		return false
+	}
+	if !isLoopbackHostHeader(r.Host) {
+		http.Error(w, "loopback host required", http.StatusForbidden)
+		return false
+	}
+	if origin := r.Header.Get("Origin"); origin != "" && origin != "http://"+r.Host {
+		http.Error(w, "cross-origin request denied", http.StatusForbidden)
+		return false
+	}
+	return true
 }
 
 func (s *Server) pluginStatus(ctx context.Context, probe bool) ([]pluginView, error) {
@@ -489,8 +500,27 @@ func (s *Server) pluginStatus(ctx context.Context, probe bool) ([]pluginView, er
 		} else if !m.IsEnabled() {
 			v.Status, v.Detail = plugins.Disabled, "plugin is disabled"
 		} else if probe {
-			result := plugins.ProbeManifest(ctx, m, nil)
-			v.Status, v.Detail = result.Status, result.Detail
+			// Open Notebook's card is an action, not merely a health check:
+			// verify its API and exact P3 source contract before offering
+			// Send nuggets. Generic services can remain simple health probes.
+			if m.Name == "open-notebook" {
+				result := plugins.VerifyService(ctx, m, nil)
+				v.Status, v.Detail = result.Result.Status, result.Result.Detail
+				if v.Status == plugins.Available && m.Name == "open-notebook" {
+					if _, err := opennotebook.Prepare(m); err != nil {
+						v.Status, v.Detail = plugins.Unavailable, err.Error()
+					}
+				}
+				// A generic service may expose only a health endpoint. OpenAPI
+				// verification is required only when this manifest declares API
+				// operations or a push action that Midden intends to execute.
+			} else if m.Kind == "service" && (len(m.Uses) > 0 || len(m.Push) > 0) {
+				result := plugins.VerifyService(ctx, m, nil)
+				v.Status, v.Detail = result.Result.Status, result.Result.Detail
+			} else {
+				result := plugins.ProbeManifest(ctx, m, nil)
+				v.Status, v.Detail = result.Status, result.Detail
+			}
 		} else {
 			v.Status, v.Detail = plugins.NotChecked, "not probed"
 		}

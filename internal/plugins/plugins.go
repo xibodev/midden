@@ -67,6 +67,7 @@ type API struct {
 
 type Auth struct {
 	Header   string `yaml:"header"`
+	Scheme   string `yaml:"scheme"`
 	Env      string `yaml:"env"`
 	Optional bool   `yaml:"optional"`
 }
@@ -240,6 +241,7 @@ func LoadDir(dir string) ([]Loaded, error) {
 			continue
 		}
 
+		declaredName := manifestDeclaredName(data)
 		var manifest Manifest
 		decoder := yaml.NewDecoder(bytes.NewReader(data))
 		decoder.KnownFields(true)
@@ -256,11 +258,54 @@ func LoadDir(dir string) ([]Loaded, error) {
 		}
 		manifest.File = file
 		if err != nil && manifest.Name == "" {
-			manifest.Name = strings.TrimSuffix(name, filepath.Ext(name))
+			manifest.Name = declaredName
+			if manifest.Name == "" {
+				manifest.Name = strings.TrimSuffix(name, filepath.Ext(name))
+			}
 		}
 		loaded = append(loaded, Loaded{Manifest: manifest, Error: err})
 	}
+	// Names are action identities. Allowing two valid files to share a name
+	// makes a UI click ambiguous: filename sort would silently choose a
+	// different destination from the card the operator saw.
+	byName := map[string][]int{}
+	for i, item := range loaded {
+		// yaml.v3 can retain fields decoded before it encounters an unknown
+		// key. A malformed `name: open-notebook` is still an identity
+		// collision: ignoring it lets the UI show a later valid manifest
+		// while the action loader selects the earlier broken one.
+		if item.Manifest.Name != "" {
+			byName[item.Manifest.Name] = append(byName[item.Manifest.Name], i)
+		}
+	}
+	for name, positions := range byName {
+		if len(positions) < 2 {
+			continue
+		}
+		for _, i := range positions {
+			if loaded[i].Error != nil {
+				loaded[i].Error = fmt.Errorf("%v; duplicate manifest name %q", loaded[i].Error, name)
+			} else {
+				loaded[i].Error = fmt.Errorf("duplicate manifest name %q", name)
+			}
+		}
+	}
 	return loaded, nil
+}
+
+// manifestDeclaredName extracts the first document's top-level scalar name
+// without applying the strict manifest schema. It is used only to quarantine
+// malformed manifests that collide with another integration identity.
+func manifestDeclaredName(data []byte) string {
+	var values map[string]any
+	if err := yaml.Unmarshal(data, &values); err != nil {
+		return ""
+	}
+	name, ok := values["name"].(string)
+	if !ok {
+		return ""
+	}
+	return name
 }
 
 func (m Manifest) IsEnabled() bool {

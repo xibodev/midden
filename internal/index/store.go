@@ -119,16 +119,16 @@ func (d *DB) Nuggets(q NuggetQuery) ([]Nugget, error) {
 		args = append(args, q.Kind)
 	}
 	if q.SessionID != "" {
-		where = append(where, "session_id LIKE ?")
-		args = append(args, q.SessionID+"%")
+		where = append(where, `session_id LIKE ? ESCAPE '\'`)
+		args = append(args, escapeLike(q.SessionID)+"%")
 	}
 	if q.Workspace != "" {
-		where = append(where, "workspace LIKE ?")
-		args = append(args, "%"+q.Workspace+"%")
+		where = append(where, `workspace LIKE ? ESCAPE '\'`)
+		args = append(args, "%"+escapeLike(q.Workspace)+"%")
 	}
 	if q.Search != "" {
-		where = append(where, "(title LIKE ? OR body LIKE ?)")
-		args = append(args, "%"+q.Search+"%", "%"+q.Search+"%")
+		where = append(where, `(title LIKE ? ESCAPE '\' OR body LIKE ? ESCAPE '\')`)
+		args = append(args, "%"+escapeLike(q.Search)+"%", "%"+escapeLike(q.Search)+"%")
 	}
 
 	sqlStr := `SELECT uid,tool,session_id,kind,COALESCE(title,''),body,COALESCE(tags,''),
@@ -168,6 +168,13 @@ func (d *DB) Nuggets(q NuggetQuery) ([]Nugget, error) {
 		out = append(out, n)
 	}
 	return out, rows.Err()
+}
+
+// escapeLike keeps user-supplied query values literal. Nugget filters are
+// selection scopes, not SQL pattern inputs; wildcard expansion could broaden
+// a service export beyond the scope the operator chose.
+func escapeLike(value string) string {
+	return strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(value)
 }
 
 // NuggetCounts returns how many nuggets exist per kind.

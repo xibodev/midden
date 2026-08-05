@@ -5,7 +5,7 @@
 > *midden* (n.) — an archaeological refuse heap. Not what a civilisation claimed in its
 > monuments, but what it actually ate, made, and threw away. The most honest record we have.
 
-> **Status: complete — M0 through M12 shipped, v1.5.0.** Read-only on your session stores;
+> **Status: complete — M0 through M12 shipped, v1.6.0.** Read-only on your session stores;
 > deterministic everywhere except the three commands that explicitly ask a model
 > (`reclaim`, `refine`, `ask`), each of which estimates before it charges.
 > See [STATUS.md](STATUS.md), [docs/MCP.md](docs/MCP.md), and

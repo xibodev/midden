@@ -19,7 +19,7 @@ import (
 	"github.com/mekjr1/midden/internal/render"
 )
 
-const version = "1.5.0"
+const version = "1.6.0"
 
 func main() {
 	// Adapters that must open transcripts to describe a session reuse what
