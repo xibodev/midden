@@ -88,7 +88,11 @@ func (d *DB) ReconcileAndMark(sessions []core.Session, tools []core.Tool, genera
 }
 
 func (d *DB) reconcile(sessions []core.Session, tools []core.Tool, generation int64, indexedAt time.Time, allRequested bool) (ReconcileReport, error) {
-	var report ReconcileReport
+	report := ReconcileReport{
+		GhostSessions:   []SessionKey{},
+		StaleManifests:  []SessionKey{},
+		OrphanManifests: []SessionKey{},
+	}
 
 	present := map[core.Tool]map[string]bool{}
 	for _, s := range sessions {

@@ -1,9 +1,11 @@
 package index
 
 import (
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -541,6 +543,27 @@ func TestScanGenerationIsDurablyMonotonic(t *testing.T) {
 	}
 	if second != first+1 {
 		t.Fatalf("generations %d then %d, want strictly consecutive", first, second)
+	}
+}
+
+func TestEmptyReconcileReportUsesArraysInJSON(t *testing.T) {
+	report := ReconcileReport{
+		GhostSessions:   []SessionKey{},
+		StaleManifests:  []SessionKey{},
+		OrphanManifests: []SessionKey{},
+	}
+	data, err := json.Marshal(report)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		`"ghost_sessions":[]`,
+		`"stale_manifests":[]`,
+		`"orphan_manifests":[]`,
+	} {
+		if !strings.Contains(string(data), want) {
+			t.Errorf("JSON %s missing %s", data, want)
+		}
 	}
 }
 
