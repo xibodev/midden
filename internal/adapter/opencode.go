@@ -124,7 +124,26 @@ func (o *Opencode) Sessions(sc core.Scope) ([]core.Session, error) {
 			out = append(out, s)
 		}
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		return out, err
+	}
+
+	// Child/sub-agent sessions are intentionally excluded: they are not
+	// independently resumable and were never indexed as top-level work. A
+	// top-level session with no directory is different: it is a real source
+	// row omitted by this adapter's resumability filter, so a reconciler must
+	// not mistake it for deletion.
+	var skipped int
+	if err := db.QueryRow(`
+		SELECT COUNT(*) FROM session
+		WHERE parent_id IS NULL
+		  AND (directory IS NULL OR TRIM(directory) = '')`).Scan(&skipped); err != nil {
+		return out, fmt.Errorf("opencode completeness: %w", err)
+	}
+	if skipped > 0 {
+		return out, fmt.Errorf("opencode: skipped %d top-level session(s) without a directory; result is partial", skipped)
+	}
+	return out, nil
 }
 
 func (o *Opencode) ResumeCmd(s core.Session, instruction string) string {

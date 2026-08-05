@@ -76,7 +76,13 @@ h1 {
   letter-spacing: 0;
 }
 
-nav { display: flex; gap: 2px; }
+.nav-row {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 16px;
+}
+nav { display: flex; gap: 2px; min-width: 0; overflow-x: auto; }
 
 .tab {
   background: none;
@@ -90,6 +96,20 @@ nav { display: flex; gap: 2px; }
 }
 .tab:hover { color: var(--fg); }
 .tab.active { color: var(--fg); border-bottom-color: var(--accent); }
+
+.refresh-data {
+  margin: 0 0 8px;
+  padding: 5px 10px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--panel-2);
+  color: var(--fg);
+  cursor: pointer;
+  font: 11px var(--font-mono);
+  white-space: nowrap;
+}
+.refresh-data:hover { border-color: var(--accent); color: var(--accent); }
+.refresh-data:disabled { opacity: .5; cursor: wait; }
 
 main { padding: 24px 28px 72px; max-width: 1180px; }
 
@@ -107,6 +127,7 @@ main { padding: 24px 28px 72px; max-width: 1180px; }
 }
 
 .note { color: var(--dim); font-size: 13px; margin: 0 0 14px; max-width: 74ch; }
+.session-summary { min-height: 20px; margin: 10px 0 12px; }
 
 h2 {
   font-family: var(--font-mono);

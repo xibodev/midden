@@ -1,6 +1,9 @@
 package adapter
 
 import (
+	"errors"
+	"os"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
@@ -16,12 +19,114 @@ func TestWalkAndResumeIncludesCd(t *testing.T) {
 	if !strings.Contains(got, "orvantix") {
 		t.Errorf("one-liner lost the workspace: %q", got)
 	}
+
 	if !strings.Contains(got, "copilot --resume abc") {
 		t.Errorf("one-liner lost the resume command: %q", got)
 	}
 	if runtime.GOOS == "windows" && !strings.HasPrefix(got, "Set-Location") {
 		t.Errorf("want PowerShell dialect on Windows, got %q", got)
 	}
+}
+
+func TestCollectDetailedKeepsPartialSessionsButMarksToolIncomplete(t *testing.T) {
+	partial := fakeAdapter{
+		tool: core.ToolClaude,
+		sessions: []core.Session{
+			{Tool: core.ToolClaude, ID: "readable"},
+		},
+		err: errors.New("one unreadable subtree"),
+	}
+	complete := fakeAdapter{
+		tool:     core.ToolCopilot,
+		sessions: []core.Session{{Tool: core.ToolCopilot, ID: "complete"}},
+	}
+
+	sessions, result := collectFrom(core.Scope{IncludeNoise: true}, []core.Adapter{partial, complete})
+	if got, want := len(sessions), 2; got != want {
+		t.Fatalf("sessions=%d, want %d", got, want)
+	}
+	if got, want := len(result.Errors), 1; got != want {
+		t.Fatalf("errors=%d, want %d", got, want)
+	}
+	if got, want := result.Complete, []core.Tool{core.ToolCopilot}; !sameTools(got, want) {
+		t.Fatalf("complete=%v, want %v", got, want)
+	}
+}
+
+func TestCollectionDoesNotMarkAllFreshWhenToolSetChanges(t *testing.T) {
+	result := CollectionResult{
+		Attempted: []core.Tool{core.ToolCopilot, core.ToolClaude},
+		Complete:  []core.Tool{core.ToolCopilot, core.ToolClaude},
+	}
+	if !result.isAllSourcesComplete(core.Scope{}, []core.Tool{core.ToolCopilot, core.ToolClaude}) {
+		t.Fatal("stable complete collection was not all-source complete")
+	}
+	if result.isAllSourcesComplete(core.Scope{}, []core.Tool{core.ToolCopilot, core.ToolClaude, core.ToolOpencode}) {
+		t.Fatal("newly appeared source store was incorrectly called fresh")
+	}
+	if result.isAllSourcesComplete(core.Scope{Tools: []core.Tool{core.ToolClaude}}, []core.Tool{core.ToolClaude}) {
+		t.Fatal("selected-tool scan was incorrectly called all-source fresh")
+	}
+	result.Errors = []error{errors.New("partial")}
+	if result.isAllSourcesComplete(core.Scope{}, []core.Tool{core.ToolCopilot, core.ToolClaude}) {
+		t.Fatal("partial collection was incorrectly called all-source fresh")
+	}
+}
+
+func TestClaudeReportsErrorWhenProjectsRootIsUnreadable(t *testing.T) {
+	// A full scan may reconcile-delete absent rows. If Claude cannot read its
+	// projects root, an empty list is not proof that every indexed session was
+	// deleted. The adapter must surface partiality so callers can preserve the
+	// existing index.
+	c := &Claude{Root: t.TempDir()}
+	sessions, err := c.Sessions(core.Scope{IncludeNoise: true})
+	if err == nil {
+		t.Fatal("unreadable/missing projects root returned a complete result")
+	}
+	if len(sessions) != 0 {
+		t.Fatalf("sessions=%d, want 0 from missing root", len(sessions))
+	}
+	if !strings.Contains(err.Error(), "claude projects") {
+		t.Fatalf("error=%q, want source-root context", err)
+	}
+}
+
+func TestClaudeRejectsProjectsRootThatIsAFile(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "projects"), []byte("not a directory"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	c := &Claude{Root: root}
+	if c.Available() {
+		t.Fatal("regular projects file reported as an available source store")
+	}
+	if _, err := c.Sessions(core.Scope{IncludeNoise: true}); err == nil || !strings.Contains(err.Error(), "not a directory") {
+		t.Fatalf("error=%v, want non-directory source-root error", err)
+	}
+}
+
+type fakeAdapter struct {
+	tool     core.Tool
+	sessions []core.Session
+	err      error
+}
+
+func (a fakeAdapter) Tool() core.Tool                             { return a.tool }
+func (fakeAdapter) Available() bool                               { return true }
+func (a fakeAdapter) Sessions(core.Scope) ([]core.Session, error) { return a.sessions, a.err }
+func (fakeAdapter) ResumeCmd(core.Session, string) string         { return "" }
+func (fakeAdapter) Footprint() int64                              { return 0 }
+
+func sameTools(got, want []core.Tool) bool {
+	if len(got) != len(want) {
+		return false
+	}
+	for i := range got {
+		if got[i] != want[i] {
+			return false
+		}
+	}
+	return true
 }
 
 func TestShellQuoteEscapes(t *testing.T) {

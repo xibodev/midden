@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	_ "modernc.org/sqlite"
@@ -85,11 +86,22 @@ CREATE TABLE IF NOT EXISTS sessions (
   noise          INTEGER DEFAULT 0,
   transcript     TEXT,
   seen_at        INTEGER NOT NULL,
+  scan_gen       INTEGER NOT NULL DEFAULT 0,
   PRIMARY KEY (tool, id)
 );
 CREATE INDEX IF NOT EXISTS idx_sessions_updated ON sessions(updated DESC);
 CREATE INDEX IF NOT EXISTS idx_sessions_dir     ON sessions(dir);
 CREATE INDEX IF NOT EXISTS idx_sessions_bytes   ON sessions(bytes DESC);
+
+-- A durable deletion generation prevents an older overlapping scan from
+-- resurrecting a session that a newer scan proved absent and removed.
+CREATE TABLE IF NOT EXISTS session_tombstones (
+  tool       TEXT NOT NULL,
+  id         TEXT NOT NULL,
+  scan_gen   INTEGER NOT NULL,
+  deleted_at INTEGER NOT NULL,
+  PRIMARY KEY (tool, id)
+);
 
 -- One manifest per session. source_bytes and source_mtime let a scan skip
 -- sessions whose transcript has not changed since it was last assayed.
@@ -168,39 +180,226 @@ func (d *DB) migrate() error {
 	if _, err := d.sql.Exec(schema); err != nil {
 		return err
 	}
+	if err := d.ensureSessionGeneration(); err != nil {
+		return err
+	}
 	return d.migrateRuns()
 }
 
-// PutSessions replaces the session index in one transaction.
+// ensureSessionGeneration upgrades indexes created before scan_gen existed.
+// SQLite has no ADD COLUMN IF NOT EXISTS, so inspect first.
+func (d *DB) ensureSessionGeneration() error {
+	rows, err := d.sql.Query(`PRAGMA table_info(sessions)`)
+	if err != nil {
+		return err
+	}
+	hasGeneration := false
+	for rows.Next() {
+		var (
+			cid         int
+			name, typ   string
+			notNull, pk int
+			defaultVal  any
+		)
+		if err := rows.Scan(&cid, &name, &typ, &notNull, &defaultVal, &pk); err != nil {
+			return err
+		}
+		if name == "scan_gen" {
+			hasGeneration = true
+			break
+		}
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return err
+	}
+	rows.Close()
+	if !hasGeneration {
+		if _, err := d.sql.Exec(`ALTER TABLE sessions ADD COLUMN scan_gen INTEGER NOT NULL DEFAULT 0`); err != nil {
+			// Another process can win the check/ALTER race between our PRAGMA and
+			// this statement. The desired column now exists, so duplicate-column
+			// is success rather than a failed startup.
+			if !strings.Contains(strings.ToLower(err.Error()), "duplicate column") {
+				return fmt.Errorf("add sessions.scan_gen: %w", err)
+			}
+		}
+	}
+	return d.ensureTombstoneTrigger()
+}
+
+// ensureTombstoneTrigger prevents a pre-upgrade process from resurrecting a
+// row a newer scan deleted.
+//
+// Old Midden binaries omit scan_gen, so SQLite supplies DEFAULT 0. If such a
+// process remains open while a new binary reconciles a ghost, its delayed
+// upsert would otherwise insert the tombstoned id again. The trigger makes
+// the database itself enforce the deletion fence for every writer, including
+// binaries that do not know this migration exists.
+func (d *DB) ensureTombstoneTrigger() error {
+	if _, err := d.sql.Exec(`
+		CREATE TRIGGER IF NOT EXISTS reject_tombstoned_session_insert
+		BEFORE INSERT ON sessions
+		WHEN EXISTS (
+		  SELECT 1 FROM session_tombstones t
+		  WHERE t.tool = NEW.tool
+		    AND t.id = NEW.id
+		    AND t.scan_gen > NEW.scan_gen
+		)
+		BEGIN
+		  SELECT RAISE(ABORT, 'session tombstoned by newer scan');
+		END`); err != nil {
+		return fmt.Errorf("create tombstone insert trigger: %w", err)
+	}
+	_, err := d.sql.Exec(`
+		CREATE TRIGGER IF NOT EXISTS reject_legacy_session_update
+		BEFORE UPDATE ON sessions
+		WHEN OLD.scan_gen > 0 AND NEW.scan_gen <= OLD.scan_gen
+		BEGIN
+		  SELECT RAISE(ABORT, 'legacy or stale session update rejected');
+		END`)
+	if err != nil {
+		return fmt.Errorf("create legacy update trigger: %w", err)
+	}
+	_, err = d.sql.Exec(`
+		CREATE TRIGGER IF NOT EXISTS reject_legacy_session_insert_after_completion
+		BEFORE INSERT ON sessions
+		WHEN NEW.scan_gen = 0
+		  AND EXISTS (
+		    SELECT 1 FROM meta
+		    WHERE key = 'completed_generation:' || NEW.tool
+		      AND CAST(value AS INTEGER) > 0
+		  )
+		BEGIN
+		  SELECT RAISE(ABORT, 'legacy session insert rejected after completed scan');
+		END`)
+	if err != nil {
+		return fmt.Errorf("create legacy insert trigger: %w", err)
+	}
+	_, err = d.sql.Exec(`
+		CREATE TRIGGER IF NOT EXISTS reject_orphan_manifest_insert
+		BEFORE INSERT ON manifests
+		WHEN NOT EXISTS (
+		  SELECT 1 FROM sessions s
+		  WHERE s.tool = NEW.tool AND s.id = NEW.id
+		)
+		BEGIN
+		  SELECT RAISE(ABORT, 'manifest session no longer exists');
+		END`)
+	if err != nil {
+		return fmt.Errorf("create manifest insert trigger: %w", err)
+	}
+	return nil
+}
+
+// PutSessions upserts sessions in one transaction using the current time as
+// its scan generation.
+//
+// It intentionally does not delete rows absent from its argument: narrowed
+// scans must never erase unrelated tools or time ranges. An unrestricted,
+// successfully read scan follows this with Reconcile, which is the one place
+// absence is proof enough to remove a row.
 func (d *DB) PutSessions(sessions []core.Session) error {
+	generation, err := d.NextScanGeneration()
+	if err != nil {
+		return err
+	}
+	return d.PutSessionsWithGeneration(sessions, generation, time.Now())
+}
+
+// NextScanGeneration reserves a durable, monotonically increasing generation.
+//
+// Callers acquire ScanLock before calling this. The lock serializes source
+// collection and application; this counter then remains monotonic even if the
+// wall clock moves backward, so a later scan cannot silently become "older".
+func (d *DB) NextScanGeneration() (int64, error) {
+	tx, err := d.sql.Begin()
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback()
+	if _, err := tx.Exec(`INSERT INTO meta (key,value) VALUES ('scan_generation','0')
+		ON CONFLICT(key) DO NOTHING`); err != nil {
+		return 0, err
+	}
+	var current int64
+	if err := tx.QueryRow(`SELECT CAST(value AS INTEGER) FROM meta WHERE key = 'scan_generation'`).Scan(&current); err != nil {
+		return 0, err
+	}
+	next := current + 1
+	if _, err := tx.Exec(`UPDATE meta SET value = ? WHERE key = 'scan_generation'`, fmt.Sprintf("%d", next)); err != nil {
+		return 0, err
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, err
+	}
+	return next, nil
+}
+
+// PutSessionsWithGeneration upserts sessions from one scan generation.
+//
+// The generation makes overlapping scans safe. If scan A collected an older
+// source list, then scan B discovers a new session and writes first, A must
+// not overwrite B's metadata or delete B's row during reconciliation.
+func (d *DB) PutSessionsWithGeneration(sessions []core.Session, generation int64, seenAt time.Time) error {
 	tx, err := d.sql.Begin()
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
 
+	clearTombstone, err := tx.Prepare(`
+		DELETE FROM session_tombstones
+		WHERE tool = ? AND id = ? AND scan_gen <= ?`)
+	if err != nil {
+		return err
+	}
+	defer clearTombstone.Close()
+
 	stmt, err := tx.Prepare(`
-		INSERT INTO sessions (tool,id,dir,title,repo,created,updated,turns,bytes,noise,transcript,seen_at)
-		VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+		INSERT INTO sessions (tool,id,dir,title,repo,created,updated,turns,bytes,noise,transcript,seen_at,scan_gen)
+		SELECT ?,?,?,?,?,?,?,?,?,?,?,?,?
+		WHERE NOT EXISTS (
+		  SELECT 1 FROM session_tombstones
+		  WHERE tool = ? AND id = ? AND scan_gen > ?
+		)
 		ON CONFLICT(tool,id) DO UPDATE SET
 		  dir=excluded.dir, title=excluded.title, repo=excluded.repo,
 		  created=excluded.created, updated=excluded.updated, turns=excluded.turns,
 		  bytes=excluded.bytes, noise=excluded.noise, transcript=excluded.transcript,
-		  seen_at=excluded.seen_at`)
+		  seen_at=excluded.seen_at, scan_gen=excluded.scan_gen
+		WHERE excluded.scan_gen >= sessions.scan_gen`)
 	if err != nil {
 		return err
 	}
 	defer stmt.Close()
 
-	now := time.Now().Unix()
+	now := seenAt.Unix()
+	completed := map[core.Tool]int64{}
 	for _, s := range sessions {
+		if _, known := completed[s.Tool]; !known {
+			n, err := completedGeneration(tx, s.Tool)
+			if err != nil {
+				return err
+			}
+			completed[s.Tool] = n
+		}
+		// A newer complete scan has already established the source truth
+		// for this tool. Do not let this older scan resurrect a row that
+		// scan proved absent before this one finished reading.
+		if generation < completed[s.Tool] {
+			continue
+		}
 		noise := 0
 		if s.Noise {
 			noise = 1
 		}
+		if _, err := clearTombstone.Exec(string(s.Tool), s.ID, generation); err != nil {
+			return err
+		}
 		if _, err := stmt.Exec(string(s.Tool), s.ID, s.Dir, s.Title, s.Repo,
-			unix(s.Created), unix(s.Updated), s.Turns, s.Bytes, noise,
-			s.TranscriptPath, now); err != nil {
+			unixSeconds(s.Created), unixSeconds(s.Updated), s.Turns, s.Bytes, noise,
+			s.TranscriptPath, now, generation,
+			string(s.Tool), s.ID, generation); err != nil {
 			return err
 		}
 	}
@@ -227,7 +426,7 @@ func (d *DB) PutManifest(m *assay.Manifest, srcBytes int64, srcMtime time.Time) 
 		m.Tool, m.SessionID, m.TotalRecords, m.TotalBytes,
 		m.Bytes["signal"], m.Bytes["exhaust"], m.Bytes["artifact"], m.Bytes["bookkeeping"],
 		m.DuplicateReads, m.DuplicateBytes, m.ImageCount, m.ImageClusters,
-		string(byKind), srcBytes, unix(srcMtime), time.Now().Unix())
+		string(byKind), srcBytes, unixSeconds(srcMtime), time.Now().Unix())
 	return err
 }
 
@@ -240,7 +439,7 @@ func (d *DB) ManifestFresh(tool, id string, srcBytes int64, srcMtime time.Time) 
 	if err != nil {
 		return false
 	}
-	return b == srcBytes && mt == unix(srcMtime)
+	return b == srcBytes && mt == unixSeconds(srcMtime)
 }
 
 // Totals is the aggregate view used by reports.
@@ -314,7 +513,7 @@ func (d *DB) RecordOp(op, tool, sessionID string, before, after int64, detail st
 	return err
 }
 
-func unix(t time.Time) int64 {
+func unixSeconds(t time.Time) int64 {
 	if t.IsZero() {
 		return 0
 	}

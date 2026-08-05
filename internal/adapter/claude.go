@@ -27,7 +27,10 @@ func (c *Claude) Tool() core.Tool { return core.ToolClaude }
 
 func (c *Claude) projectsDir() string { return filepath.Join(c.Root, "projects") }
 
-func (c *Claude) Available() bool { return exists(c.projectsDir()) }
+func (c *Claude) Available() bool {
+	fi, err := os.Stat(c.projectsDir())
+	return err == nil && fi.IsDir()
+}
 
 // Footprint covers the whole Claude data directory, not just transcripts.
 func (c *Claude) Footprint() int64 { return dirSize(c.Root) }
@@ -38,15 +41,42 @@ const minTranscriptBytes = 2 << 10
 func (c *Claude) Sessions(sc core.Scope) ([]core.Session, error) {
 	live := c.liveMap()
 	cutoff := sc.Since()
+	projects := c.projectsDir()
+	if fi, err := os.Lstat(projects); err != nil {
+		return nil, fmt.Errorf("claude projects: %w", err)
+	} else if fi.Mode()&(os.ModeSymlink|os.ModeIrregular) != 0 {
+		// WalkDir does not follow a symlink root. Resolve it explicitly:
+		// Available() follows os.Stat, so otherwise a linked projects root
+		// looks available but yields an empty, falsely complete scan.
+		resolved, err := filepath.EvalSymlinks(projects)
+		if err != nil {
+			return nil, fmt.Errorf("claude projects link: %w", err)
+		}
+		if filepath.Clean(resolved) == filepath.Clean(projects) {
+			return nil, fmt.Errorf("claude projects link could not be safely resolved")
+		}
+		projects = resolved
+	}
+	if fi, err := os.Stat(projects); err != nil || !fi.IsDir() {
+		if err != nil {
+			return nil, fmt.Errorf("claude projects: %w", err)
+		}
+		return nil, fmt.Errorf("claude projects is not a directory")
+	}
 
 	// Only transcripts that have to be opened are counted, because those are
 	// the only ones that take real time. A cache hit is instant and reporting
 	// it would just make the counter lie about progress.
 	read := 0
+	problems := 0
 
 	var out []core.Session
-	err := filepath.WalkDir(c.projectsDir(), func(path string, d os.DirEntry, err error) error {
+	err := filepath.WalkDir(projects, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
+			// Keep scanning what we can, but make the result explicitly
+			// partial. Index reconciliation must never treat an unreadable
+			// subtree as evidence that all of its sessions were deleted.
+			problems++
 			return nil // unreadable subtree: skip, don't abort the scan
 		}
 		if d.IsDir() {
@@ -54,6 +84,13 @@ func (c *Claude) Sessions(sc core.Scope) ([]core.Session, error) {
 			if d.Name() == "subagents" {
 				return filepath.SkipDir
 			}
+			return nil
+		}
+		if d.Type()&(os.ModeSymlink|os.ModeIrregular) != 0 {
+			// A linked project subtree is intentionally not walked. Mark the
+			// result partial so index reconciliation preserves its existing
+			// sessions rather than deleting work WalkDir never enumerated.
+			problems++
 			return nil
 		}
 		if filepath.Ext(path) != ".jsonl" {
@@ -66,7 +103,11 @@ func (c *Claude) Sessions(sc core.Scope) ([]core.Session, error) {
 		}
 
 		fi, ferr := d.Info()
-		if ferr != nil || fi.Size() < minTranscriptBytes {
+		if ferr != nil {
+			problems++
+			return nil
+		}
+		if fi.Size() < minTranscriptBytes {
 			return nil
 		}
 
@@ -90,6 +131,10 @@ func (c *Claude) Sessions(sc core.Scope) ([]core.Session, error) {
 			noise = core.IsNoise(title, filepath.Clean(cwd), 2)
 		}
 		if cwd == "" {
+			// A missing cwd means this transcript could not be identified as
+			// a resumable session. Preserve existing index rows rather than
+			// deleting them on the strength of an ambiguous parse.
+			problems++
 			return nil
 		}
 
@@ -118,6 +163,9 @@ func (c *Claude) Sessions(sc core.Scope) ([]core.Session, error) {
 	})
 	if err != nil {
 		return nil, fmt.Errorf("claude: %w", err)
+	}
+	if problems > 0 {
+		return out, fmt.Errorf("claude: skipped %d unreadable or unidentifiable transcript(s); result is partial", problems)
 	}
 	return out, nil
 }

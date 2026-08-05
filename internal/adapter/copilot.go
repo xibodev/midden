@@ -105,7 +105,25 @@ func (c *Copilot) Sessions(sc core.Scope) ([]core.Session, error) {
 			out = append(out, s)
 		}
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		return out, err
+	}
+
+	// The index reconciler can delete rows absent from a complete scan. This
+	// query intentionally excludes sessions without a working directory
+	// because they are not resumable, but their source ids still exist. Make
+	// that omission explicit so reconciliation preserves any legacy index rows
+	// rather than tombstoning source data it never enumerated.
+	var skipped int
+	if err := db.QueryRow(`
+		SELECT COUNT(*) FROM sessions
+		WHERE cwd IS NULL OR TRIM(cwd) = ''`).Scan(&skipped); err != nil {
+		return out, fmt.Errorf("copilot completeness: %w", err)
+	}
+	if skipped > 0 {
+		return out, fmt.Errorf("copilot: skipped %d session(s) without a working directory; result is partial", skipped)
+	}
+	return out, nil
 }
 
 func (c *Copilot) ResumeCmd(s core.Session, instruction string) string {

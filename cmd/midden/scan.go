@@ -38,25 +38,52 @@ func cmdScan(args []string) error {
 	}
 	defer db.Close()
 
-	sc.IncludeNoise = true
-	sessions, errs := adapter.Collect(*sc)
-	reportErrs(errs)
+	lock, err := db.AcquireScanLock()
+	if err != nil {
+		return err
+	}
+	defer lock.Release()
 
-	if err := db.PutSessions(sessions); err != nil {
+	sc.IncludeNoise = true
+	generation, err := db.NextScanGeneration()
+	if err != nil {
+		return fmt.Errorf("reserve scan generation: %w", err)
+	}
+	sessions, collected := adapter.CollectDetailed(*sc)
+	scannedAt := time.Now()
+	reportErrs(collected.Errors)
+
+	if err := db.PutSessionsWithGeneration(sessions, generation, scannedAt); err != nil {
 		return fmt.Errorf("index sessions: %w", err)
 	}
 
-	type result struct {
-		Indexed      int    `json:"indexed"`
-		Assayed      int    `json:"assayed"`
-		Skipped      int    `json:"skipped_unchanged"`
-		TooLarge     int    `json:"skipped_too_large"`
-		NoTranscript int    `json:"no_transcript"`
-		Failed       int    `json:"failed"`
-		Bytes        int64  `json:"bytes_assayed"`
-		IndexPath    string `json:"index_path"`
+	// PutSessions is deliberately an upsert so narrowed commands never erase
+	// unrelated cache rows. A full, error-free scan is different: it is the
+	// one moment absence from an adapter is proof that an indexed session is
+	// gone. Reconcile there, not on every read.
+	var reconciled index.ReconcileReport
+	tools := index.AuthoritativeTools(*sc, collected.Complete)
+	if len(tools) > 0 {
+		authoritative := index.SessionsForTools(sessions, tools)
+		allTools := collected.IsAllSourcesComplete(*sc)
+		reconciled, err = db.ReconcileAndMark(authoritative, tools, generation, scannedAt, allTools)
+		if err != nil {
+			return fmt.Errorf("reconcile index: %w", err)
+		}
 	}
-	res := result{Indexed: len(sessions), IndexPath: db.Path()}
+
+	type result struct {
+		Indexed      int                   `json:"indexed"`
+		Assayed      int                   `json:"assayed"`
+		Skipped      int                   `json:"skipped_unchanged"`
+		TooLarge     int                   `json:"skipped_too_large"`
+		NoTranscript int                   `json:"no_transcript"`
+		Failed       int                   `json:"failed"`
+		Bytes        int64                 `json:"bytes_assayed"`
+		Reconciled   index.ReconcileReport `json:"reconciled"`
+		IndexPath    string                `json:"index_path"`
+	}
+	res := result{Indexed: len(sessions), Reconciled: reconciled, IndexPath: db.Path()}
 
 	if *doAssay {
 		limit := *maxBytes << 20
@@ -78,7 +105,7 @@ func cmdScan(args []string) error {
 				continue
 			}
 
-			srcBytes, srcMtime := transcriptStamp(s)
+			srcBytes, srcMtime := index.SourceStamp(s)
 			if !*force && db.ManifestFresh(string(s.Tool), s.ID, srcBytes, srcMtime) {
 				res.Skipped++
 				continue
@@ -119,6 +146,14 @@ func cmdScan(args []string) error {
 
 	fmt.Printf("\n  %s\n", render.Bold("SCAN COMPLETE"))
 	fmt.Printf("  %-22s %d\n", render.Dim("sessions indexed"), res.Indexed)
+	if n := res.Reconciled.Total(); n > 0 {
+		fmt.Printf("  %-22s %d %s\n", render.Dim("reconciled"), n,
+			render.Dim("(stale index rows removed)"))
+		if len(res.Reconciled.GhostSessions) > 0 {
+			fmt.Printf("  %-22s %d %s\n", render.Dim("ghost sessions"), len(res.Reconciled.GhostSessions),
+				render.Dim("(source transcript gone)"))
+		}
+	}
 	if *doAssay {
 		fmt.Printf("  %-22s %d\n", render.Dim("transcripts assayed"), res.Assayed)
 		if res.Skipped > 0 {
@@ -140,19 +175,6 @@ func cmdScan(args []string) error {
 		fmt.Printf("  %s\n\n", render.Dim("run `midden scan --assay` to measure what is reclaimable"))
 	}
 	return nil
-}
-
-// transcriptStamp fingerprints a session's source so an unchanged transcript
-// can be skipped on the next scan.
-func transcriptStamp(s core.Session) (int64, time.Time) {
-	if s.TranscriptPath != "" {
-		if fi, err := os.Stat(s.TranscriptPath); err == nil {
-			return fi.Size(), fi.ModTime()
-		}
-	}
-	// DB-backed tools have no file; the update time is the best available
-	// change signal.
-	return s.Bytes, s.Updated
 }
 
 // cmdAssay reports what a scope is made of and what could be reclaimed.

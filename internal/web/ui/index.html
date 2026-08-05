@@ -11,16 +11,20 @@
 
 <header>
   <h1>midden<span class="sub">a materials recovery facility for AI coding exhaust</span></h1>
-  <nav>
-    <button class="tab active" data-view="do">Do</button>
-    <button class="tab" data-view="overview">Overview</button>
-    <button class="tab" data-view="sessions">Sessions</button>
-    <button class="tab" data-view="nuggets">Nuggets</button>
-    <button class="tab" data-view="artifacts">Artifacts</button>
-    <button class="tab" data-view="ask">Ask</button>
-    <button class="tab" data-view="cost">Cost</button>
-    <button class="tab" data-view="ops">Log</button>
-  </nav>
+  <div class="nav-row">
+    <nav>
+      <button class="tab active" data-view="do">Do</button>
+      <button class="tab" data-view="overview">Overview</button>
+      <button class="tab" data-view="sessions">Sessions</button>
+      <button class="tab" data-view="nuggets">Nuggets</button>
+      <button class="tab" data-view="artifacts">Artifacts</button>
+      <button class="tab" data-view="ask">Ask</button>
+      <button class="tab" data-view="cost">Cost</button>
+      <button class="tab" data-view="ops">Log</button>
+    </nav>
+    <button id="refresh-data" class="refresh-data" type="button"
+      title="Read all session stores, update the index, and remove stale rows">Refresh data</button>
+  </div>
 </header>
 
 <main>
@@ -90,6 +94,7 @@
     <input id="f-search" type="search" placeholder="filter by title or workspace">
     <label class="check"><input type="checkbox" id="f-all"> show automated</label>
   </div>
+  <p id="session-summary" class="note session-summary" aria-live="polite"></p>
   <div id="session-list"></div>
 </section>
 

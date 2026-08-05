@@ -14,6 +14,15 @@ const get = async (path) => {
   return r.json();
 };
 
+// Rows and their count are separate endpoints for compatibility. Carry the
+// cache generation alongside each response so the UI can reject a pair split
+// by a concurrent refresh rather than joining old rows to new freshness.
+const getWithSnapshot = async (path) => {
+  const r = await fetch(path);
+  if (!r.ok) throw new Error((await r.text()) || r.statusText);
+  return { data: await r.json(), snapshot: r.headers.get('X-Midden-Snapshot') };
+};
+
 const post = async (path, body) => {
   const r = await fetch(path, {
     method: 'POST',
@@ -94,6 +103,45 @@ document.querySelectorAll('.tab').forEach((tab) => {
 function show(view) {
   document.querySelector(`.tab[data-view="${view}"]`).click();
 }
+
+// Refresh is intentionally an explicit, named operation rather than a hidden
+// background side effect. The index is the fast read path; this is how an
+// operator asks it to become current again.
+async function refreshData() {
+  const button = $('#refresh-data');
+  const original = button.textContent;
+  button.disabled = true;
+  button.textContent = 'Refreshing…';
+  try {
+    const job = await post('/api/action', { op: 'refresh' });
+    const done = await pollJob(job.id, (j) => {
+      button.textContent = j.progress || 'Refreshing…';
+    });
+    if (done.status === 'failed') throw new Error(done.error || 'refresh failed');
+
+    const r = done.result || {};
+    const removed = r.reconciled || {};
+    const n = (removed.ghost_sessions || []).length +
+      (removed.duplicate_artifact_rows || 0) +
+      (removed.stale_manifests || []).length +
+      (removed.orphan_manifests || []).length;
+    if (r.partial) {
+      toast('Partially refreshed · one or more source stores could not be read', 'bad');
+    } else {
+      toast(n ? `Refreshed · removed ${n} stale index row(s)` : 'Data refreshed', 'good');
+    }
+
+    const active = document.querySelector('.tab.active');
+    if (active && loaders[active.dataset.view]) await loaders[active.dataset.view]();
+  } catch (e) {
+    toast('Refresh failed: ' + e.message, 'bad');
+  } finally {
+    button.disabled = false;
+    button.textContent = original;
+  }
+}
+
+$('#refresh-data').addEventListener('click', refreshData);
 
 // ---- modal ------------------------------------------------------------------
 
@@ -901,21 +949,39 @@ function sessionRow(s) {
 }
 
 let allSessions = [];
+let sessionStats = null;
+let sessionLimit = 400;
 
-async function loadSessions() {
+async function loadSessions(attempt = 0) {
   const list = $('#session-list');
+  const summary = $('#session-summary');
   list.replaceChildren(el('p', 'note', 'loading...'));
+  summary.textContent = '';
 
   const p = new URLSearchParams();
   if ($('#f-tool').value) p.set('tool', $('#f-tool').value);
   if ($('#f-days').value) p.set('days', $('#f-days').value);
   if ($('#f-all').checked) p.set('all', '1');
-  p.set('limit', '400');
+  if (sessionLimit > 0) p.set('limit', String(sessionLimit));
 
   try {
-    allSessions = await get('/api/sessions?' + p.toString());
+    const query = p.toString();
+    const [sessionResponse, statsResponse] = await Promise.all([
+      getWithSnapshot('/api/sessions?' + query),
+      getWithSnapshot('/api/session-stats?' + query),
+    ]);
+    if (sessionResponse.snapshot !== statsResponse.snapshot) {
+      // A refresh invalidated the cache between the two requests. Retry once
+      // against the new generation; persistent churn is surfaced instead of
+      // recursively fetching forever.
+      if (attempt === 0) return loadSessions(1);
+      throw new Error('data changed while loading; retry');
+    }
+    allSessions = sessionResponse.data;
+    sessionStats = statsResponse.data;
     renderSessions();
   } catch (e) {
+    sessionStats = null;
     list.replaceChildren(el('p', 'bad', 'failed: ' + e.message));
   }
 }
@@ -932,11 +998,13 @@ function groupKey(s, mode) {
 
 function renderSessions() {
   const list = $('#session-list');
+  const summary = $('#session-summary');
   const q = $('#f-search').value.toLowerCase();
   const mode = $('#f-group').value;
   const rows = allSessions.filter((s) => !q || (s.title + ' ' + s.dir).toLowerCase().includes(q));
 
   list.replaceChildren();
+  renderSessionSummary(summary, rows.length, q);
   if (!rows.length) { list.append(el('p', 'empty', 'no sessions match')); return; }
 
   if (!mode) { rows.forEach((s) => list.append(sessionRow(s))); return; }
@@ -961,9 +1029,40 @@ function renderSessions() {
 }
 
 loaders.sessions = loadSessions;
-['#f-tool', '#f-days', '#f-all'].forEach((s) => $(s).addEventListener('change', loadSessions));
+['#f-tool', '#f-days', '#f-all'].forEach((s) => $(s).addEventListener('change', () => {
+  sessionLimit = 400;
+  loadSessions();
+}));
 $('#f-group').addEventListener('change', renderSessions);
 $('#f-search').addEventListener('input', renderSessions);
+
+function renderSessionSummary(summary, shown, search) {
+  if (!sessionStats) return;
+
+  const stats = sessionStats;
+  const parts = [];
+  parts.push(search ? `${shown} shown after text filter` : `${shown} shown`);
+  parts.push(`${stats.matching} in this range`);
+  if (!$('#f-all').checked && stats.hidden_noise > 0) {
+    parts.push(`${stats.hidden_noise} automated hidden`);
+  }
+  if (stats.truncated) {
+    parts.push(`${stats.target - stats.returned} not loaded`);
+  }
+  parts.push(`${stats.total} indexed total`);
+  const age = indexAge(stats.indexed_at);
+  if (age) parts.push(age);
+  summary.replaceChildren(document.createTextNode(parts.join(' · ')));
+
+  if (stats.truncated && sessionLimit > 0) {
+    const loadAll = el('button', 'btn', `Load all ${stats.target}`);
+    loadAll.addEventListener('click', () => {
+      sessionLimit = 0;
+      loadSessions();
+    });
+    summary.append(document.createTextNode(' '), loadAll);
+  }
+}
 
 // ---- nuggets ----------------------------------------------------------------
 

@@ -189,7 +189,7 @@ func (s *Server) handleAction(w http.ResponseWriter, r *http.Request) {
 	}
 
 	switch req.Op {
-	case "prune", "archive", "reclaim", "refine", "summarize", "ask", "brief":
+	case "prune", "archive", "reclaim", "refine", "summarize", "ask", "brief", "refresh":
 	default:
 		http.Error(w, "unknown op: "+req.Op, http.StatusBadRequest)
 		return
@@ -239,6 +239,8 @@ func (s *Server) runJob(id string, req actionRequest) {
 		result, err = s.doBrief(id, req)
 	case "ask":
 		result, err = s.doAsk(id, req)
+	case "refresh":
+		result, err = s.doRefresh(id)
 	}
 
 	s.jobs.update(id, func(j *Job) {
@@ -252,6 +254,86 @@ func (s *Server) runJob(id string, req actionRequest) {
 		j.Progress = "complete"
 		j.Result = result
 	})
+}
+
+// doRefresh is the UI's explicit answer to stale indexed data.
+//
+// The index is intentionally the read path: deriving every session on every
+// request made the UI hang for minutes. That performance fix only works if an
+// operator can deliberately refresh the index when they need current truth.
+//
+// A refresh is free and writes only Midden's derived index. A partial adapter
+// read is not enough to reconcile that tool, but it must not discard fresh
+// results from other adapters that completed successfully.
+func (s *Server) doRefresh(id string) (any, error) {
+	s.reindexMu.Lock()
+	if s.reindexing {
+		s.reindexMu.Unlock()
+		return nil, fmt.Errorf("a refresh is already running")
+	}
+	s.reindexing = true
+	s.reindexMu.Unlock()
+	completeAll := false
+	defer func() {
+		s.reindexMu.Lock()
+		s.reindexing = false
+		// A partial refresh must not suppress a background retry for five
+		// minutes just because one source produced usable rows.
+		if completeAll {
+			s.reindexedAt = time.Now()
+			s.retryAt = time.Time{}
+		} else {
+			s.reindexedAt = time.Time{}
+			s.retryAt = time.Now()
+		}
+		s.reindexMu.Unlock()
+	}()
+
+	lock, err := s.db.AcquireScanLock()
+	if err != nil {
+		return nil, err
+	}
+	defer lock.Release()
+
+	scope := core.Scope{IncludeNoise: true}
+	generation, err := s.db.NextScanGeneration()
+	if err != nil {
+		return nil, fmt.Errorf("reserve scan generation: %w", err)
+	}
+	s.jobs.update(id, func(j *Job) { j.Progress = "reading session stores" })
+	sessions, collected := adapter.CollectDetailed(scope)
+	scannedAt := time.Now()
+
+	s.jobs.update(id, func(j *Job) { j.Progress = "updating the index" })
+	if err := s.db.PutSessionsWithGeneration(sessions, generation, scannedAt); err != nil {
+		return nil, fmt.Errorf("index sessions: %w", err)
+	}
+
+	s.jobs.update(id, func(j *Job) { j.Progress = "removing stale index rows" })
+	tools := index.AuthoritativeTools(scope, collected.Complete)
+	var report index.ReconcileReport
+	if len(tools) > 0 {
+		allRequested := collected.IsAllSourcesComplete(scope)
+		report, err = s.db.ReconcileAndMark(index.SessionsForTools(sessions, tools), tools, generation, scannedAt, allRequested)
+		if err != nil {
+			return nil, fmt.Errorf("reconcile index: %w", err)
+		}
+		completeAll = report.AuthoritativeAll
+	}
+
+	s.cache.invalidate()
+	var messages []string
+	for _, err := range collected.Errors {
+		messages = append(messages, err.Error())
+	}
+	return map[string]any{
+		"sessions":   len(sessions),
+		"reconciled": report,
+		"indexed_at": s.db.AuthoritativeIndexedAt(nil).Format(time.RFC3339),
+		"free":       true,
+		"partial":    len(messages) > 0 || !completeAll,
+		"errors":     messages,
+	}, nil
 }
 
 // doPrune previews or applies transcript pruning. Dry run unless Apply is set.

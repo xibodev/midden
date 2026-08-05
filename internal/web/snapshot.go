@@ -20,6 +20,7 @@ import (
 	"github.com/mekjr1/midden/internal/adapter"
 	"github.com/mekjr1/midden/internal/core"
 	"github.com/mekjr1/midden/internal/guide"
+	"github.com/mekjr1/midden/internal/index"
 )
 
 // snapshotTTL is how stale a reading may be.
@@ -33,18 +34,29 @@ const snapshotTTL = 15 * time.Second
 // expensive thing the server does, and total disk usage moves slowly.
 const footprintTTL = 2 * time.Minute
 
+// partialRetryTTL prevents a persistent source-store error from launching a
+// full scan every time a view rebuilds, while remaining short enough that an
+// unlocked/healthy store recovers without an operator waiting five minutes.
+const partialRetryTTL = 30 * time.Second
+
 // snapshot is the derived view every handler shares.
 type snapshot struct {
-	Sessions []core.Session
-	State    guide.State
-	TakenAt  time.Time
+	Sessions      []core.Session
+	State         guide.State
+	TakenAt       time.Time
+	Version       uint64
+	IndexedAt     time.Time
+	ToolIndexedAt map[core.Tool]time.Time
 }
 
 type snapshotCache struct {
-	mu       sync.Mutex
-	cur      *snapshot
-	building bool
-	done     chan struct{}
+	mu              sync.Mutex
+	cur             *snapshot
+	building        bool
+	done            chan struct{}
+	generation      uint64
+	buildGeneration uint64
+	version         uint64
 
 	footMu       sync.Mutex
 	foot         map[core.Tool]int64
@@ -60,52 +72,75 @@ func newSnapshotCache() *snapshotCache { return &snapshotCache{} }
 // When a refresh is already in flight, callers receive the previous snapshot
 // immediately rather than queueing behind it. Only a cold cache waits.
 func (c *snapshotCache) get(s *Server) *snapshot {
-	c.mu.Lock()
+	for {
+		c.mu.Lock()
 
-	fresh := c.cur != nil && time.Since(c.cur.TakenAt) < snapshotTTL
-	if fresh {
-		snap := c.cur
-		c.mu.Unlock()
-		return snap
-	}
-
-	if c.building {
-		// A refresh is running. Serve what we have; block only if there is
-		// nothing at all yet.
-		if c.cur != nil {
+		fresh := c.cur != nil && time.Since(c.cur.TakenAt) < snapshotTTL
+		if fresh {
 			snap := c.cur
 			c.mu.Unlock()
 			return snap
 		}
-		wait := c.done
-		c.mu.Unlock()
-		<-wait
 
-		c.mu.Lock()
-		snap := c.cur
+		if c.building {
+			// A refresh is running. Serve what we have; block only if there
+			// is nothing at all yet. A waiter always loops after done closes:
+			// invalidate may have discarded the build it was waiting for.
+			if c.cur != nil {
+				snap := c.cur
+				c.mu.Unlock()
+				return snap
+			}
+			wait := c.done
+			c.mu.Unlock()
+			<-wait
+			continue
+		}
+
+		c.building = true
+		c.buildGeneration = c.generation
+		c.done = make(chan struct{})
+		generation := c.buildGeneration
 		c.mu.Unlock()
-		return snap
+
+		snap := s.buildSnapshot(c)
+
+		published := c.finishBuild(snap, generation)
+
+		// An explicit refresh invalidated this build while it was reading.
+		// Do not give its stale result a fresh 15-second TTL; loop and build
+		// against the new index instead.
+		if published {
+			return snap
+		}
 	}
+}
 
-	c.building = true
-	c.done = make(chan struct{})
-	c.mu.Unlock()
-
-	snap := s.buildSnapshot(c)
-
+// finishBuild publishes a snapshot only when no invalidation happened while it
+// was being built. It is separate to make the invalidation race testable
+// without reading real session stores.
+func (c *snapshotCache) finishBuild(snap *snapshot, generation uint64) bool {
 	c.mu.Lock()
-	c.cur = snap
+	defer c.mu.Unlock()
+	published := c.generation == generation
+	if published {
+		// A TTL rebuild is a new immutable view even when no explicit
+		// invalidation happened. Clients compare this version across rows
+		// and stats requests, so it must advance for every published build.
+		c.version++
+		snap.Version = c.version
+		c.cur = snap
+	}
 	c.building = false
 	close(c.done)
-	c.mu.Unlock()
-
-	return snap
+	return published
 }
 
 // invalidate forces the next read to rebuild. Called after an operation that
 // changes what is on disk, so the UI reflects it immediately.
 func (c *snapshotCache) invalidate() {
 	c.mu.Lock()
+	c.generation++
 	c.cur = nil
 	c.mu.Unlock()
 }
@@ -161,18 +196,17 @@ func (c *snapshotCache) refreshFootprints() {
 // which takes minutes — the CLI never noticed because it always passes a
 // narrow scope, while the UI needs everything.
 func (s *Server) buildSnapshot(c *snapshotCache) *snapshot {
-	var sessions []core.Session
-
-	if s.db.SessionCount() > 0 {
-		if fromIndex, err := s.db.Sessions(core.Scope{IncludeNoise: true}); err == nil {
-			sessions = fromIndex
-		}
-	}
+	stored, err := s.db.ReadSessionSnapshot()
+	hasIndex := err == nil && hasIndexSnapshot(stored)
+	sessions := stored.Sessions
 	// Cold index: fall back to reading the stores so the UI works before the
-	// first scan, and populate the index so this only happens once.
-	if len(sessions) == 0 {
+	// first scan. Do not asynchronously write this captured list: a complete
+	// refresh can finish before that goroutine runs, and stamping old
+	// observations at write time would resurrect rows it just proved absent.
+	// Recollect under the scan lock instead.
+	if !hasIndex {
 		sessions, _ = adapter.Collect(core.Scope{IncludeNoise: true})
-		go s.db.PutSessions(sessions)
+		go s.refreshIndexInBackground()
 	} else {
 		// The index has no notion of which sessions are open right now, and
 		// that changes minute to minute. Overlaying it is cheap: a handful of
@@ -225,7 +259,21 @@ func (s *Server) buildSnapshot(c *snapshotCache) *snapshot {
 		st.Artifacts = len(as)
 	}
 
-	return &snapshot{Sessions: sessions, State: st, TakenAt: time.Now()}
+	return &snapshot{
+		Sessions:      sessions,
+		State:         st,
+		TakenAt:       time.Now(),
+		IndexedAt:     stored.IndexedAt,
+		ToolIndexedAt: stored.ToolIndexedAt,
+	}
+}
+
+// hasIndexSnapshot distinguishes an uninitialized index from an authoritative
+// empty one. A successful refresh may legitimately find zero sessions; using
+// len(sessions)==0 as the cold-cache test would then synchronously reread all
+// source stores every 15 seconds and make an empty UI look hung.
+func hasIndexSnapshot(snap index.SessionSnapshot) bool {
+	return len(snap.Sessions) > 0 || !snap.IndexedAt.IsZero()
 }
 
 // overlayLive marks the sessions that are open right now.
@@ -249,11 +297,14 @@ func overlayLive(sessions []core.Session) {
 // waiting on it. Guarded so only one refresh runs at a time.
 func (s *Server) refreshIndexInBackground() {
 	s.reindexMu.Lock()
-	if s.reindexing || time.Since(s.reindexedAt) < 5*time.Minute {
+	if s.reindexing ||
+		(!s.reindexedAt.IsZero() && time.Since(s.reindexedAt) < 5*time.Minute) ||
+		(!s.retryAt.IsZero() && time.Since(s.retryAt) < partialRetryTTL) {
 		s.reindexMu.Unlock()
 		return
 	}
 	s.reindexing = true
+	s.retryAt = time.Now()
 	s.reindexMu.Unlock()
 
 	// Reuse metadata from the last scan so unchanged transcripts are not
@@ -262,14 +313,54 @@ func (s *Server) refreshIndexInBackground() {
 		adapter.SetPeekCache(m)
 	}
 
-	sessions, _ := adapter.Collect(core.Scope{IncludeNoise: true})
-	if len(sessions) > 0 {
-		s.db.PutSessions(sessions)
+	lock, err := s.db.AcquireScanLock()
+	if err != nil {
+		s.reindexMu.Lock()
+		s.reindexing = false
+		s.reindexedAt = time.Time{}
+		s.retryAt = time.Now()
+		s.reindexMu.Unlock()
+		return
+	}
+	defer lock.Release()
+
+	scope := core.Scope{IncludeNoise: true}
+	generation, err := s.db.NextScanGeneration()
+	if err != nil {
+		s.reindexMu.Lock()
+		s.reindexing = false
+		s.reindexedAt = time.Time{}
+		s.retryAt = time.Now()
+		s.reindexMu.Unlock()
+		return
+	}
+	sessions, collected := adapter.CollectDetailed(scope)
+	scannedAt := time.Now()
+	completeAll := false
+	if err := s.db.PutSessionsWithGeneration(sessions, generation, scannedAt); err == nil {
+		// This is a complete, successfully read source list. Anything absent
+		// is now provably stale only for the adapters that completed. A failed
+		// Claude read must not stop Copilot cleanup, nor may it make Claude
+		// absence evidence.
+		tools := index.AuthoritativeTools(scope, collected.Complete)
+		if len(tools) > 0 {
+			authoritative := index.SessionsForTools(sessions, tools)
+			allRequested := collected.IsAllSourcesComplete(scope)
+			if report, err := s.db.ReconcileAndMark(authoritative, tools, generation, scannedAt, allRequested); err == nil {
+				completeAll = report.AuthoritativeAll
+			}
+		}
 	}
 
 	s.reindexMu.Lock()
 	s.reindexing = false
-	s.reindexedAt = time.Now()
+	if completeAll {
+		s.reindexedAt = time.Now()
+		s.retryAt = time.Time{}
+	} else {
+		s.reindexedAt = time.Time{}
+		s.retryAt = time.Now()
+	}
 	s.reindexMu.Unlock()
 
 	s.cache.invalidate()

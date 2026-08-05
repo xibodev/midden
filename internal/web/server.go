@@ -43,6 +43,7 @@ type Server struct {
 	reindexMu   sync.Mutex
 	reindexing  bool
 	reindexedAt time.Time
+	retryAt     time.Time
 }
 
 func NewServer(db *index.DB) *Server {
@@ -65,6 +66,7 @@ func (s *Server) Handler() http.Handler {
 
 	mux.HandleFunc("/api/health", s.handleHealth)
 	mux.HandleFunc("/api/sessions", s.handleSessions)
+	mux.HandleFunc("/api/session-stats", s.handleSessionStats)
 	mux.HandleFunc("/api/session", s.handleSession)
 	mux.HandleFunc("/api/nuggets", s.handleNuggets)
 	mux.HandleFunc("/api/artifacts", s.handleArtifacts)
@@ -175,6 +177,7 @@ func (s *Server) handleSessions(w http.ResponseWriter, r *http.Request) {
 	// Filter the shared snapshot rather than re-reading every store.
 	sc := s.scopeFrom(r)
 	snap := s.cache.get(s)
+	setSnapshotHeader(w, snap)
 
 	out := make([]sessionView, 0, 64)
 	for _, x := range snap.Sessions {
@@ -187,6 +190,67 @@ func (s *Server) handleSessions(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	writeJSON(w, out)
+}
+
+// handleSessionStats tells the Sessions tab what its filters are hiding.
+//
+// Returning a list without its denominator made the UI say "63 sessions"
+// when the machine actually held 789: time range, automated noise, and a
+// server limit were all real but invisible reductions. The count travels with
+// the list so an operator never has to infer what is missing.
+func (s *Server) handleSessionStats(w http.ResponseWriter, r *http.Request) {
+	sc := s.scopeFrom(r)
+	limit := sc.Limit
+	sc.Limit = 0
+	allScope := sc
+	allScope.IncludeNoise = true
+
+	snap := s.cache.get(s)
+	setSnapshotHeader(w, snap)
+	total, matching, visible := len(snap.Sessions), 0, 0
+	for _, session := range snap.Sessions {
+		if !allScope.Match(session) {
+			continue
+		}
+		matching++
+		if !session.Noise {
+			visible++
+		}
+	}
+
+	target := visible
+	if sc.IncludeNoise {
+		target = matching
+	}
+	returned := target
+	if limit > 0 && returned > limit {
+		returned = limit
+	}
+	indexedAt := ""
+	indexTime := snap.IndexedAt
+	if len(sc.Tools) == 1 {
+		indexTime = snap.ToolIndexedAt[sc.Tools[0]]
+	}
+	if !indexTime.IsZero() {
+		indexedAt = indexTime.Format(time.RFC3339)
+	}
+	writeJSON(w, map[string]any{
+		"total":        total,
+		"matching":     matching,
+		"visible":      visible,
+		"hidden_noise": matching - visible,
+		"target":       target,
+		"returned":     returned,
+		"truncated":    returned < target,
+		"indexed_at":   indexedAt,
+	})
+}
+
+// setSnapshotHeader lets a client prove that independently requested rows and
+// stats came from the same cache generation. It is an additive header, so
+// existing JSON consumers remain compatible.
+func setSnapshotHeader(w http.ResponseWriter, snap *snapshot) {
+	w.Header().Set("X-Midden-Snapshot", fmt.Sprintf("%d", snap.Version))
 }
 
 func (s *Server) handleSession(w http.ResponseWriter, r *http.Request) {
@@ -285,8 +349,8 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	// Serving indexed data as though it were live is how a tool starts
 	// lying quietly.
 	indexedAt := ""
-	if t := s.db.IndexedAt(); !t.IsZero() {
-		indexedAt = t.Format(time.RFC3339)
+	if !snap.IndexedAt.IsZero() {
+		indexedAt = snap.IndexedAt.Format(time.RFC3339)
 	}
 
 	writeJSON(w, map[string]any{

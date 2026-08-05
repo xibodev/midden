@@ -77,7 +77,7 @@ func (d *DB) PutRun(r cost.Run) error {
 		r.UID, r.Op, r.Scope, r.Backend, string(sessions), r.EstTokens, r.Items,
 		r.Usage.Model, r.Usage.Turns, r.Usage.InputTokens, r.Usage.OutputTokens,
 		r.Usage.CacheRead, r.Usage.CacheWrite, r.Usage.Reasoning, r.Usage.AIU,
-		r.Usage.USD, r.Usage.DurationMS, unix(r.StartedAt), unix(r.EndedAt),
+		r.Usage.USD, r.Usage.DurationMS, unixSeconds(r.StartedAt), unixSeconds(r.EndedAt),
 		okv, r.Note, reconciled)
 	return err
 }
