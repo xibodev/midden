@@ -26,7 +26,7 @@ const getWithSnapshot = async (path) => {
 const post = async (path, body) => {
   const r = await fetch(path, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', 'X-Midden-Request': '1' },
     body: JSON.stringify(body),
   });
   if (!r.ok) throw new Error((await r.text()) || r.statusText);
@@ -1152,6 +1152,53 @@ loaders.artifacts = async () => {
     list.replaceChildren(el('p', 'bad', 'failed: ' + e.message));
   }
 };
+
+// ---- integrations -----------------------------------------------------------
+
+async function loadIntegrations(probe = false) {
+  const list = $('#plugin-list');
+  const button = $('#probe-plugins');
+  if (button) {
+    button.disabled = probe;
+    button.textContent = probe ? 'Checking...' : 'Check local integrations';
+  }
+  list.replaceChildren(el('p', 'note', probe ? 'checking configured integrations...' : 'loading configured integrations...'));
+  try {
+    const plugins = probe
+      ? await post('/api/plugins/probe', {})
+      : await get('/api/plugins');
+    list.replaceChildren();
+    if (!plugins.length) {
+      list.append(el('p', 'empty',
+        'No integration manifests yet. Add ~/.midden/plugins/<name>.yaml, then refresh this view.'));
+      return;
+    }
+    plugins.forEach((plugin) => {
+      const row = el('div', 'row');
+      const top = el('div', 'top');
+      top.append(el('span', 'pill', plugin.kind || 'unknown'));
+      top.append(el('span', 'title', plugin.name || '(unnamed manifest)'));
+      top.append(el('span', 'pill' + (plugin.cost === 'spends' ? ' warn' : ''), (plugin.cost || '?').toUpperCase()));
+      const statusClass = plugin.status === 'available' ? 'live' :
+        (plugin.status === 'disabled' || plugin.status === 'not_checked' ? '' : 'crit');
+      const status = plugin.status === 'not_checked' ? 'not checked' : (plugin.status || 'invalid');
+      top.append(el('span', 'pill ' + statusClass, status));
+      row.append(top);
+      row.append(el('p', 'note', plugin.detail || 'no status detail'));
+      list.append(row);
+    });
+  } catch (e) {
+    list.replaceChildren(el('p', 'bad', 'failed: ' + e.message));
+  } finally {
+    if (button) {
+      button.disabled = false;
+      button.textContent = 'Check local integrations';
+    }
+  }
+}
+
+loaders.integrations = () => loadIntegrations(false);
+$('#probe-plugins').addEventListener('click', () => loadIntegrations(true));
 
 // artifactReader shows a generated document without leaving the page.
 function artifactReader(box, a) {

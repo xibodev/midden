@@ -18,6 +18,7 @@
       <button class="tab" data-view="sessions">Sessions</button>
       <button class="tab" data-view="nuggets">Nuggets</button>
       <button class="tab" data-view="artifacts">Artifacts</button>
+      <button class="tab" data-view="integrations">Integrations</button>
       <button class="tab" data-view="ask">Ask</button>
       <button class="tab" data-view="cost">Cost</button>
       <button class="tab" data-view="ops">Log</button>
@@ -116,6 +117,13 @@
 
 <section id="artifacts" class="view">
   <div id="artifact-list"></div>
+</section>
+
+<section id="integrations" class="view">
+  <p class="note">Listing is passive. Check local integrations to probe configured targets; an
+    unavailable target is shown with its reason, never as an action that fails when pressed.</p>
+  <button id="probe-plugins" class="btn" type="button">Check local integrations</button>
+  <div id="plugin-list"></div>
 </section>
 
 <section id="ask" class="view">

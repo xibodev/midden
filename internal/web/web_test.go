@@ -1,8 +1,11 @@
 package web
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -41,12 +44,30 @@ func TestLoopbackIsAllowed(t *testing.T) {
 	for _, addr := range []string{"127.0.0.1:5555", "[::1]:5555"} {
 		req := httptest.NewRequest("GET", "/", nil)
 		req.RemoteAddr = addr
+		req.Host = "127.0.0.1:7777"
 		rec := httptest.NewRecorder()
 		h.ServeHTTP(rec, req)
 
 		if rec.Code != http.StatusOK {
 			t.Errorf("%s got %d, want 200", addr, rec.Code)
 		}
+	}
+}
+
+func TestLoopbackPeerWithExternalHostIsRejected(t *testing.T) {
+	h := localOnly(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte("secret session data"))
+	}))
+	req := httptest.NewRequest(http.MethodGet, "/api/plugins", nil)
+	req.RemoteAddr = "127.0.0.1:1"
+	req.Host = "attacker.example:7777"
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("status=%d, want 403", rec.Code)
+	}
+	if strings.Contains(rec.Body.String(), "secret") {
+		t.Fatal("external Host reached loopback handler")
 	}
 }
 
@@ -190,5 +211,88 @@ func TestSnapshotVersionAdvancesForEveryPublishedBuild(t *testing.T) {
 	second := publish()
 	if first.Version == 0 || second.Version != first.Version+1 {
 		t.Fatalf("versions %d then %d, want a new version per published build", first.Version, second.Version)
+	}
+}
+
+func TestPluginsHandlerReportsDisabledManifestWithoutProbing(t *testing.T) {
+	t.Setenv("MIDDEN_HOME", t.TempDir())
+	db, err := index.Open()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	dir := filepath.Join(index.Dir(), "plugins")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "disabled.yaml"), []byte(`
+name: no-network
+kind: service
+enabled: false
+cost: free
+probe:
+  kind: http
+  url: http://127.0.0.1:1/openapi.json
+`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	server := &Server{db: db, cache: newSnapshotCache(), jobs: NewJobs()}
+	req := httptest.NewRequest(http.MethodGet, "/api/plugins", nil)
+	rec := httptest.NewRecorder()
+	server.handlePlugins(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	var got []struct {
+		Name    string `json:"name"`
+		Status  string `json:"status"`
+		Enabled bool   `json:"enabled"`
+		Detail  string `json:"detail"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].Name != "no-network" || got[0].Status != "disabled" || got[0].Enabled {
+		t.Fatalf("plugin response=%#v", got)
+	}
+	if got[0].Detail != "plugin is disabled" {
+		t.Fatalf("detail=%q, want disabled reason", got[0].Detail)
+	}
+}
+
+func TestPluginProbeRequiresExplicitSameOriginPost(t *testing.T) {
+	t.Setenv("MIDDEN_HOME", t.TempDir())
+	db, err := index.Open()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	server := &Server{db: db, cache: newSnapshotCache(), jobs: NewJobs()}
+
+	get := httptest.NewRequest(http.MethodGet, "/api/plugins/probe", nil)
+	get.RemoteAddr = "127.0.0.1:1"
+	rec := httptest.NewRecorder()
+	server.handlePluginProbe(rec, get)
+	if rec.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("GET probe status=%d, want 405", rec.Code)
+	}
+
+	post := httptest.NewRequest(http.MethodPost, "/api/plugins/probe", nil)
+	post.RemoteAddr = "127.0.0.1:1"
+	rec = httptest.NewRecorder()
+	server.handlePluginProbe(rec, post)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("headerless probe status=%d, want 403", rec.Code)
+	}
+
+	post = httptest.NewRequest(http.MethodPost, "/api/plugins/probe", nil)
+	post.RemoteAddr = "127.0.0.1:1"
+	post.Header.Set("X-Midden-Request", "1")
+	post.Header.Set("Origin", "http://evil.example")
+	rec = httptest.NewRecorder()
+	server.handlePluginProbe(rec, post)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("cross-origin probe status=%d, want 403", rec.Code)
 	}
 }

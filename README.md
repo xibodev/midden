@@ -5,10 +5,11 @@
 > *midden* (n.) — an archaeological refuse heap. Not what a civilisation claimed in its
 > monuments, but what it actually ate, made, and threw away. The most honest record we have.
 
-> **Status: complete — M0 through M11 shipped, v1.4.0.** Read-only on your session stores;
+> **Status: complete — M0 through M12 shipped, v1.5.0.** Read-only on your session stores;
 > deterministic everywhere except the three commands that explicitly ask a model
 > (`reclaim`, `refine`, `ask`), each of which estimates before it charges.
-> See [STATUS.md](STATUS.md) and [docs/MCP.md](docs/MCP.md).
+> See [STATUS.md](STATUS.md), [docs/MCP.md](docs/MCP.md), and
+> [docs/INTEGRATIONS.md](docs/INTEGRATIONS.md).
 
 ```console
 $ midden doctor
@@ -427,11 +428,13 @@ midden advise    [--scope global|tool|repo|workspace]
 midden watch                         # prevention daemon
 midden ui                            # localhost web app
 midden mcp                           # MCP server on stdio
+midden plugins list                  # configured integrations (passive)
+midden plugins probe                 # check local integration targets
 ```
 
 ### Web UI
 
-Eight tabs on loopback, served from the binary. Reads come from the index, never from the
+Nine tabs on loopback, served from the binary. Reads come from the index, never from the
 source stores — re-deriving them on every request took minutes and made the page look hung.
 
 | Tab | What it does |
@@ -441,6 +444,7 @@ source stores — re-deriving them on every request took minutes and made the pa
 | **Sessions** | Filter by tool, age, workspace or drive; resume one-liners; risk badges; shown/in-range/hidden/unloaded counts and index age. |
 | **Nuggets** | Reclaimed knowledge with provenance back to the session it came from. |
 | **Artifacts** | Everything midden has written, readable in place. |
+| **Integrations** | Manifest-derived capability cards. Listing is passive; local probes are explicit, and unavailable targets state why instead of offering a broken action. |
 | **Ask** | Questions about your own history, with an estimate before it charges. |
 | **Cost** | What has been spent, and how close the estimates were. |
 | **Log** | Every mutating operation, with before/after bytes and verification. |
@@ -457,6 +461,9 @@ Three things the UI is strict about:
 - **Freshness is explicit.** `Refresh data` performs a complete source read, reconciles stale
   derived rows, and reports partial sources instead of calling an incomplete index current. A
   Sessions list always carries its denominator and cache generation.
+- **Integrations are declarative and distrustful by default.** A manifest needs a `cost` class,
+  an `enabled` switch, and a probe. Listing makes no network request; `midden plugins probe`
+  checks loopback targets only unless `--allow-network` is an explicit operator choice.
 
 ### MCP server — *the differentiator*
 

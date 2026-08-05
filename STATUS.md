@@ -1,6 +1,6 @@
 # Status
 
-**All milestones shipped (M0–M11).** Version 1.4.0.
+**All milestones shipped (M0–M12).** Version 1.5.0.
 
 Every measurement below comes from a real workstation running Copilot CLI, Claude Code and
 opencode across 688 sessions and 37 GiB.
@@ -130,6 +130,10 @@ instrument, not a tool.
 
 ### M11 — Guide
 `start`, tiered summaries, `ask`. The pipeline order stopped living only in the author's head.
+
+### M12 — Extend
+`plugins list|probe|verify`. Declarative, cost-labelled integration manifests
+with passive listing, explicit probes, and OpenAPI operation verification.
 
 ---
 

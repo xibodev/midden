@@ -19,12 +19,16 @@ import (
 	"github.com/mekjr1/midden/internal/render"
 )
 
-const version = "1.4.0"
+const version = "1.5.0"
 
 func main() {
 	// Adapters that must open transcripts to describe a session reuse what
 	// the last scan derived, so an unchanged file is never opened twice.
-	index.WarmPeekCache()
+	// Plugin commands only inspect manifests; warming the cache would create
+	// or migrate ~/.midden/index.db during a command advertised as passive.
+	if len(os.Args) < 2 || (os.Args[1] != "mcp" && os.Args[1] != "plugins" && os.Args[1] != "plugin") {
+		index.WarmPeekCache()
+	}
 
 	// Narrate slow work on every interactive command. The first run on a
 	// machine has nothing cached and can take minutes; silence for that long
@@ -93,6 +97,8 @@ func main() {
 		err = cmdSummarize(os.Args[2:])
 	case "ask":
 		err = cmdAsk(os.Args[2:])
+	case "plugins", "plugin":
+		err = cmdPlugins(os.Args[2:])
 	case "version", "--version", "-v":
 		fmt.Println("midden", version)
 	case "help", "--help", "-h":
@@ -137,6 +143,8 @@ USAGE
 		}
 		fmt.Println()
 	}
+
+	fmt.Printf("INTEGRATIONS\n  %-10s %s\n\n", "plugins", "List, probe, and verify configured integrations")
 
 	fmt.Printf("COST\n  Everything is free except %s, which call a model\n"+
 		"  through the AI CLI you are already signed in to. Both preview with\n"+

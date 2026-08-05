@@ -9,10 +9,12 @@
 package web
 
 import (
+	"context"
 	"embed"
 	"encoding/json"
 	"fmt"
 	"io/fs"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -28,6 +30,7 @@ import (
 	"github.com/mekjr1/midden/internal/guide"
 	"github.com/mekjr1/midden/internal/index"
 	"github.com/mekjr1/midden/internal/oracle"
+	"github.com/mekjr1/midden/internal/plugins"
 	"github.com/mekjr1/midden/internal/refine"
 )
 
@@ -81,6 +84,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/resume", s.handleResume)
 	mux.HandleFunc("/api/next", s.handleNext)
 	mux.HandleFunc("/api/ask-suggestions", s.handleAskSuggestions)
+	mux.HandleFunc("/api/plugins", s.handlePlugins)
+	mux.HandleFunc("/api/plugins/probe", s.handlePluginProbe)
 
 	return localOnly(mux)
 }
@@ -91,18 +96,34 @@ func (s *Server) Handler() http.Handler {
 // reachable from the network even if the port is accidentally exposed.
 func localOnly(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		host := r.RemoteAddr
-		if i := strings.LastIndex(host, ":"); i > 0 {
-			host = host[:i]
+		host, _, err := net.SplitHostPort(r.RemoteAddr)
+		if err != nil {
+			host = strings.Trim(r.RemoteAddr, "[]")
 		}
-		host = strings.Trim(host, "[]")
-		if host != "127.0.0.1" && host != "::1" && host != "localhost" {
+		if !isLoopbackHost(host) || !isLoopbackHostHeader(r.Host) {
 			http.Error(w, "midden serves loopback only", http.StatusForbidden)
 			return
 		}
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		next.ServeHTTP(w, r)
 	})
+}
+
+func isLoopbackHost(host string) bool {
+	host = strings.Trim(host, "[]")
+	if strings.EqualFold(host, "localhost") {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
+}
+
+func isLoopbackHostHeader(raw string) bool {
+	host, _, err := net.SplitHostPort(raw)
+	if err != nil {
+		host = strings.Trim(raw, "[]")
+	}
+	return isLoopbackHost(host)
 }
 
 func writeJSON(w http.ResponseWriter, v any) {
@@ -387,6 +408,95 @@ func (s *Server) handleArtifacts(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, as)
+}
+
+// handlePlugins renders integration availability from manifests. It is
+// deliberately read/probe-only: an unavailable service is visible with a
+// reason, never represented as a button that fails when pressed.
+type pluginView struct {
+	Name    string `json:"name"`
+	Kind    string `json:"kind"`
+	Cost    string `json:"cost"`
+	Enabled bool   `json:"enabled"`
+	Status  string `json:"status"`
+	Detail  string `json:"detail"`
+}
+
+// handlePlugins is strictly passive. Loading a browser tab must not turn an
+// untrusted local manifest into an internal-network GET request.
+func (s *Server) handlePlugins(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "GET required", http.StatusMethodNotAllowed)
+		return
+	}
+	out, err := s.pluginStatus(r.Context(), false)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, out)
+}
+
+// handlePluginProbe is an explicit, same-origin POST. Browsers cannot attach
+// the required non-simple header from a cross-origin form or fetch without a
+// successful CORS preflight, which this server never grants.
+func (s *Server) handlePluginProbe(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "POST required", http.StatusMethodNotAllowed)
+		return
+	}
+	if r.Header.Get("X-Midden-Request") != "1" {
+		http.Error(w, "explicit Midden request required", http.StatusForbidden)
+		return
+	}
+	if !isLoopbackHostHeader(r.Host) {
+		http.Error(w, "loopback host required", http.StatusForbidden)
+		return
+	}
+	if origin := r.Header.Get("Origin"); origin != "" && origin != "http://"+r.Host {
+		http.Error(w, "cross-origin probe denied", http.StatusForbidden)
+		return
+	}
+	out, err := s.pluginStatus(r.Context(), true)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, out)
+}
+
+func (s *Server) pluginStatus(ctx context.Context, probe bool) ([]pluginView, error) {
+	loaded, err := plugins.LoadDir(filepath.Join(index.Dir(), "plugins"))
+	if err != nil {
+		return nil, err
+	}
+	out := make([]pluginView, 0, len(loaded))
+	for _, loaded := range loaded {
+		m := loaded.Manifest
+		v := pluginView{
+			Name:    m.Name,
+			Kind:    m.Kind,
+			Cost:    m.Cost,
+			Enabled: m.IsEnabled(),
+		}
+		if v.Name == "" {
+			v.Name = strings.TrimSuffix(filepath.Base(m.File), filepath.Ext(m.File))
+		}
+		if loaded.Error != nil {
+			v.Status, v.Detail = plugins.Unavailable, "unparseable: "+loaded.Error.Error()
+		} else if errs := plugins.Validate(m); len(errs) > 0 {
+			v.Status, v.Detail = plugins.Unavailable, "invalid: "+strings.Join(errs, "; ")
+		} else if !m.IsEnabled() {
+			v.Status, v.Detail = plugins.Disabled, "plugin is disabled"
+		} else if probe {
+			result := plugins.ProbeManifest(ctx, m, nil)
+			v.Status, v.Detail = result.Status, result.Detail
+		} else {
+			v.Status, v.Detail = plugins.NotChecked, "not probed"
+		}
+		out = append(out, v)
+	}
+	return out, nil
 }
 
 // handleArtifactBody reads one generated document back.
