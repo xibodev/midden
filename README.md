@@ -11,10 +11,10 @@ Midden is:
   OpenCode session data.
 - **Approval-gated:** model spend, evidence approval, production, export, and
   cleanup are separate decisions.
-- **Evidence-grounded:** Conductor will not create an unsupported production
+- **Evidence-grounded:** Studio will not create or run an unsupported work item
   when no reclaimed evidence exists.
 
-Current release: **2.1.0**.
+Current release: **2.2.0**.
 
 ## Fastest clean install on Windows
 
@@ -56,18 +56,18 @@ upgrades, and removal.
 
 ## First useful journey
 
-1. Open **Mine** and select **Scan and calculate yield**. This pass is local,
-   deterministic, and free.
-2. Select **Extract evidence**, start with one workspace and the summary depth,
-   then inspect the estimate before approving a model call.
-3. Open **Conductor**. Typing `hi` produces a normal reply; it does not create a
-   recipe or redirect you.
-4. Ask for an outcome, for example:
-   `Create an ADR and troubleshooting guide from my recent authentication work.`
-5. Review Conductor's interpretation before selecting **Create this plan**.
-6. In **Studio**, inspect and approve the exact evidence set.
-7. Preview cost, run the production, review each draft, and export only the
-   outputs you approve.
+1. Open **Recover**, filter or select exact sessions, and start a free assay.
+   The job continues in the background while you use the rest of Midden.
+2. Extract a small evidence scope. Choose a real depth, inspect the long-running
+   estimate once, then approve the recovery job.
+3. Create a **Studio** work item from that evidence.
+4. Continue in one persistent AI CLI conversation. Routine turns use the
+   work-item budget envelope rather than opening a cost dialog every time.
+5. Approve the evidence, run the output plan, and inspect rendered previews,
+   editable source, and provenance side by side.
+6. Download your source or rendered output, or export a reviewed result.
+7. Open **Cleanup** to see which dormant source sessions are eligible for a
+   reversible archive and exactly which recovery gates support that decision.
 
 Nothing publishes, installs an agent, uploads data, trains a model, or executes
 a shell command automatically.
@@ -87,11 +87,13 @@ The following can call a model through an already authenticated AI CLI:
 - `reclaim`
 - `refine`
 - `ask`
+- persistent Studio work-item chat
 - model-backed refinery outputs
 
-Every model-backed action has a preview step. The UI shows the backend, model,
-estimated time, charge confidence, and external-write scope before approval.
-The CLI equivalents support `--dry-run`.
+Long-running model-backed actions have a preview step. Studio chat instead uses
+one visible per-work-item budget envelope and shows cumulative estimated usage.
+Changing scope or exceeding that envelope is blocked explicitly. The CLI
+equivalents support `--dry-run`.
 
 Midden never calls a model API directly and does not require a model API key.
 
@@ -146,15 +148,12 @@ backend selection, ports, environment variables, and backup guidance.
 
 | Surface | Purpose |
 |---|---|
-| **Home** | Current footprint, evidence state, saved productions, and next action |
-| **Mine** | Source scan, free assay, evidence extraction, and yield map |
-| **Studio** | Recipe, evidence approval, cost preview, run timeline, review, export |
-| **Knowledge** | Handbooks, notebook packs, flashcards, quizzes, retrieval memory |
-| **Agent forge** | Skill, instruction, agent, and evaluation proposals |
-| **Personalization** | Retrieval, SFT, preference, evaluation, and privacy packs |
-| **Connections** | Optional local makers and destination configuration |
-| **Conductor** | Clarification-first chat over reclaimed evidence |
-| **Operations** | Session rescue, cleanup previews, jobs, cost, and audit history |
+| **Recover** | Session inventory, exact scopes, free assay, evidence extraction, and durable mine history |
+| **Studio** | Persistent work-item list, AI CLI conversation, controlled Console, evidence approval, production, rendered preview, source, and provenance |
+| **Library** | Every generated output with type filters, download, review, and export |
+| **Cleanup** | Explainable eligibility gates and reversible archive previews |
+| **Activity** | Restart-safe jobs, recovery runs, cost ledger, and audit history |
+| **Tools** | Plugins, callable tools, skills, viewers, destinations, and managed integrations |
 
 ## Safety boundaries
 
@@ -165,8 +164,9 @@ backend selection, ports, environment variables, and backup guidance.
 - A recipe cannot run before its evidence is approved.
 - Generated outputs begin as drafts.
 - Export is local and requires per-output review.
-- Publishing, installation, upload, training, and shell execution remain out of
-  scope or require a separate explicit action.
+- Studio Console is allowlisted diagnostics, not an arbitrary host shell.
+- Publishing, installation, upload, training, and unrestricted shell execution
+  remain out of scope or require a separate explicit action.
 - Cleanup commands default to preview and preserve source meaning in new files.
 
 ## Documentation

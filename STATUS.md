@@ -2,11 +2,12 @@
 
 ## Current release
 
-**Midden 2.1.0**
+**Midden 2.2.0**
 
-Implementation is complete through the clarification-first evidence refinery.
-Automated quality gates pass. The remaining release safeguard is a fresh-clone
-human acceptance run using [docs/ACCEPTANCE_TEST.md](docs/ACCEPTANCE_TEST.md).
+The product now uses the standalone recovery-workbench architecture approved
+after human UAT. Kuse remains a possible optional client; Midden's Go engine,
+SQLite state, source reconciliation, evidence, provenance, and cleanup policy
+remain authoritative.
 
 ## Product state
 
@@ -14,128 +15,139 @@ human acceptance run using [docs/ACCEPTANCE_TEST.md](docs/ACCEPTANCE_TEST.md).
 |---|---|
 | Copilot CLI, Claude Code, OpenCode discovery | Complete |
 | Read-only cross-tool index and reconciliation | Complete |
-| Session search, detail, resume, handoff, and risk | Complete |
-| Deterministic assay and yield | Complete |
-| Redacted evidence extraction with provenance | Complete |
-| Catalog and CLI artifact generation | Complete |
-| Persistent recipes, evidence approval, runs, outputs | Complete |
-| Clarification-first Conductor | Complete |
-| Structured review and provenance filtering | Complete |
-| Local reviewed export | Complete |
-| Knowledge, agent, personalization output journeys | Complete |
-| Managed Connections and advanced manifests | Complete |
+| Deterministic assay and source fingerprints | Complete |
+| Redacted evidence extraction with real depth limits | Complete |
+| Durable exact-scope recovery runs | Complete |
+| Restart-safe background job history | Complete |
+| Persistent recipes/work items, runs, outputs | Complete |
+| Persistent per-work-item AI CLI conversations | Complete |
+| Work-item budget envelopes | Complete |
+| Controlled diagnostic Console | Complete |
+| Rendered Markdown and structured data review | Complete |
+| Optional D2/media inline renderer | Complete when installed |
+| Owned-file browser downloads | Complete |
+| Library filters and direct output access | Complete |
+| Recovery-aware cleanup eligibility | Complete |
+| Archive application blocked outside eligibility | Complete |
+| Activity, cost, and audit views | Complete |
+| Tools, managed integrations, advanced manifests | Complete |
 | Token-bounded read-only MCP server | Complete |
-| Operations search, pagination, cost, and audit | Complete |
-| Automatic publishing, agent installation, upload, training | Intentionally not provided |
-| Conductor shell execution | Disabled |
+| Unrestricted host terminal | Intentionally not provided |
+| Automatic publishing, installation, upload, training, purge | Intentionally not provided |
+
+## Primary workflow
+
+```text
+Recover exact sessions
+→ durable assay/evidence run
+→ Studio work item
+→ persistent AI CLI conversation
+→ evidence approval
+→ local draft production
+→ rendered preview/source/provenance
+→ download or reviewed export
+→ explainable archive eligibility
+```
 
 ## Human-facing behavior
 
-The v2.1 corrective pass establishes these user-visible rules:
-
-- A greeting receives a greeting.
-- Ambiguous Conductor input is clarified instead of guessed.
-- A design request is previewed in chat before a recipe is created.
-- No recipe is recommended or created without reclaimed evidence.
-- Assay-only state reports measured signal but does not invent asset counts.
-- Mine waits for an in-flight refresh instead of exposing a scan-lock race.
-- Evidence approval and production approval are separate.
-- Cost approval identifies backend, model, time, calibration confidence, and
-  external writes.
-- Generated content is a draft until reviewed.
-- Structured packs are reviewed as records, not as an unreadable JSONL wall.
-- Filtering structured records also filters stored evidence IDs and the
-  provenance sidecar.
-- Mobile navigation has a scrim and close control.
-- Keyboard navigation includes a skip link, dialog focus trap, and focus
-  restoration.
-- Operations sessions are searched, consequence-sorted, and paginated.
+- Long-running work starts in the background and does not own the screen.
+- Mine history records exact scope, depth, counts, timestamps, and failures.
+- Session selection is exact; evidence extraction no longer silently truncates
+  to eight sessions.
+- Summary, Deep, and X-ray use different record limits.
+- Studio always retains its work-item list.
+- Routine chat resumes the same AI CLI session and uses one cumulative budget
+  envelope instead of a per-turn cost dialog.
+- Console accepts only allowlisted diagnostics.
+- Markdown is rendered as a document.
+- JSON and JSONL are shown as readable records.
+- D2 and media use optional inline renderers; absent tools produce an honest
+  source fallback.
+- Output source can always be downloaded.
+- Library is independent from the selected Studio item.
+- Cleanup states why a session is eligible, held, or protected.
+- Web archive application refuses sessions that have not satisfied recovery
+  eligibility.
+- Midden targets desktop use. Compact desktop windows remain usable; phone
+  compatibility is not a product or release goal.
 
 ## Safety contract
 
-- Source session stores are opened read-only.
-- Midden writes only to its own state directory and explicit derived outputs.
-- Scan and assay are deterministic and model-free.
-- Model-backed work uses an already authenticated local AI CLI.
-- Raw transcripts are not persisted as reclaimed evidence.
+- Source session stores are opened read-only for indexing, assay, evidence,
+  and Studio work.
+- Background job persistence removes answer bodies and evidence bodies; the
+  authoritative content remains in purpose-built message/evidence tables.
+- Raw transcripts are not copied into work-item chat or generated drafts.
 - Redaction occurs before evidence is stored.
-- Preview actions do not perform the paid action.
+- Preview requests do not perform paid or destructive work.
+- Persistent chat never silently falls back to a new context after a failed
+  resume.
 - Production writes local drafts and stops before external delivery.
-- Cleanup commands default to preview and do not mutate source transcripts in
-  place.
-- Managed integration settings contain no credentials.
-- The web server binds only to loopback.
+- Console is allowlisted and never invokes a host shell.
+- Download paths are confined to Midden's refinery artifact directory.
+- Archive is explicit, reversible, and recovery-gated.
+- The web server binds only to loopback and protects state-changing requests.
 
-## Quality evidence
+## Automated and local UAT evidence
 
-The completed v2.1 automated and assisted-human pass produced:
-
-- Go formatting, vet, unit, integration, and build success;
-- 18 of 18 cross-browser headless journeys passing;
-- 4 of 4 headed human journeys passing;
-- 24 of 24 vision frames passing;
-- a 97.9 out of 100 mean visual score;
-- zero horizontal overflow at six tested viewports;
-- zero undersized controls at six tested viewports;
-- measured LCP around 204 ms, CLS 0, and INP 48 ms.
-
-The final evidence bundle is intentionally outside the distributable source
-tree. `.quality-run` is generated test output and is ignored.
-
-The release is not marked human-accepted until an operator completes a new
-clone, build, configuration, and first production journey.
+- Go formatting, vet, full tests, and build pass.
+- Persistent jobs survive manager recreation and interrupted jobs close as
+  failed after restart.
+- Two real Studio turns resumed one Copilot CLI session and persisted messages
+  in user/agent order.
+- An exact-session mine persisted its exact scope and left every source file
+  size and modification time unchanged.
+- Summary and Deep extraction previews recorded distinct depth limits without
+  invoking a model.
+- Desktop browser journeys pass at 1440×900 and 1024×768 with zero body-level
+  horizontal overflow across all six views.
+- Rendered Markdown, editable source, provenance, D2 fallback, downloads,
+  controlled Console, Library filters, Cleanup details, Activity, and Tools
+  were exercised against copied real state.
 
 ## Architecture status
 
 - Single Go binary.
-- Embedded UI through `embed.FS`.
-- Pure-Go SQLite through `modernc.org/sqlite`.
+- Embedded HTML/CSS/JavaScript UI.
+- Pure-Go SQLite.
 - No Node build.
 - No CGO requirement.
 - No core Docker dependency.
 - Loopback-only HTTP interface.
 - JSON-RPC MCP server over stdio.
-
-The index is the fast read path. Complete successful scans reconcile stale
-source rows; partial adapters preserve prior rows rather than claiming
-deletion authority. Cross-process scan locks, generation stamps, tombstones,
-and SQLite triggers prevent overlapping or older writers from resurrecting
-stale sessions.
+- Optional external renderers and integrations remain independently installed.
 
 ## Known limits
 
-- OpenCode per-session byte accounting requires a full `part` aggregate and is
-  opt-in behind `--sizes`.
-- Copilot and OpenCode expose no trustworthy live-session marker; reliable live
-  detection is Claude-only.
-- `watch` polls rather than subscribing to filesystem events.
-- Model-backed output quality depends on the selected backend and model.
-- A first model-backed estimate is conservative until actual usage calibrates
-  later estimates.
-- The application cross-compiles to Linux and macOS, but the full human journey
-  has been exercised on Windows.
-- The Go race detector cannot run on a workstation without a C compiler even
-  though normal tests use pure-Go SQLite.
-- The repository currently has no configured Git remote. Documentation uses
-  `<repository-url>` until a remote is deliberately attached.
+- OpenCode per-session byte accounting remains opt-in behind `--sizes`.
+- Reliable live-session detection remains Claude-only.
+- Background external processes cannot resume after the Midden process exits;
+  their durable job row is marked interrupted instead of remaining falsely
+  running.
+- Studio responses are returned when the selected CLI turn finishes; token
+  streaming is not yet exposed incrementally.
+- D2/media inline previews require the matching locally installed renderer or
+  file type.
+- Cleanup eligibility treats reviewed output references as the current evidence
+  ownership gate; record-level evidence review is not yet stored independently.
+- The complete human acceptance checklist remains an operator gate.
 
 ## Release gate
-
-The release gate is:
 
 ```text
 clean clone
 → go test ./...
-→ build 2.1.0
+→ build 2.2.0
 → isolated MIDDEN_HOME
-→ Mine
+→ exact-session mine
 → small evidence extraction
-→ Conductor greeting and clarification
-→ plan preview
-→ evidence approval
+→ Studio work item and evidence approval
+→ two persistent chat turns
 → draft production
-→ review and local export
-→ mobile and keyboard check
+→ rendered preview/source/provenance/download
+→ Library and Cleanup inspection
+→ desktop keyboard and compact-window check
 ```
 
 See [docs/ACCEPTANCE_TEST.md](docs/ACCEPTANCE_TEST.md).

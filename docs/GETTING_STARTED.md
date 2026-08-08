@@ -1,12 +1,11 @@
 # Getting started
 
-This guide takes a new installation from an empty Midden index to one reviewed,
-locally exported output. It does not use destructive actions.
+This guide takes a new installation from an empty Midden index to one
+downloadable, reviewed output. It does not use destructive actions.
 
-## The workflow in one line
+## The workflow
 
-**Scan → assay → extract evidence → design → approve evidence → produce drafts
-→ review → export.**
+**Recover → Studio → Library → Cleanup.**
 
 Source sessions remain read-only throughout.
 
@@ -18,181 +17,160 @@ For a disposable first run from the repository root:
 $env:MIDDEN_HOME = (Join-Path $PWD '.midden')
 ```
 
-This isolates Midden's index and outputs. It does not change where Copilot,
-Claude, or OpenCode store their sessions.
+This isolates Midden's index, jobs, conversations, and outputs. It does not
+change where Copilot, Claude, or OpenCode store their sessions.
 
-If `.midden` already exists and you need a truly fresh trial, use a new name:
+If `.midden` already exists, use a new directory rather than deleting it:
 
 ```powershell
 $env:MIDDEN_HOME = (Join-Path $PWD '.midden-first-run')
 ```
 
-Do not delete or overwrite an existing Midden home.
-
-## 2. Confirm the binary
+## 2. Confirm and launch
 
 ```powershell
 .\bin\midden.exe version
 .\bin\midden.exe start
-```
-
-`start` reports what Midden can currently see, which actions are free, which
-can spend, and the highest-value next steps.
-
-## 3. Start the UI
-
-```powershell
 .\bin\midden.exe ui
 ```
 
 Midden binds only to `127.0.0.1` and normally opens
-`http://127.0.0.1:7777`.
+`http://127.0.0.1:7777`. Keep the terminal open and press `Ctrl+C` when done.
 
-To prevent automatic browser launch:
+## 3. Recover one small scope
 
-```powershell
-.\bin\midden.exe ui --no-open
-```
+Open **Recover**.
 
-Keep that terminal open. Press `Ctrl+C` when finished.
+The session inventory is consequence-sorted and can be filtered by title,
+workspace, source, and age. Select one exact closed session for the first run.
 
-## 4. Mine the local session stores
+Select **Mine selected**, then choose:
 
-Open **Mine** and select **Scan and calculate yield**.
+- **Assay only · free**
+- the exact selected session;
+- a suitable time range;
+- **Summary · low cost**.
 
-This first pass:
+Start the mine. The job moves to the background dock and Activity; you can
+navigate elsewhere while it runs.
 
-- discovers supported local session stores;
-- refreshes Midden's local index;
-- classifies recent transcripts;
-- calculates signal, exhaust, artifact, and reclaimable yield;
-- makes no model call.
+Every mine records:
 
-The default UI mine covers the last 30 days. A source that is not installed is
-reported as unavailable rather than treated as an error.
+- exact scope;
+- depth;
+- source fingerprints;
+- session, assay, evidence, failure, and byte counts;
+- start/end state;
+- durable job history.
 
-If no sessions appear, see [Troubleshooting](TROUBLESHOOTING.md).
+## 4. Extract evidence
 
-## 5. Extract a small evidence scope
+After the assay, choose **Extract evidence** for the same exact session or a
+small workspace scope.
 
-After assay completes, select **Extract evidence**.
+1. Choose Summary, Deep, or X-ray. These depths use different evidence record
+   limits.
+2. Select an already authenticated AI CLI, or leave auto-detection enabled.
+3. Review the long-running estimate.
+4. Start the background extraction only if the estimate is acceptable.
 
-For a first run:
+The selected CLI receives a bounded, redacted evidence slice rather than the
+raw transcript corpus.
 
-1. Choose one workspace rather than all evidence.
-2. Choose **Last 7 days** or **Last 30 days**.
-3. Choose **Summary · cheapest**.
-4. Keep **Auto-detect signed-in CLI**, or choose a known backend.
-5. Select **Estimate evidence extraction**.
-6. Inspect the backend, model, time, charge confidence, and external writes.
-7. Select **Approve spend and run** only if the estimate is acceptable.
+## 5. Create a Studio work item
 
-The selected backend receives a bounded, redacted evidence slice rather than
-the raw transcript corpus. Extracted items retain source provenance and
-confidence.
+Open **Studio** and select **New work item**.
 
-If no supported AI CLI command is installed and signed in, stop here. You can
-still use session discovery, assay, rescue, Operations, and MCP.
+Choose:
 
-## 6. Use Conductor like a conversation
+- an evidenced workspace;
+- a clear finished outcome;
+- an optional output starter such as tutorial + diagram.
 
-Open **Conductor**.
+The work item remains visible in Studio's left rail. Selecting Studio later
+does not trap you inside one item; the complete list remains available.
 
-Expected behavior:
+## 6. Approve evidence and run
 
-- `hi` receives a greeting and no action is created.
-- `help` gives examples.
-- An ambiguous statement triggers a clarification.
-- A simple evidence-count or yield question is answered locally.
-- A model-backed question shows an estimate before calling a backend.
-- A creation request previews a plan in chat.
-- A plan is persisted only after **Create this plan**.
+Open **Review evidence**.
 
-Try:
+1. Read every selected item.
+2. Remove unrelated or weak evidence.
+3. Save while iterating.
+4. Approve only when the allowed claims are correct.
 
-```text
-hi
-```
+After approval, select **Preview cost and run**. The confirmation applies to
+the long-running production, not to ordinary chat turns.
 
-Then:
+The production writes local drafts and stops before publishing, installation,
+upload, training, or unrestricted shell execution.
 
-```text
-What can I create from my evidence?
-```
+## 7. Use persistent Studio chat
 
-Then a scoped request:
+Studio chat is tied to the work item:
 
-```text
-Create an ADR and troubleshooting guide from my recent authentication work.
-```
+- its messages are stored in Midden's SQLite index;
+- the assigned AI CLI session ID is persisted;
+- later turns resume the same CLI context;
+- one visible budget envelope covers routine turns;
+- exceeding the envelope is blocked explicitly;
+- the user can navigate while a turn runs as a background job.
 
-Review the proposed outputs and evidence count. Adjust the request if the
-interpretation is wrong. Creating the plan does not run it or spend.
+Ask questions or request revisions normally. There is no estimate dialog on
+every turn.
 
-## 7. Approve the evidence in Studio
-
-Conductor opens the saved plan in **Studio**.
-
-1. Review every selected evidence item.
-2. Search or filter the candidate list.
-3. Remove weak or unrelated evidence.
-4. Inspect low-confidence warnings and claim-type coverage.
-5. Select **Save selection** while iterating.
-6. Select **Approve evidence set** only when the allowed claims are correct.
-
-The evidence gate controls every output in the bundle.
-
-## 8. Produce drafts
-
-Select **Preview cost and run**.
-
-The confirmation states:
-
-- output count;
-- evidence count;
-- backend and model;
-- estimated time;
-- whether the estimate is calibrated;
-- external writes.
-
-The run writes only to Midden's artifact workspace. It stops at drafts and does
-not publish, upload, install, train, or invoke a shell.
-
-## 9. Review and export
-
-Each output has its own review state. For structured JSONL packs, Studio shows
-readable records, source and confidence, include/exclude controls, raw content,
-and filtered provenance.
-
-Review an output before exporting it. Reopening a completed draft returns the
-recipe to review so the workflow cannot imply approval that no longer exists.
-
-Exports are local under:
+Studio's **Console** is a controlled diagnostic surface, not a host terminal.
+Supported commands include:
 
 ```text
-<MIDDEN_HOME>\artifacts\
+help
+status
+files
+evidence
+runs
+openmontage status
 ```
 
-Every evidence-derived export has a provenance sidecar.
+## 8. Preview, edit, and download
+
+Select an output in Studio.
+
+- **Rendered** shows formatted Markdown, structured JSON/JSONL, media, or an
+  optional renderer result.
+- **Source** provides an editable source file with draft/review decisions.
+- **Provenance** shows the exact evidence behind the output.
+- **Download** always returns the owned source file.
+- Reviewed outputs may also be exported locally.
+
+If a renderer such as D2 is absent, Midden states that honestly and keeps the
+source editable and downloadable rather than pretending a rendered diagram
+exists.
+
+## 9. Use Library and Cleanup
+
+**Library** lists all outputs independently from their work item. Filter by
+document, visual, video, data, or agent output and download directly.
+
+**Cleanup** explains whether a session is:
+
+- eligible;
+- held;
+- protected.
+
+Eligibility requires a closed dormant source, an unchanged fingerprint,
+recovered evidence, reviewed output references, and no active work-item
+dependency. Archive is reversible and remains separate from permanent purge.
 
 ## CLI equivalent
 
-The same basic path is available without the browser:
-
 ```powershell
 .\bin\midden.exe scan --assay
-.\bin\midden.exe catalog
 .\bin\midden.exe reclaim --workspace <name> --days 7 --dry-run
 .\bin\midden.exe reclaim --workspace <name> --days 7
-.\bin\midden.exe nuggets
+.\bin\midden.exe catalog
 .\bin\midden.exe refine adr tsg --workspace <name> --dry-run
 .\bin\midden.exe refine adr tsg --workspace <name>
 .\bin\midden.exe artifacts
 ```
 
 Run each command with `-h` before using optional flags.
-
-## Stop safely
-
-Press `Ctrl+C` in the terminal running `midden ui`. Midden closes the loopback
-server and leaves its local state available for the next run.

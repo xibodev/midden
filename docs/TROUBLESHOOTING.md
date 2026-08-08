@@ -87,18 +87,16 @@ Start without browser automation:
 Open the printed `http://127.0.0.1:<port>` address manually. A browser-launch
 failure does not stop the server.
 
-## Conductor says evidence is required
+## Studio says evidence is required
 
 This is intentional. Assayed session volume is not evidence, and Midden will
 not invent asset counts or create an unsupported recipe.
 
-1. Open **Mine**.
-2. Select **Scan and calculate yield**.
+1. Open **Recover**.
+2. Start a free assay for one session or small scope.
 3. Select **Extract evidence**.
 4. Approve a small model-backed extraction.
-5. Return to **Conductor**.
-
-Typing `hi` should produce a greeting. It must not create a recipe.
+5. Return to **Studio** and create a work item from that evidence.
 
 ## No AI CLI backend is found
 
@@ -134,8 +132,9 @@ The model name is backend-specific; omit `--model` to use the backend default.
 
 ## The index is busy or a scan lock is reported
 
-Only one authoritative source refresh should write at a time. Wait for the
-current Mine or scan job to finish.
+Only one authoritative source refresh should write at a time. The job remains
+visible in Activity and the background dock; wait for it to finish before
+starting another source scan.
 
 If a process was interrupted:
 

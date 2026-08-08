@@ -180,7 +180,7 @@ func cmdStart(args []string) error {
 		fmt.Printf("    %s %s\n", render.Dim("·"), tip)
 	}
 
-	fmt.Printf("\n  %s\n\n", render.Dim("midden help — every command, in pipeline order   |   midden ui — sessions, optional integrations, and settings in a browser"))
+	fmt.Printf("\n  %s\n\n", render.Dim("midden help — every command, in pipeline order   |   midden ui — Recover, Studio, Library, Cleanup, Activity, and Tools"))
 	return nil
 }
 

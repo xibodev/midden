@@ -19,7 +19,7 @@ import (
 	"github.com/mekjr1/midden/internal/render"
 )
 
-const version = "2.1.0"
+const version = "2.2.0"
 
 func main() {
 	// Adapters that must open transcripts to describe a session reuse what
@@ -145,7 +145,7 @@ USAGE
 	}
 
 	fmt.Printf("INTEGRATIONS\n  %-10s %s\n  %-10s %s\n\n",
-		"ui", "Set up built-in integrations in the browser",
+		"ui", "Set up tools and managed integrations in the desktop workbench",
 		"plugins", "Advanced manifest list, probe, and verify")
 
 	fmt.Printf("COST\n  Everything is free except %s, which call a model\n"+
@@ -178,7 +178,7 @@ EXAMPLES
   midden catalog                     What your evidence can support
   midden refine tsg adr              Write both from one warm context
   midden cost                        What you have spent
-  midden ui                          The same thing in a browser
+  midden ui                          Open the desktop recovery workbench
 `)
 }
 

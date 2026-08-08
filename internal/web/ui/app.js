@@ -1,32 +1,66 @@
-'use strict';
-
 const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => Array.from(root.querySelectorAll(selector));
+
+const state = {
+  activeView: 'recover',
+  overview: null,
+  sessions: [],
+  sessionStats: null,
+  recoveryRuns: [],
+  jobs: [],
+  jobsInitialized: false,
+  jobCallbacks: new Map(),
+  completedJobs: new Set(),
+  selectedSessions: new Set(),
+  mineBuilderOpen: false,
+  workItems: [],
+  selectedWork: sessionStorage.getItem('midden.selectedWork') || '',
+  workDetail: null,
+  conversationMode: 'chat',
+  consoleHistory: new Map(),
+  selectedOutput: '',
+  previewMode: 'rendered',
+  outputDetail: null,
+  pendingChat: new Set(),
+  libraryFilter: 'all',
+  cleanup: null,
+  connections: null,
+  integrations: null,
+  plugins: null,
+};
+
+const viewMeta = {
+  recover: ['Recovery desk', 'Recover'],
+  studio: ['Persistent workbench', 'Studio'],
+  library: ['Owned outputs', 'Library'],
+  cleanup: ['Recovery-aware storage', 'Cleanup'],
+  activity: ['Background work', 'Activity'],
+  tools: ['Capabilities and settings', 'Tools'],
+};
 
 function el(tag, className, text) {
   const node = document.createElement(tag);
   if (className) node.className = className;
-  if (text !== undefined && text !== null) node.textContent = String(text);
+  if (text !== undefined && text !== null) node.textContent = text;
+  return node;
+}
+
+function clear(node) {
+  while (node.firstChild) node.firstChild.remove();
   return node;
 }
 
 function append(parent, ...children) {
   children.flat().forEach((child) => {
-    if (child === undefined || child === null || child === false) return;
-    parent.append(child instanceof Node ? child : document.createTextNode(String(child)));
+    if (child !== undefined && child !== null) parent.append(child);
   });
   return parent;
 }
 
-function clear(node) {
-  node.replaceChildren();
-  return node;
-}
-
-function button(label, className = 'button', onClick) {
+function button(label, className = 'button', handler) {
   const node = el('button', className, label);
   node.type = 'button';
-  if (onClick) node.addEventListener('click', onClick);
+  if (handler) node.addEventListener('click', handler);
   return node;
 }
 
@@ -34,236 +68,203 @@ function badge(label, kind = '') {
   return el('span', `badge ${kind}`.trim(), label);
 }
 
-function field(label, control) {
+function field(label, input) {
   const wrap = el('label', 'field');
-  append(wrap, el('span', null, label), control);
+  append(wrap, document.createTextNode(label), input);
   return wrap;
 }
 
 function textInput(value = '', placeholder = '') {
   const input = el('input');
   input.type = 'text';
-  input.value = value || '';
+  input.value = value;
   input.placeholder = placeholder;
   return input;
 }
 
-function selectInput(options, value = '') {
+function textArea(value = '', placeholder = '') {
+  const input = el('textarea');
+  input.value = value;
+  input.placeholder = placeholder;
+  return input;
+}
+
+function selectInput(options, selected = '') {
   const select = el('select');
   options.forEach((option) => {
-    const node = el('option', null, option.label);
-    node.value = option.value;
-    node.selected = option.value === value;
-    select.append(node);
+    const item = el('option');
+    if (typeof option === 'string') {
+      item.value = option;
+      item.textContent = option;
+    } else {
+      item.value = option.value;
+      item.textContent = option.label;
+    }
+    item.selected = item.value === selected;
+    select.append(item);
   });
   return select;
 }
 
-function textarea(value = '', placeholder = '') {
-  const node = el('textarea');
-  node.value = value || '';
-  node.placeholder = placeholder;
-  return node;
-}
-
 function pageHead(kicker, title, copy, actions = []) {
   const head = el('header', 'page-head');
-  const text = el('div', 'page-copy');
-  append(text, el('div', 'eyebrow', kicker), el('h1', null, title), el('p', null, copy));
-  append(head, text);
-  if (actions.length) {
-    const actionWrap = el('div', 'page-actions');
-    actions.forEach((action) => actionWrap.append(action));
-    head.append(actionWrap);
-  }
+  const pageCopy = el('div', 'page-copy');
+  append(pageCopy, el('div', 'eyebrow', kicker), el('h1', null, title), el('p', null, copy));
+  const actionWrap = el('div', 'actions');
+  actions.forEach((action) => actionWrap.append(action));
+  append(head, pageCopy, actionWrap.children.length ? actionWrap : null);
   return head;
 }
 
-function sectionHead(kicker, title, copy, actions = []) {
+function panelHead(kicker, title, copy, actions = []) {
   const head = el('div', 'panel-head');
-  const text = el('div');
-  append(text, el('div', 'eyebrow', kicker), el('h2', 'section-title', title));
-  if (copy) text.append(el('p', 'section-copy', copy));
-  head.append(text);
-  if (actions.length) {
-    const wrap = el('div', 'row-actions');
-    actions.forEach((action) => wrap.append(action));
-    head.append(wrap);
-  }
+  const content = el('div');
+  append(content, el('div', 'eyebrow', kicker), el('h2', null, title), copy ? el('p', null, copy) : null);
+  const actionWrap = el('div', 'actions');
+  actions.forEach((action) => actionWrap.append(action));
+  append(head, content, actionWrap.children.length ? actionWrap : null);
   return head;
+}
+
+function metricGrid(items) {
+  const grid = el('div', 'metric-grid');
+  items.forEach((item) => {
+    const card = el('article', 'metric-card');
+    append(card, el('div', 'eyebrow', item.label), el('strong', null, String(item.value)),
+      el('span', null, item.copy || ''));
+    grid.append(card);
+  });
+  return grid;
 }
 
 function emptyState(title, copy, action) {
-  const wrap = el('div', 'empty');
-  append(wrap, el('strong', null, title), el('span', null, copy));
-  if (action) {
-    const actions = el('div', 'row-actions');
-    actions.style.justifyContent = 'center';
-    actions.style.marginTop = '14px';
-    actions.append(action);
-    wrap.append(actions);
-  }
-  return wrap;
+  const node = el('div', 'empty');
+  append(node, el('strong', null, title), el('span', null, copy), action ? el('div', 'actions') : null);
+  if (action) $('.actions', node).append(action);
+  return node;
 }
 
 function formatBytes(value) {
-  let n = Number(value || 0);
-  const units = ['B', 'KiB', 'MiB', 'GiB', 'TiB'];
-  let index = 0;
-  while (n >= 1024 && index < units.length - 1) {
-    n /= 1024;
-    index += 1;
-  }
-  return `${n.toFixed(index ? 1 : 0)} ${units[index]}`;
+  const bytes = Number(value || 0);
+  if (bytes >= 1024 ** 3) return `${(bytes / 1024 ** 3).toFixed(1)} GiB`;
+  if (bytes >= 1024 ** 2) return `${(bytes / 1024 ** 2).toFixed(0)} MiB`;
+  if (bytes >= 1024) return `${(bytes / 1024).toFixed(0)} KiB`;
+  return `${bytes} B`;
 }
 
 function formatCount(value) {
-  const n = Number(value || 0);
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
-  if (n >= 1_000) return `${Math.round(n / 1_000)}k`;
-  return String(n);
+  const count = Number(value || 0);
+  if (count >= 1_000_000) return `${(count / 1_000_000).toFixed(1)}M`;
+  if (count >= 1_000) return `${(count / 1_000).toFixed(0)}k`;
+  return String(count);
 }
 
 function formatDate(value) {
-  if (!value) return 'not yet';
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return '';
+  if (!value) return '--';
   return new Intl.DateTimeFormat(undefined, {
     month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit',
-  }).format(date);
-}
-
-function truncateText(value, limit) {
-  const text = String(value || '').trim();
-  if (text.length <= limit) return text;
-  return `${text.slice(0, limit).trimEnd()}…`;
+  }).format(new Date(value));
 }
 
 function relativeAge(value) {
-  if (!value) return 'not yet scanned';
-  const timestamp = new Date(value).getTime();
-  if (!Number.isFinite(timestamp)) return '';
-  const minutes = Math.max(0, Math.round((Date.now() - timestamp) / 60000));
-  if (minutes < 2) return 'just now';
-  if (minutes < 60) return `${minutes}m ago`;
-  if (minutes < 1440) return `${Math.round(minutes / 60)}h ago`;
-  return `${Math.round(minutes / 1440)}d ago`;
+  if (!value) return 'never';
+  const seconds = Math.max(0, (Date.now() - new Date(value).getTime()) / 1000);
+  if (seconds < 60) return 'just now';
+  if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
+  if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ago`;
+  return `${Math.floor(seconds / 86400)}d ago`;
 }
 
-function statusKind(status) {
-  const value = String(status || '').toLowerCase();
-  if (['ready', 'connected', 'done', 'reviewed', 'exported', 'pass', 'complete'].includes(value)) return 'ready';
-  if (['running', 'progress', 'queued', 'waiting'].includes(value)) return 'running';
-  if (['failed', 'rejected', 'review', 'needs_attention', 'locked'].includes(value)) return 'danger';
-  if (['approved'].includes(value)) return 'blue';
-  if (['draft', 'evidence_review', 'guided', 'lab', 'ready_to_test', 'legacy'].includes(value)) return 'lab';
+function humanStatus(value) {
+  return String(value || '').replaceAll('_', ' ').replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
+function statusKind(value) {
+  const status = String(value || '').toLowerCase();
+  if (['done', 'complete', 'reviewed', 'exported', 'ready', 'eligible', 'connected'].includes(status)) return 'free';
+  if (['failed', 'rejected', 'critical', 'protected'].includes(status)) return 'danger';
+  if (['running', 'queued', 'review', 'evidence review', 'held', 'warning'].includes(status.replaceAll('_', ' '))) return 'spend';
+  if (status.includes('agent') || status.includes('skill')) return 'purple';
   return '';
 }
 
-function humanStatus(status) {
-  return String(status || 'unknown').replaceAll('_', ' ');
+function truncate(value, length = 120) {
+  const text = String(value || '').trim();
+  return text.length <= length ? text : `${text.slice(0, length - 1)}…`;
 }
 
-async function get(path) {
-  const response = await fetch(path);
-  if (!response.ok) throw new Error((await response.text()) || response.statusText);
-  return response.json();
+function sessionKey(session) {
+  return `${String(session.tool || '').toLowerCase()}:${session.id}`;
 }
 
-async function post(path, body) {
+function escapeHTML(value) {
+  return String(value || '')
+    .replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;').replaceAll("'", '&#039;');
+}
+
+async function request(path, options = {}) {
   const response = await fetch(path, {
-    method: 'POST',
-    headers: {'Content-Type': 'application/json', 'X-Midden-Request': '1'},
-    body: JSON.stringify(body),
+    ...options,
+    headers: {
+      ...(options.body ? {'Content-Type': 'application/json'} : {}),
+      ...(options.method && options.method !== 'GET' ? {'X-Midden-Request': '1'} : {}),
+      ...(options.headers || {}),
+    },
   });
-  if (!response.ok) throw new Error((await response.text()) || response.statusText);
-  return response.json();
-}
-
-function storedConductorMessages() {
-  try {
-    const value = JSON.parse(localStorage.getItem('midden.conductor.messages') || '[]');
-    return Array.isArray(value) ? value.slice(-40) : [];
-  } catch {
-    return [];
+  if (!response.ok) {
+    const body = (await response.text()).trim();
+    throw new Error(body || `${response.status} ${response.statusText}`);
   }
+  const type = response.headers.get('content-type') || '';
+  return type.includes('application/json') ? response.json() : response.text();
 }
 
-const state = {
-  overview: null,
-  activeView: 'home',
-  selectedRecipe: '',
-  recipeDetail: null,
-  conductorMode: 'auto',
-  conductorMessages: storedConductorMessages(),
-  conductorDraft: '',
-  operationsTab: 'sessions',
-  connections: null,
-  integrations: null,
-  plugins: null,
-};
-
-const viewMeta = {
-  home: ['Evidence refinery', 'Home'],
-  mine: ['Source to yield', 'Mine'],
-  studio: ['Recipes and review', 'Studio'],
-  knowledge: ['Retain the learning', 'Knowledge'],
-  'agent-forge': ['Evidence to behavior', 'Agent forge'],
-  personalization: ['Private data readiness', 'Personalization'],
-  connections: ['Capabilities in context', 'Connections'],
-  conductor: ['Conversational control', 'Conductor'],
-  operations: ['Sources, cost, and audit', 'Operations'],
-};
+const get = (path) => request(path);
+const post = (path, body) => request(path, {method: 'POST', body: JSON.stringify(body)});
 
 let toastTimer;
-function toast(message, kind = '') {
+function toast(message, kind = 'good') {
   const node = $('#toast');
   node.textContent = message;
-  node.className = `toast ${kind}`.trim();
+  node.classList.toggle('bad', kind === 'bad');
   node.hidden = false;
+  requestAnimationFrame(() => node.classList.add('show'));
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => { node.hidden = true; }, 2200);
+  toastTimer = setTimeout(() => {
+    node.classList.remove('show');
+    setTimeout(() => { node.hidden = true; }, 200);
+  }, 2800);
 }
 
-function notice(message, kind = 'bad', actions = []) {
-  clearTimeout(toastTimer);
-  $('#toast').hidden = true;
-  const region = clear($('#notice-region'));
-  region.className = `notice-region ${kind}`.trim();
-  const copy = el('div');
-  append(copy, el('strong', null, kind === 'bad' ? 'Action needs attention' : 'Done'),
-    el('span', null, message));
-  region.append(copy);
-  if (actions.length) {
-    const wrap = el('div', 'row-actions');
-    actions.forEach((action) => wrap.append(action));
-    region.append(wrap);
-  }
-  region.hidden = false;
-  region.scrollIntoView({block: 'nearest'});
+function notice(message, kind = 'good') {
+  const node = $('#notice-region');
+  node.textContent = message;
+  node.className = `notice-region ${kind === 'bad' ? 'bad' : ''}`.trim();
+  node.hidden = false;
+  node.scrollIntoView({block: 'nearest'});
 }
 
 function clearNotice() {
-  const region = $('#notice-region');
-  region.hidden = true;
-  clear(region);
+  $('#notice-region').hidden = true;
+  $('#notice-region').textContent = '';
 }
 
-function announce(message) {
-  $('#live-region').textContent = message;
+function showError(error) {
+  console.error(error);
+  notice(error?.message || String(error), 'bad');
 }
 
 let modalReturnFocus = null;
 let drawerReturnFocus = null;
 
 function openModal(title, copy) {
-  const modal = $('#modal');
   modalReturnFocus = document.activeElement;
+  const modal = $('#modal');
   const body = clear($('#modal-body'));
   const heading = el('h2', null, title);
   heading.id = 'modal-title';
-  append(body, heading);
-  if (copy) body.append(el('p', 'note', copy));
+  append(body, heading, copy ? el('p', 'note', copy) : null);
   modal.hidden = false;
   requestAnimationFrame(() => $('#modal-close').focus());
   return body;
@@ -278,8 +279,8 @@ function closeModal() {
 }
 
 function openDrawer(title) {
-  const drawer = $('#drawer');
   drawerReturnFocus = document.activeElement;
+  const drawer = $('#drawer');
   const body = clear($('#drawer-body'));
   body.append(el('h2', null, title));
   drawer.hidden = false;
@@ -295,1300 +296,1113 @@ function closeDrawer() {
   drawerReturnFocus = null;
 }
 
+function trapFocus(container, event) {
+  const nodes = $$('button:not([disabled]),a[href],input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"])', container)
+    .filter((node) => !node.hidden && node.getClientRects().length);
+  if (!nodes.length) return;
+  if (event.shiftKey && document.activeElement === nodes[0]) {
+    event.preventDefault();
+    nodes[nodes.length - 1].focus();
+  } else if (!event.shiftKey && document.activeElement === nodes[nodes.length - 1]) {
+    event.preventDefault();
+    nodes[0].focus();
+  }
+}
+
 $('#modal-close').addEventListener('click', closeModal);
 $('[data-close-modal]').addEventListener('click', closeModal);
 $('#drawer-close').addEventListener('click', closeDrawer);
 $('[data-close-drawer]').addEventListener('click', closeDrawer);
-$('#nav-backdrop').addEventListener('click', () => {
-  document.body.classList.remove('nav-open');
-  $('#nav-backdrop').hidden = true;
-  $('#nav-toggle').focus();
-});
-$('#nav-close').addEventListener('click', () => {
-  document.body.classList.remove('nav-open');
-  $('#nav-backdrop').hidden = true;
-  $('#nav-toggle').focus();
-});
-
-function trapFocus(container, event) {
-  const focusable = $$('button:not([disabled]), a[href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])', container)
-    .filter((node) => !node.hidden && node.getClientRects().length);
-  if (!focusable.length) return;
-  const first = focusable[0];
-  const last = focusable[focusable.length - 1];
-  if (event.shiftKey && document.activeElement === first) {
-    event.preventDefault();
-    last.focus();
-  } else if (!event.shiftKey && document.activeElement === last) {
-    event.preventDefault();
-    first.focus();
-  }
-}
 
 document.addEventListener('keydown', (event) => {
-  if (event.key === 'Tab' && !$('#modal').hidden) {
-    trapFocus($('#modal'), event);
-    return;
-  }
-  if (event.key === 'Tab' && !$('#drawer').hidden) {
-    trapFocus($('#drawer'), event);
-    return;
-  }
+  if (event.key === 'Tab' && !$('#modal').hidden) return trapFocus($('#modal'), event);
+  if (event.key === 'Tab' && !$('#drawer').hidden) return trapFocus($('#drawer'), event);
   if (event.key === 'Escape') {
     closeModal();
     closeDrawer();
-    document.body.classList.remove('nav-open');
-    $('#nav-backdrop').hidden = true;
+    closeNavigation();
   }
 });
 
-$('#nav-toggle').addEventListener('click', () => {
-  document.body.classList.toggle('nav-open');
-  $('#nav-backdrop').hidden = !document.body.classList.contains('nav-open');
-});
+function openNavigation() {
+  document.body.classList.add('nav-open');
+  $('#nav-backdrop').hidden = false;
+}
+
+function closeNavigation() {
+  document.body.classList.remove('nav-open');
+  $('#nav-backdrop').hidden = true;
+}
+
+$('#nav-toggle').addEventListener('click', openNavigation);
+$('#nav-close').addEventListener('click', closeNavigation);
+$('#nav-backdrop').addEventListener('click', closeNavigation);
 
 $$('.nav-item[data-view]').forEach((item) => {
   item.addEventListener('click', () => activateView(item.dataset.view));
 });
+
+function configurePrimaryAction(view) {
+  const action = $('#top-primary-action');
+  action.hidden = false;
+  action.onclick = null;
+  switch (view) {
+  case 'recover':
+    action.textContent = 'New mine';
+    action.onclick = () => {
+      state.mineBuilderOpen = true;
+      renderRecover().catch(showError);
+    };
+    break;
+  case 'studio':
+    action.textContent = 'New work item';
+    action.onclick = openCreateWorkItem;
+    break;
+  case 'library':
+    action.textContent = 'Open Studio';
+    action.onclick = () => activateView('studio');
+    break;
+  case 'cleanup':
+    action.textContent = 'Refresh eligibility';
+    action.onclick = () => {
+      state.cleanup = null;
+      renderCleanup().catch(showError);
+    };
+    break;
+  case 'activity':
+    action.textContent = 'Show job dock';
+    action.onclick = () => $('#task-dock').classList.add('open');
+    break;
+  case 'tools':
+    action.textContent = 'Check tools';
+    action.onclick = () => {
+      state.connections = null;
+      state.integrations = null;
+      renderTools().catch(showError);
+    };
+    break;
+  default:
+    action.hidden = true;
+  }
+}
 
 function activateView(view) {
   clearNotice();
   state.activeView = view;
   $$('.nav-item[data-view]').forEach((item) => item.classList.toggle('active', item.dataset.view === view));
   $$('.view').forEach((section) => section.classList.toggle('active', section.id === view));
-  const meta = viewMeta[view] || ['', view];
+  const meta = viewMeta[view];
   $('#view-kicker').textContent = meta[0];
   $('#view-title').textContent = meta[1];
-  document.body.classList.remove('nav-open');
-  $('#nav-backdrop').hidden = true;
+  configurePrimaryAction(view);
+  closeNavigation();
   window.scrollTo({top: 0, behavior: 'instant'});
-  renderActiveView().then(() => {
-    window.scrollTo({top: 0, behavior: 'instant'});
-  }).catch(showError);
-}
-
-function updateGlobalBadges() {
-  const wrap = clear($('#global-badges'));
-  if (!state.overview) return;
-  const stats = state.overview.stats || {};
-  append(wrap,
-    badge(`${formatCount(stats.nuggets)} evidence`, stats.nuggets ? 'free' : ''),
-    badge(`${formatCount(stats.outputs)} outputs`, stats.outputs ? 'blue' : ''),
-  );
-  if (stats.indexed_at) wrap.append(badge(`indexed ${relativeAge(stats.indexed_at)}`));
+  renderActiveView().catch(showError);
 }
 
 async function loadOverview(force = false) {
   if (!state.overview || force) state.overview = await get('/api/refinery');
-  updateGlobalBadges();
+  updateGlobalUI();
   return state.overview;
 }
 
-async function refreshOverview() {
+function updateGlobalUI() {
+  const overview = state.overview;
+  if (!overview) return;
+  const badges = clear($('#global-badges'));
+  const readySources = (overview.sources || []).filter((source) => source.ready).length;
+  append(badges, badge(`${readySources} sources ready`, 'free'),
+    badge(`${formatCount(overview.stats?.nuggets)} evidence`),
+    badge(`${formatCount(overview.stats?.outputs)} outputs`, 'blue'));
+  $('#nav-studio-count').textContent = String(overview.stats?.recipes || 0);
+  $('#nav-library-count').textContent = String(overview.stats?.outputs || 0);
+  $('#nav-recover-count').textContent = String(overview.stats?.sessions || 0);
+}
+
+async function refreshAll() {
   state.overview = null;
-  state.recipeDetail = null;
-  state.connections = null;
+  state.recoveryRuns = [];
+  state.workItems = [];
+  state.workDetail = null;
+  state.outputDetail = null;
+  state.cleanup = null;
   await loadOverview(true);
   await renderActiveView();
 }
 
-function showError(error) {
-  console.error(error);
-  notice(friendlyError(error), 'bad');
+const jobCallbacks = new Map();
+async function startJob(requestBody, options = {}) {
+  const job = await post('/api/action', requestBody);
+  if (options.onDone || options.onFailed) jobCallbacks.set(job.id, options);
+  $('#task-dock').classList.add('open');
+  await refreshJobs();
+  if (options.message) toast(options.message);
+  return job;
 }
 
-function friendlyError(error) {
-  const message = error?.message || String(error);
-  if (/failed to fetch|networkerror|internet disconnected/i.test(message)) {
-    return 'The local Midden service did not respond. Confirm the app is still running, then retry.';
-  }
-  if (/scan lock|index refresh is already running|locked a portion/i.test(message)) {
-    return 'Midden is finishing the source refresh. This action will be available as soon as that refresh completes.';
-  }
-  return message;
-}
+async function refreshJobs() {
+  const jobs = await get('/api/jobs');
+  state.jobs = jobs || [];
+  const active = state.jobs.filter((job) => ['queued', 'running'].includes(job.status));
+  $('#nav-activity-count').textContent = String(active.length);
+  renderTaskDock();
 
-async function pollJob(id, onProgress) {
-  for (;;) {
-    const job = await get(`/api/job-status?id=${encodeURIComponent(id)}`);
-    if (onProgress) onProgress(job);
-    if (job.status === 'done' || job.status === 'failed') return job;
-    await new Promise((resolve) => setTimeout(resolve, 850));
+  if (!state.jobsInitialized) {
+    state.jobs.forEach((job) => {
+      if (['done', 'failed'].includes(job.status)) state.completedJobs.add(job.id);
+    });
+    state.jobsInitialized = true;
+    return;
   }
-}
-
-async function runJob(request, title, copy) {
-  const job = await post('/api/action', request);
-  const body = openModal(title, copy);
-  const card = el('div', 'estimate-box');
-  const status = el('div', 'eyebrow', 'Queued');
-  const progress = el('strong', null, 'Starting');
-  const estimate = el('p', 'note');
-  append(card, status, progress, estimate);
-  body.append(card);
-
-  const finished = await pollJob(job.id, (current) => {
-    status.textContent = humanStatus(current.status);
-    progress.textContent = current.progress || humanStatus(current.status);
-    if (current.estimate) {
-      const e = current.estimate;
-      estimate.textContent = `${formatCount(e.low)}–${formatCount(e.high)} tokens`
-        + (e.unit_mid ? ` · ~${Number(e.unit_mid).toFixed(1)} ${e.unit}` : '');
+  for (const job of state.jobs) {
+    if (!['done', 'failed'].includes(job.status) || state.completedJobs.has(job.id)) continue;
+    state.completedJobs.add(job.id);
+    const callbacks = jobCallbacks.get(job.id);
+    jobCallbacks.delete(job.id);
+    if (job.status === 'done') {
+      if (callbacks?.onDone) await callbacks.onDone(job);
+      else if (['mine', 'reclaim', 'production', 'work_chat', 'refresh'].includes(job.op)) {
+        state.overview = null;
+        state.recoveryRuns = [];
+        state.workItems = [];
+        state.workDetail = null;
+        if (state.activeView !== 'activity') toast(`${humanStatus(job.op)} complete`);
+        await renderActiveView();
+      }
+    } else {
+      if (callbacks?.onFailed) await callbacks.onFailed(job);
+      else notice(job.error || `${humanStatus(job.op)} failed`, 'bad');
     }
+  }
+}
+
+function renderTaskDock() {
+  const body = clear($('#task-dock-body'));
+  const active = state.jobs.filter((job) => ['queued', 'running'].includes(job.status));
+  $('#task-dock-title').textContent = active.length
+    ? `${active.length} background job${active.length === 1 ? '' : 's'}`
+    : 'Background jobs';
+  const status = $('#task-dock-status');
+  status.textContent = active.length ? 'working' : 'idle';
+  status.className = `badge ${active.length ? 'blue' : 'free'}`;
+  const visible = state.jobs.slice(0, 8);
+  if (!visible.length) {
+    body.append(emptyState('No background jobs', 'Mine, recover evidence, chat, or run a production.'));
+    return;
+  }
+  visible.forEach((job) => {
+    const card = el('article', 'task-mini');
+    const head = el('div', 'task-mini-head');
+    append(head, el('strong', null, `${humanStatus(job.op)} · ${job.scope || 'all'}`),
+      badge(humanStatus(job.status), statusKind(job.status)));
+    const progress = el('p', null, job.error || job.progress || 'Waiting');
+    append(card, head, progress);
+    if (['queued', 'running'].includes(job.status)) {
+      const bar = el('progress');
+      bar.max = 100;
+      bar.removeAttribute('value');
+      card.append(bar);
+    } else if (job.ended) {
+      card.append(el('span', 'small-note', `Finished ${relativeAge(job.ended)}`));
+    }
+    body.append(card);
   });
-  closeModal();
-  if (finished.status === 'failed') throw new Error(finished.error || `${request.op} failed`);
-  return finished;
 }
 
-async function refreshSources() {
-  const buttonNode = $('#refresh-data');
-  const original = buttonNode.textContent;
-  buttonNode.disabled = true;
-  buttonNode.textContent = 'Refreshing…';
-  try {
-    const job = await runJob({op: 'refresh'}, 'Refreshing source index',
-      'Reads the configured session stores, reconciles stale rows, and writes only Midden’s local index.');
-    const result = job.result || {};
-    toast(result.partial ? 'Sources partially refreshed; one store needs attention.' : 'Source index refreshed.',
-      result.partial ? 'bad' : 'good');
-    await refreshOverview();
-  } catch (error) {
-    showError(error);
-  } finally {
-    buttonNode.disabled = false;
-    buttonNode.textContent = original;
-  }
-}
+$('#task-dock-toggle').addEventListener('click', () => $('#task-dock').classList.toggle('open'));
+setInterval(() => {
+  if (!document.hidden) refreshJobs().catch(console.error);
+}, 1400);
 
-$('#refresh-data').addEventListener('click', refreshSources);
-
-async function runMine() {
-  try {
-    const job = await runJob({op: 'mine', days: 30}, 'Mining the last 30 days',
-      'This pass is deterministic and free: it classifies evidence and calculates yield without calling a model.');
-    const result = job.result || {};
-    await refreshOverview();
-    notice(`Mine complete: ${result.assayed || 0} assayed, ${result.skipped || 0} unchanged, ${result.failed || 0} failed.`, 'good');
-  } catch (error) {
-    showError(error);
-  }
-}
-
-function workspaceOptions(includeAll = true, evidenceOnly = false) {
+function workspaceOptions(includeAll = true) {
   const options = [];
-  if (includeAll) options.push({value: '', label: 'All evidence'});
-  (state.overview?.workspaces || [])
-    .filter((workspace) => !evidenceOnly || workspace.nuggets > 0)
-    .forEach((workspace) => {
+  if (includeAll) options.push({value: '', label: 'All workspaces'});
+  (state.overview?.workspaces || []).forEach((workspace) => {
     options.push({
       value: workspace.id,
-      label: `${workspace.name} · ${workspace.nuggets} evidence · ${workspace.sessions} sessions`,
+      label: `${workspace.name} · ${workspace.sessions} sessions · ${workspace.nuggets} evidence`,
     });
   });
   return options;
 }
 
-function backendFields() {
+async function loadRecoveryData(force = false) {
+  await loadOverview(force);
+  if (force || !state.recoveryRuns.length) state.recoveryRuns = await get('/api/recovery-runs');
+  const params = new URLSearchParams({limit: '60', offset: '0', sort: 'consequence'});
+  const [sessions, stats] = await Promise.all([
+    get(`/api/sessions?${params}`), get(`/api/session-stats?${params}`),
+  ]);
+  state.sessions = sessions || [];
+  state.sessionStats = stats;
+}
+
+async function renderRecover() {
+  await loadRecoveryData();
+  const root = clear($('#recover-content'));
+  append(root, pageHead('Recover',
+    'Find what matters before clearing what does not.',
+    'Choose exact sessions or a saved scope. Every mine is durable, repeatable, and linked to the evidence and outputs it produced.',
+    [
+      button('Refresh sources', 'button ghost', () => startJob({op: 'refresh'}, {
+        message: 'Source refresh started in the background.',
+      }).catch(showError)),
+      button('New mine', 'button', () => {
+        state.mineBuilderOpen = true;
+        renderRecover().catch(showError);
+      }),
+    ]));
+
+  const sessions = state.sessions;
+  const unrecovered = sessions.filter((session) => !session.recovered).length;
+  const atRisk = sessions.filter((session) => session.risk && session.risk !== 'ok').length;
+  append(root, metricGrid([
+    {label: 'Indexed', value: state.overview.stats?.sessions || 0, copy: 'sessions across installed tools'},
+    {label: 'In view', value: state.sessionStats?.target || sessions.length, copy: 'matching current inventory'},
+    {label: 'At risk', value: atRisk, copy: 'resume or workspace consequence'},
+    {label: 'Evidence', value: state.overview.stats?.nuggets || 0, copy: 'recovered items'},
+    {label: 'Mine runs', value: state.recoveryRuns.length, copy: 'durable recovery history'},
+  ]));
+
+  if (state.mineBuilderOpen) root.append(renderMineBuilder());
+
+  const layout = el('div', 'content-grid');
+  layout.append(renderSessionInventory(), renderRecoveryHistory());
+  root.append(layout);
+}
+
+function renderMineBuilder() {
+  const panel = el('section', 'panel mine-builder open');
+  const inner = el('div', 'panel-inner');
+  inner.append(panelHead('New mine', 'Choose a precise recovery scope',
+    'Assay is free. Evidence extraction previews its long-running cost before it starts.',
+    [button('Close', 'button ghost compact', () => {
+      state.mineBuilderOpen = false;
+      renderRecover().catch(showError);
+    })]));
+  const source = selectInput([
+    {value: '', label: 'All installed tools'},
+    {value: 'copilot', label: 'Copilot CLI'},
+    {value: 'claude', label: 'Claude Code'},
+    {value: 'opencode', label: 'OpenCode'},
+  ]);
+  const workspace = selectInput(workspaceOptions(true));
+  const days = selectInput([
+    {value: '7', label: 'Last 7 days'},
+    {value: '30', label: 'Last 30 days'},
+    {value: '90', label: 'Last 90 days'},
+    {value: '0', label: 'Any time'},
+  ], '30');
+  const depth = selectInput([
+    {value: 'summary', label: 'Summary · low cost'},
+    {value: 'deep', label: 'Deep · cross-session'},
+    {value: 'xray', label: 'X-ray · broad context'},
+  ], 'summary');
+  const mode = selectInput([
+    {value: 'mine', label: 'Assay only · free'},
+    {value: 'reclaim', label: 'Extract evidence · model-backed'},
+  ], 'mine');
   const backend = selectInput([
     {value: '', label: 'Auto-detect signed-in CLI'},
     {value: 'copilot', label: 'Copilot CLI'},
     {value: 'claude', label: 'Claude Code'},
     {value: 'opencode', label: 'OpenCode'},
   ]);
-  const model = textInput('', 'optional model override');
-  return {backend, model};
-}
+  const grid = el('div', 'form-grid');
+  append(grid, field('Source', source), field('Workspace', workspace),
+    field('Time range', days), field('Depth', depth), field('Operation', mode),
+    field('Backend', backend));
+  inner.append(grid);
 
-function openReclaimModal(prefillWorkspace = '') {
-  const body = openModal('Extract reusable evidence',
-    'Midden first estimates the model cost from an ASSAY-filtered slice. Nothing is charged until the second approval.');
-  const workspace = selectInput(workspaceOptions(true), prefillWorkspace);
-  const days = selectInput([
-    {value: '7', label: 'Last 7 days'},
-    {value: '30', label: 'Last 30 days'},
-    {value: '90', label: 'Last 90 days'},
-  ], '30');
-  const depth = selectInput([
-    {value: 'summary', label: 'Summary · cheapest'},
-    {value: 'deep', label: 'Deep · cross-turn synthesis'},
-    {value: 'xray', label: 'X-ray · project context'},
-  ], 'summary');
-  const fields = backendFields();
-  append(body, field('Workspace', workspace), field('Time range', days), field('Depth', depth),
-    field('Model backend', fields.backend), field('Model override', fields.model));
-
-  const actions = el('div', 'modal-actions');
-  actions.append(button('Cancel', 'button ghost', closeModal));
-  actions.append(button('Estimate evidence extraction', 'button', async () => {
-    closeModal();
-    try {
-      const request = {
-        op: 'reclaim', workspace: workspace.value, days: Number(days.value),
-        depth: depth.value, backend: fields.backend.value, model: fields.model.value,
-        apply: false,
-      };
-      const preview = await runJob(request, 'Estimating evidence extraction',
-        'Reads the bounded evidence slice and predicts cost. No model is invoked.');
-      openSpendConfirmation('Extract evidence', preview, async () => {
-        const run = await runJob({...request, apply: true}, 'Extracting evidence',
-          'The selected signed-in CLI is mining redacted evidence. Raw transcripts are not stored as nuggets.');
-        toast(`${run.result?.count || 0} evidence item(s) stored`, 'good');
-        await refreshOverview();
-      });
-    } catch (error) {
-      showError(error);
-    }
-  }));
-  body.append(actions);
-}
-
-function openSpendConfirmation(title, job, onApprove) {
-  const result = job.result || {};
-  const estimate = result.estimate || job.estimate || {};
-  const body = openModal(title, estimate.samples
-    ? 'Review the estimate calibrated from your previous runs.'
-    : 'Review this conservative first-run estimate before spending.');
-  const box = el('div', 'estimate-box');
-  append(box,
-    el('div', 'eyebrow', estimate.samples ? `Calibrated from ${estimate.samples} prior run(s)` : 'First-run conservative estimate'),
-    el('strong', null, result.estimate_text || `${formatCount(estimate.low)}–${formatCount(estimate.high)} tokens`),
-  );
-  const facts = el('div', 'estimate-facts');
-  [
-    ['Scope', `${result.sessions || result.nuggets || 0} source item(s)`],
-    ['Backend', result.backend || 'auto-detect signed-in CLI'],
-    ['Model', result.model || 'backend default'],
-    ['Time', result.estimated_seconds ? `about ${Math.ceil(result.estimated_seconds / 60)} minute(s)` : 'local / immediate'],
-    ['Charge', estimate.unit_mid ? `~${Number(estimate.unit_mid).toFixed(1)} ${estimate.unit}` : 'unknown until the first run is reconciled'],
-    ['External writes', 'none'],
-  ].forEach(([label, value]) => {
-    const item = el('div', 'estimate-fact');
-    append(item, el('span', null, label), el('strong', null, value));
-    facts.append(item);
-  });
-  box.append(facts);
-  body.append(box);
-  if (!estimate.samples && estimate.mid) {
-    body.append(el('div', 'warning',
-      'This range includes CLI system prompts and cache overhead. Run one small scope first; future estimates will calibrate against actual usage.'));
-  }
-  const actions = el('div', 'modal-actions');
-  actions.append(button('Not now', 'button ghost', closeModal));
-  const approve = button('Approve spend and run', 'button good', async () => {
-    approve.disabled = true;
-    closeModal();
-    try {
-      await onApprove();
-    } catch (error) {
-      showError(error);
-    }
-  });
-  actions.append(approve);
-  body.append(actions);
-}
-
-function sourceCards(sources) {
-  const grid = el('div', 'source-grid');
-  sources.forEach((source) => {
-    const card = el('article', 'source-card reveal');
-    append(card,
-      el('div', 'eyebrow', source.tool),
-      el('h3', null, source.name),
-      el('p', null, source.sessions
-        ? `${source.sessions} sessions detected · ${source.nuggets} reclaimed evidence`
-        : 'No local session store detected'),
-    );
-    const foot = el('div', 'source-foot');
-    foot.append(badge(source.ready ? 'ready to mine' : 'not detected', source.ready ? 'free' : ''));
-    if (source.last_updated) foot.append(el('span', 'progress-note', ` updated ${relativeAge(source.last_updated)}`));
-    card.append(foot);
-    grid.append(card);
-  });
-  return grid;
-}
-
-function metricGrid(items) {
-  const grid = el('div', 'metric-grid');
-  items.forEach((item) => {
-    const card = el('article', 'metric-card');
-    append(card, el('div', 'eyebrow', item.label), el('strong', null, item.value), el('span', null, item.copy));
-    grid.append(card);
-  });
-  return grid;
-}
-
-function yieldCards(yieldMap) {
-  const grid = el('div', 'yield-grid');
-  (yieldMap.categories || []).forEach((category) => {
-    const card = el('article', 'yield-card reveal');
-    append(card,
-      el('div', 'eyebrow', category.title),
-      el('div', 'yield-count', `${category.count} ${category.unit}`),
-      el('p', null, (category.details || []).join(' · ')),
-    );
-    const bar = el('div', 'quality-bar');
-    const fill = el('i');
-    fill.style.width = `${Math.max(0, Math.min(100, category.quality || 0))}%`;
-    bar.append(fill);
-    card.append(bar);
-    grid.append(card);
-  });
-  return grid;
-}
-
-function journeySteps(steps) {
-  const journey = el('div', 'journey');
-  steps.forEach((step, index) => {
-    if (index) journey.append(el('span', 'journey-arrow', '→'));
-    const node = el('div', 'journey-step');
-    append(node, el('strong', null, step[0]), el('span', null, step[1]));
-    journey.append(node);
-  });
-  return journey;
-}
-
-async function renderHome() {
-  const overview = await loadOverview();
-  const root = clear($('#home-content'));
-  if (overview.onboarding) {
-    append(root,
-      pageHead('Install and first mine', 'See what your AI sessions can become.',
-        'Midden mines decisions, fixes, commands, screenshots, lessons, and preferences, then turns them into grounded new assets.'),
-      sourceCards(overview.sources),
-    );
-    const hero = el('section', 'hero');
-    const copy = el('div');
-    append(copy,
-      el('div', 'eyebrow', 'First pass · free · local'),
-      el('h2', null, 'Mine the last 30 days and calculate the yield.'),
-      el('p', null, 'Midden classifies the session exhaust locally, preserves provenance, and shows what content, knowledge, and improvement packs the evidence can honestly support.'),
-    );
-    append(hero, copy, button('Mine my AI work', 'button good', runMine));
-    root.append(hero);
-    root.append(journeySteps([
-      ['Detect sources', 'read-only local stores'],
-      ['Explicit mine', 'free classification'],
-      ['See yield', 'opportunities before spend'],
-      ['Extract evidence', 'estimate first'],
-      ['Build drafts', 'review before export'],
-    ]));
-    const promise = el('section', 'grid-3');
-    [
-      ['Create', 'Tutorials, release packs, slides, diagrams, and video briefs.'],
-      ['Teach', 'Handbooks, flashcards, quizzes, and notebook source packs.'],
-      ['Improve', 'Skills, instruction proposals, evals, and private data packs.'],
-    ].forEach(([title, copyText]) => {
-      const card = el('article', 'panel');
-      append(card, el('div', 'eyebrow', title), el('h3', 'section-title', copyText));
-      promise.append(card);
-    });
-    root.append(promise);
-    return;
-  }
-
-  const evidenceReady = Boolean(overview.yield?.ready);
-  const actions = evidenceReady
-    ? [
-      button('Ask the Conductor', 'button', () => activateView('conductor')),
-      button('Mine new work', 'button ghost', runMine),
-    ]
-    : [
-      button('Extract evidence', 'button', () => openReclaimModal()),
-      button('Mine again', 'button ghost', runMine),
-    ];
-  append(root,
-    pageHead(evidenceReady ? 'What changed' : 'Assay complete',
-      evidenceReady ? 'Your refinery has new yield.' : 'Your sessions are measured. Reclaim evidence next.',
-      evidenceReady
-        ? 'Midden compares new evidence against saved recipes, reviewed outputs, agent proposals, and private data packs.'
-        : 'Assay measured session signal without using a model. Extract a small evidence scope before Midden recommends any output.',
-      actions),
-    metricGrid([
-      {label: 'Evidence', value: formatCount(overview.stats.nuggets), copy: 'redacted, provenanced items'},
-      evidenceReady
-        ? {label: 'Grounded yield', value: overview.yield.total, copy: 'evidence-backed opportunities'}
-        : {label: 'Sessions assayed', value: overview.yield.assayed || 0, copy: 'free deterministic measurement'},
-      {label: 'Saved recipes', value: overview.stats.recipes, copy: 'reusable production plans'},
-      {label: 'Draft outputs', value: overview.stats.outputs, copy: 'reviewed individually'},
-    ]),
-  );
-
-  if ((overview.updates || []).length) {
-    const panel = el('section', 'panel');
-    panel.append(sectionHead('Retention and compounding', 'Useful changes, not dashboard vanity',
-      'Only new evidence and its impact are surfaced.'));
-    const grid = el('div', 'update-grid');
-    overview.updates.slice(0, 6).forEach((update) => {
-      const card = el('article', 'update-card');
-      append(card, el('div', 'eyebrow', humanStatus(update.kind)), el('h3', null, update.title), el('p', null, update.detail));
-      if (update.recipe_id) card.append(button('Review update', 'button ghost compact', () => openRecipe(update.recipe_id)));
-      grid.append(card);
-    });
-    panel.append(grid);
-    root.append(panel);
-  }
-
-  const recommended = overview.yield.recommended || {};
-  if (evidenceReady && recommended.workspace) {
-    const hero = el('section', 'hero');
-    const copy = el('div');
-    append(copy,
-      el('div', 'eyebrow', `Best first bundle · ${workspaceName(recommended.workspace)}`),
-      el('h2', null, recommended.title),
-      el('p', null, `${recommended.why} One evidence review feeds ${(recommended.outputs || []).length} deliverables.`),
-    );
-    append(hero, copy, button('Build this bundle', 'button', () => {
-      openDesignModal({
-        workspace: recommended.workspace,
-        prompt: 'Turn the strongest recent work into a deep tutorial, a 12-slide deck, an architecture diagram, a 60-second video brief, and an evaluated agent skill proposal.',
-        kinds: recommended.outputs,
-      });
-    }));
-    root.append(hero);
-  }
-
-  const yieldPanel = el('section', 'panel');
-  if (evidenceReady) {
-    yieldPanel.append(sectionHead('Grounded yield', `${overview.yield.total} useful opportunities`,
-      'Every opportunity is derived from reclaimed evidence. Nothing is generated until you approve a recipe and its evidence.'));
-    yieldPanel.append(yieldCards(overview.yield));
-  } else {
-    yieldPanel.append(sectionHead('Next step', 'Extract a small evidence scope',
-      overview.yield.message || 'Reclaimed evidence is required before any production can be recommended.'));
-    const summary = el('div', 'assay-summary');
-    append(summary,
-      badge('FREE ASSAY COMPLETE', 'free'),
-      el('strong', null, `${overview.yield.assayed || 0} session(s) measured`),
-      el('p', 'note', `${formatBytes(overview.yield.signal_bytes || 0)} of signal identified. Start with one workspace; you will see the estimate before any model call.`),
-    );
-    yieldPanel.append(summary);
-  }
-  root.append(yieldPanel);
-
-  const recipes = (overview.recipes || []).filter((recipe) => recipe.status !== 'archived').slice(0, 6);
-  const recent = el('section', 'panel');
-  recent.append(sectionHead('Saved productions', recipes.length ? 'Continue where you left off' : 'No saved recipes yet',
-    'Recipes preserve the output mix and evidence scope for future incremental runs.',
-    recipes.length ? [button('Open Studio', 'button ghost compact', () => activateView('studio'))] : []));
-  recent.append(recipes.length ? recipeGrid(recipes) :
-    evidenceReady
-      ? emptyState('Design the first production', 'Ask for an outcome; Conductor will clarify it and preview the plan.',
-        button('Ask Conductor', 'button', () => activateView('conductor')))
-      : emptyState('No evidence-backed production yet', 'Use the primary Extract evidence action above before creating a recipe.'));
-  root.append(recent);
-}
-
-function workspaceName(id) {
-  const match = (state.overview?.workspaces || []).find((workspace) => workspace.id === id);
-  return match?.name || id || 'all evidence';
-}
-
-function recipeGrid(recipes) {
-  const grid = el('div', 'recipe-grid');
-  recipes.forEach((recipe) => {
-    const card = el('article', 'recipe-card reveal');
-    append(card,
-      el('div', 'eyebrow', workspaceName(recipe.workspace)),
-      el('h3', null, recipe.title),
-      el('p', null, recipe.request || 'Saved refinery production plan.'),
-    );
-    const meta = el('div', 'recipe-meta');
-    append(meta, badge(humanStatus(recipe.status), statusKind(recipe.status)),
-      badge(`${recipe.outputs?.length || 0} outputs`),
-      badge(`${recipe.evidence_ids?.length || 0} evidence`, 'free'));
-    card.append(meta);
-    const actions = el('div', 'card-actions');
-    actions.append(button('Open production', 'button', () => openRecipe(recipe.uid)));
-    card.append(actions);
-    grid.append(card);
-  });
-  return grid;
-}
-
-async function renderMine() {
-  const overview = await loadOverview();
-  const root = clear($('#mine-content'));
-  const assayReady = Number(overview.yield.assayed || 0) > 0;
-  const extractAction = button('Extract evidence', 'button', () => openReclaimModal());
-  extractAction.disabled = !assayReady;
-  if (!assayReady) extractAction.title = 'Run the free mine first.';
-  append(root,
-    pageHead('Source to yield', 'Mine once. Reuse the evidence everywhere.',
-      'The free pass classifies source sessions and calculates yield. Evidence extraction is separately estimated before it spends.',
-      [
-        button('Scan and calculate yield', 'button good', runMine),
-        extractAction,
-      ]),
-    sourceCards(overview.sources),
-  );
-
-  const yieldPanel = el('section', 'panel');
-  if (overview.yield.ready) {
-    yieldPanel.append(sectionHead('Yield map',
-      `${overview.yield.total} grounded opportunities`,
-      'Every count is supported by reclaimed evidence, not session volume alone.'));
-    yieldPanel.append(yieldCards(overview.yield));
-  } else {
-    yieldPanel.append(sectionHead('Assay result', 'No output is recommended yet',
-      overview.yield.message || 'Extract evidence before designing a production.'));
-    const summary = el('div', 'assay-summary');
-    append(summary,
-      badge(assayReady ? 'ASSAY COMPLETE · NOT YET RECLAIMED' : 'MINE REQUIRED', assayReady ? 'free' : ''),
-      el('strong', null, assayReady ? `${overview.yield.assayed} session(s) assayed` : 'No sessions assayed yet'),
-      el('p', 'note', assayReady
-        ? `${formatBytes(overview.yield.signal_bytes || 0)} of signal is available for a bounded evidence extraction.`
-        : 'Use the primary Scan and calculate yield action before choosing a model-backed evidence scope.'),
-    );
-    yieldPanel.append(summary);
-  }
-  root.append(yieldPanel);
-
-  if (overview.yield.ready && overview.yield.recommended?.workspace) {
-    const recommended = overview.yield.recommended;
-    const hero = el('section', 'hero');
-    const copy = el('div');
-    append(copy,
-      el('div', 'eyebrow', `Recommended · ${workspaceName(recommended.workspace)}`),
-      el('h2', null, recommended.title),
-      el('p', null, recommended.why),
-    );
-    append(hero, copy, button('Design recommended bundle', 'button', () => openDesignModal({
-      workspace: recommended.workspace,
-      kinds: recommended.outputs,
-      prompt: 'Create the strongest multi-output bundle this evidence supports and stop at reviewed drafts.',
-    })));
-    root.append(hero);
-  }
-
-  const evidencePanel = el('section', 'panel');
-  evidencePanel.append(sectionHead('Evidence library', 'Reclaimed claims with provenance',
-    'Recipes select from this redacted index; raw transcripts never enter the production chat.'));
-  try {
-    const nuggets = (await get('/api/nuggets?limit=60')) || [];
-    if (!nuggets.length) {
-      evidencePanel.append(emptyState('No evidence extracted yet',
-        assayReady
-          ? 'Use the primary Extract evidence action above to choose a small workspace and review the estimate.'
-          : 'Use the primary Scan and calculate yield action above before extraction.'));
-    } else {
-      const list = el('div', 'evidence-list');
-      nuggets.forEach((nugget) => list.append(evidenceRow(nugget, false)));
-      evidencePanel.append(list);
-    }
-  } catch (error) {
-    evidencePanel.append(emptyState('Evidence could not be loaded', error.message));
-  }
-  root.append(evidencePanel);
-
-  root.append(journeySteps([
-    ['Choose scope', 'workspace and time'],
-    ['Assay', 'free classification'],
-    ['Extract', 'bounded model slice'],
-    ['Review evidence', 'claims and conflicts'],
-    ['Reuse', 'one graph, many assets'],
-  ]));
-}
-
-function evidenceRow(nugget, selectable, checked = false) {
-  const row = el('div', `evidence-row ${nugget.confidence < .75 ? 'needs-review' : ''}`.trim());
-  if (selectable) {
-    const input = el('input');
-    input.type = 'checkbox';
-    input.value = nugget.uid;
-    input.checked = checked;
-    input.dataset.evidence = nugget.uid;
-    row.append(input);
-  } else {
-    row.append(badge(nugget.kind));
-  }
+  const summary = el('div', 'selected-bar');
   const copy = el('div');
-  const heading = el('div', 'evidence-title');
-  append(heading, el('h4', null, nugget.title || humanStatus(nugget.kind)),
-    nugget.confidence < .75 ? badge('needs review', 'spend') : null);
-  append(copy, heading,
-    el('p', null, truncateText(nugget.body || 'No preview available.', selectable ? 420 : 250)));
-  row.append(copy);
-  row.append(el('div', 'evidence-source',
-    `${String(nugget.tool || '').toUpperCase()} · ${Math.round((nugget.confidence || 0) * 100)}%`));
-  return row;
-}
-
-function openDesignModal(options) {
-  if (!state.overview?.yield?.ready && !(options.evidenceIds || []).length) {
-    const body = openModal('Evidence required',
-      'Midden will not create an unsupported recipe. Mine your sessions, then extract a small evidence scope first.');
-    const actions = el('div', 'modal-actions');
-    actions.append(button('Close', 'button ghost', closeModal));
-    actions.append(button('Extract evidence', 'button', () => {
-      closeModal();
-      openReclaimModal(options.workspace || '');
-    }));
-    body.append(actions);
-    return;
-  }
-  const body = openModal(options.title || 'Design a production',
-    'Describe the finished outcome. The Conductor assembles a recipe; it does not run or spend yet.');
-  const workspace = selectInput(workspaceOptions(true, true), options.workspace || '');
-  const prompt = textarea(options.prompt || '',
-    'e.g. Turn the last three weeks of work into a tutorial, slide deck, architecture diagram, video brief, and evaluated skill proposal.');
-  const title = textInput('', 'optional production name');
-  append(body, field('Evidence scope', workspace), field('Finished outcome', prompt), field('Production name', title));
-
-  const outputBox = el('div');
-  outputBox.append(el('div', 'field-label', 'Deliverables · optional, leave empty to infer from the request'));
-  const checks = el('div', 'checkbox-list');
-  const selected = new Set(options.kinds || []);
-  const templates = refineryTemplateFallback();
-  templates.forEach((template) => {
-    const label = el('label', 'check-card');
-    const input = el('input');
-    input.type = 'checkbox';
-    input.value = template.kind;
-    input.checked = selected.has(template.kind);
-    const text = el('span');
-    append(text, el('strong', null, template.title),
-      el('small', null, `${template.maker} · ${template.cost_class === 'free' ? 'free' : 'spends'}`));
-    append(label, input, text);
-    checks.append(label);
-  });
-  outputBox.append(checks);
-
-  const actions = el('div', 'modal-actions');
-  actions.classList.add('modal-actions-top');
-  actions.append(button('Cancel', 'button ghost', closeModal));
-  const create = button('Prepare production plan', 'button', async () => {
-    create.disabled = true;
-    try {
-      const outputKinds = $$('input[type=checkbox]:checked', checks).map((node) => node.value);
-      const result = await post('/api/refinery/action', {
-        action: 'design', workspace: workspace.value, prompt: prompt.value,
-        title: title.value, output_kinds: outputKinds,
-        evidence_ids: options.evidenceIds || [],
-      });
-      closeModal();
-      state.overview = null;
-      state.selectedRecipe = result.recipe.uid;
-      state.recipeDetail = null;
-      activateView('studio');
-      toast('Production plan prepared · nothing has run yet', 'good');
-    } catch (error) {
-      create.disabled = false;
-      showError(error);
+  const selected = state.selectedSessions.size;
+  append(copy, el('strong', null, selected ? `${selected} exact session(s) selected` : 'Scope filters will choose sessions'),
+    el('div', 'small-note', mode.value === 'mine'
+      ? 'Runs in the background without a model call.'
+      : 'A cost preview appears before evidence extraction starts.'));
+  const start = button('Start', 'button success', async () => {
+    const requestBody = {
+      op: mode.value, tool: source.value, workspace: workspace.value,
+      days: Number(days.value), depth: depth.value, backend: backend.value,
+      session_keys: Array.from(state.selectedSessions), apply: mode.value === 'mine',
+    };
+    state.mineBuilderOpen = false;
+    if (mode.value === 'mine') {
+      await startJob(requestBody, {message: 'Mine started in the background.'});
+      renderRecover().catch(showError);
+    } else {
+      await previewEvidenceExtraction(requestBody);
     }
   });
-  actions.append(create);
-  body.append(actions, outputBox);
+  append(summary, copy, start);
+  inner.append(summary);
+  panel.append(inner);
+  return panel;
 }
 
-function refineryTemplateFallback() {
-  return [
-    {kind: 'tutorial', title: 'Deep technical tutorial', maker: 'Midden + Pandoc', cost_class: 'spends'},
-    {kind: 'adr', title: 'Architecture decision record', maker: 'Midden', cost_class: 'spends'},
-    {kind: 'release_pack', title: 'Release and launch pack', maker: 'Midden', cost_class: 'spends'},
-    {kind: 'slides', title: 'Presentation deck', maker: 'Marp', cost_class: 'spends'},
-    {kind: 'diagram', title: 'Architecture diagram', maker: 'D2', cost_class: 'spends'},
-    {kind: 'video_brief', title: 'Video production brief', maker: 'Midden / OpenMontage', cost_class: 'spends'},
-    {kind: 'handbook', title: 'Project field guide', maker: 'Quarto / Pandoc', cost_class: 'spends'},
-    {kind: 'flashcards', title: 'Spaced-repetition deck', maker: 'Anki export', cost_class: 'spends'},
-    {kind: 'quiz', title: 'Scenario quiz', maker: 'Midden / H5P', cost_class: 'spends'},
-    {kind: 'notebook_pack', title: 'Notebook source pack', maker: 'Open Notebook', cost_class: 'free'},
-    {kind: 'skill', title: 'Agent skill proposal', maker: 'Agent Skills', cost_class: 'spends'},
-    {kind: 'instruction_patch', title: 'Instruction patch proposal', maker: 'Midden', cost_class: 'spends'},
-    {kind: 'agent_profile', title: 'Specialist agent proposal', maker: 'Midden', cost_class: 'spends'},
-    {kind: 'eval_pack', title: 'Evaluation pack', maker: 'Promptfoo', cost_class: 'free'},
-    {kind: 'retrieval_pack', title: 'Retrieval memory pack', maker: 'Midden', cost_class: 'free'},
-    {kind: 'sft_pack', title: 'Supervised examples pack', maker: 'Midden', cost_class: 'free'},
-    {kind: 'preference_pack', title: 'Preference-pair pack', maker: 'Midden', cost_class: 'free'},
-    {kind: 'privacy_manifest', title: 'Privacy manifest', maker: 'Midden', cost_class: 'free'},
-    {kind: 'provenance_manifest', title: 'Provenance manifest', maker: 'Midden', cost_class: 'free'},
-  ];
+async function previewEvidenceExtraction(requestBody) {
+  await startJob({...requestBody, apply: false}, {
+    message: 'Preparing the evidence extraction estimate.',
+    onDone: async (job) => {
+      const result = job.result || {};
+      const estimate = result.estimate || job.estimate || {};
+      const body = openModal('Start evidence extraction',
+        'This is the one approval for the selected long-running recovery scope.');
+      append(body, metricGrid([
+        {label: 'Sessions', value: result.sessions || 0, copy: result.depth || 'summary'},
+        {label: 'Estimate', value: result.estimate_text || `${formatCount(estimate.low)}–${formatCount(estimate.high)}`, copy: estimate.samples ? 'calibrated' : 'conservative first run'},
+        {label: 'Backend', value: result.backend || 'auto', copy: result.model || 'backend default'},
+      ]));
+      const actions = el('div', 'modal-actions');
+      actions.append(button('Not now', 'button ghost', closeModal),
+        button('Start background extraction', 'button success', async () => {
+          closeModal();
+          await startJob({...requestBody, apply: true}, {
+            message: 'Evidence extraction is running in the background.',
+          });
+        }));
+      body.append(actions);
+    },
+    onFailed: (job) => notice(job.error || 'Estimate failed', 'bad'),
+  });
 }
 
-async function openRecipe(id) {
-  state.selectedRecipe = id;
-  state.recipeDetail = null;
-  activateView('studio');
+function renderSessionInventory() {
+  const panel = el('section', 'panel');
+  const inner = el('div', 'panel-inner');
+  inner.append(panelHead('Session inventory', 'Select what you actually want to recover',
+    'Consequence-first ordering surfaces risk and large dormant transcripts before routine history.',
+    [badge(`${state.sessionStats?.target || state.sessions.length} matching`)]));
+
+  const filter = textInput('', 'Filter title, workspace, repository');
+  const tool = selectInput([
+    {value: '', label: 'All sources'}, {value: 'copilot', label: 'Copilot'},
+    {value: 'claude', label: 'Claude'}, {value: 'opencode', label: 'OpenCode'},
+  ]);
+  const range = selectInput([
+    {value: '7', label: 'Last 7 days'}, {value: '30', label: 'Last 30 days'},
+    {value: '', label: 'Any time'},
+  ], '');
+  const filters = el('div', 'filter-bar');
+  append(filters, filter, tool, range, button('Clear selection', 'button ghost compact', () => {
+    state.selectedSessions.clear();
+    renderRecover().catch(showError);
+  }));
+  inner.append(filters);
+
+  const wrap = el('div', 'table-wrap');
+  const table = el('table');
+  const head = el('thead');
+  const header = el('tr');
+  ['','Session','Source','Updated','Size','Risk',''].forEach((label) => header.append(el('th', null, label)));
+  head.append(header);
+  const tbody = el('tbody');
+
+  const draw = () => {
+    clear(tbody);
+    const query = filter.value.trim().toLowerCase();
+    const days = Number(range.value || 0);
+    state.sessions
+      .filter((session) => !tool.value || session.tool === tool.value)
+      .filter((session) => !days || new Date(session.updated) >= new Date(Date.now() - days * 86400000))
+      .filter((session) => !query || `${session.title} ${session.dir} ${session.repo}`.toLowerCase().includes(query))
+      .forEach((session) => {
+        const row = el('tr');
+        const key = sessionKey(session);
+        const check = el('input', 'row-check');
+        check.type = 'checkbox';
+        check.checked = state.selectedSessions.has(key);
+        check.setAttribute('aria-label', `Select ${session.title || session.short}`);
+        check.addEventListener('change', () => {
+          if (check.checked) state.selectedSessions.add(key);
+          else state.selectedSessions.delete(key);
+          updateSelectedSummary();
+        });
+        const title = el('td');
+        append(title, el('span', 'session-title', session.title || session.short),
+          el('span', 'session-path', session.dir));
+        append(row, el('td'), title, el('td', null, humanStatus(session.tool)),
+          el('td', null, session.age), el('td', null, formatBytes(session.bytes)),
+          el('td'), el('td'));
+        row.children[0].append(check);
+        row.children[5].append(badge(session.risk || 'ok', session.risk === 'critical' ? 'danger' : session.risk === 'ok' ? '' : 'spend'));
+        row.children[6].append(button('Inspect', 'button ghost compact', () => openSession(session)));
+        tbody.append(row);
+      });
+    if (!tbody.children.length) {
+      const row = el('tr');
+      const cell = el('td');
+      cell.colSpan = 7;
+      cell.append(emptyState('No sessions match', 'Change the filters or refresh the source index.'));
+      row.append(cell);
+      tbody.append(row);
+    }
+  };
+  filter.addEventListener('input', draw);
+  tool.addEventListener('change', draw);
+  range.addEventListener('change', draw);
+  draw();
+  append(table, head, tbody);
+  wrap.append(table);
+  inner.append(wrap);
+
+  const selected = el('div', 'selected-bar');
+  selected.id = 'selected-session-summary';
+  inner.append(selected);
+  panel.append(inner);
+  requestAnimationFrame(updateSelectedSummary);
+  return panel;
 }
 
-async function loadRecipeDetail(force = false) {
-  if (!state.selectedRecipe) return null;
-  if (!state.recipeDetail || force || state.recipeDetail.recipe.uid !== state.selectedRecipe) {
-    state.recipeDetail = await get(`/api/refinery/recipe?id=${encodeURIComponent(state.selectedRecipe)}`);
+function updateSelectedSummary() {
+  const selected = $('#selected-session-summary');
+  if (!selected) return;
+  clear(selected);
+  const totalBytes = state.sessions
+    .filter((session) => state.selectedSessions.has(sessionKey(session)))
+    .reduce((sum, session) => sum + Number(session.bytes || 0), 0);
+  const copy = el('div');
+  append(copy, el('strong', null, `${state.selectedSessions.size} session(s) selected`),
+    el('div', 'small-note', `${formatBytes(totalBytes)} source footprint`));
+  append(selected, copy, button('Mine selected', 'button compact', () => {
+    state.mineBuilderOpen = true;
+    renderRecover().catch(showError);
+  }));
+}
+
+function renderRecoveryHistory() {
+  const stack = el('div', 'stack');
+  const panel = el('section', 'panel');
+  const inner = el('div', 'panel-inner');
+  inner.append(panelHead('Mine history', 'Runs remain available',
+    'Open, extend, or repeat a previous recovery scope.',
+    [button('Activity', 'button ghost compact', () => activateView('activity'))]));
+  const list = el('div', 'run-list');
+  (state.recoveryRuns || []).slice(0, 8).forEach((run) => {
+    let scope = {};
+    try { scope = JSON.parse(run.scope || '{}'); } catch {}
+    const row = el('article', 'run-row');
+    const copy = el('div');
+    const label = scope.session_ids?.length
+      ? `${scope.session_ids.length} selected sessions`
+      : scope.workspace || (scope.days ? `Last ${scope.days} days` : 'All indexed sessions');
+    append(copy, el('h3', null, `${humanStatus(run.op)} · ${label}`),
+      el('p', null, `${run.sessions || 0} sessions · ${run.depth || 'assay'} · ${run.backend || 'local'}`));
+    const meta = el('div', 'run-meta');
+    append(meta, badge(humanStatus(run.status), statusKind(run.status)),
+      run.assayed ? badge(`${run.assayed} assayed`, 'free') : null,
+      run.evidence ? badge(`${run.evidence} evidence`, 'blue') : null,
+      badge(relativeAge(run.started)));
+    append(copy, meta);
+    append(row, copy, button('Repeat', 'button ghost compact', () => {
+      state.mineBuilderOpen = true;
+      renderRecover().catch(showError);
+    }));
+    list.append(row);
+  });
+  if (!list.children.length) list.append(emptyState('No recovery runs yet', 'Start with a free assay of one small scope.'));
+  inner.append(list);
+  panel.append(inner);
+
+  const rule = el('section', 'panel');
+  const ruleInner = el('div', 'panel-inner');
+  append(ruleInner, el('div', 'eyebrow', 'Recovery rule'),
+    el('h3', null, 'A result never replaces the controls.'),
+    el('p', 'muted', 'Every run keeps its scope, source fingerprint, evidence count, errors, and cleanup implications.'));
+  rule.append(ruleInner);
+  append(stack, panel, rule);
+  return stack;
+}
+
+function openSession(session) {
+  const body = openDrawer(session.title || session.short);
+  body.append(el('p', 'muted', `${humanStatus(session.tool)} · ${session.id} · ${session.dir}`));
+  body.append(metricGrid([
+    {label: 'Transcript', value: formatBytes(session.bytes), copy: session.risk === 'ok' ? 'below resume threshold' : `${session.risk} consequence`},
+    {label: 'Turns', value: session.turns, copy: `updated ${session.age}`},
+    {label: 'Workspace', value: session.dir_exists ? 'present' : 'missing', copy: session.repo || session.dir},
+    {label: 'State', value: session.live ? 'open' : 'closed', copy: session.live ? 'do not resume' : 'available for recovery'},
+  ]));
+  const actions = el('div', 'actions');
+  append(actions,
+    button('Copy resume command', 'button ghost', () => copyText(session.resume)),
+    button('Rescue handoff', 'button', () => {
+      closeDrawer();
+      startJob({op: 'brief', session_keys: [sessionKey(session)], records: 12}, {
+        message: 'Session rescue started.',
+        onDone: (job) => openHandoff(job.result),
+      }).catch(showError);
+    }),
+    button('Mine this session', 'button success', () => {
+      closeDrawer();
+      startJob({op: 'mine', session_keys: [sessionKey(session)], days: 0, apply: true}, {
+        message: 'Exact-session mine started.',
+      }).catch(showError);
+    }),
+    button('Extract evidence', 'button ghost', () => {
+      closeDrawer();
+      previewEvidenceExtraction({
+        op: 'reclaim', session_keys: [sessionKey(session)], days: 0,
+        depth: 'summary', backend: '', apply: false,
+      }).catch(showError);
+    }),
+    button('Preview archive', 'button warning', () => {
+      closeDrawer();
+      previewArchive(session);
+    }));
+  body.append(actions);
+}
+
+function openHandoff(result = {}) {
+  const body = openDrawer(`Handoff · ${result.title || result.session || 'session'}`);
+  const note = el('p', 'muted', result.saved ? `Saved to ${result.saved}` : 'Local handoff');
+  const preview = el('pre', 'source-stage', 'Loading saved handoff…');
+  const copy = button('Copy handoff', 'button');
+  copy.disabled = true;
+  append(body, note, preview, copy);
+  if (!result.saved) {
+    preview.textContent = 'The handoff could not be saved.';
+    return;
   }
-  return state.recipeDetail;
+  get(`/api/artifact?path=${encodeURIComponent(result.saved)}`).then((artifact) => {
+    const text = artifact.body || '';
+    preview.textContent = text;
+    copy.disabled = false;
+    copy.addEventListener('click', () => copyText(text));
+  }).catch((error) => {
+    preview.textContent = error.message;
+  });
+}
+
+async function previewArchive(session) {
+  await startJob({op: 'archive', session_keys: [sessionKey(session)], apply: false}, {
+    message: 'Preparing archive preview.',
+    onDone: (job) => {
+      const result = job.result || {};
+      const body = openModal('Archive preview', 'Archive is reversible and remains separate from permanent removal.');
+      append(body, metricGrid([
+        {label: 'Sessions', value: result.rows?.length || 0, copy: 'closed source transcripts'},
+        {label: 'Footprint', value: formatBytes((result.rows || []).reduce((sum, row) => sum + Number(row.bytes || 0), 0)), copy: 'moves into Midden archive'},
+      ]));
+      const actions = el('div', 'modal-actions');
+      append(actions, button('Cancel', 'button ghost', closeModal),
+        button('Archive now', 'button warning', async () => {
+          closeModal();
+          await startJob({op: 'archive', session_keys: [sessionKey(session)], apply: true, confirm: true}, {
+            message: 'Reversible archive started.',
+          });
+        }));
+      body.append(actions);
+    },
+  });
+}
+
+async function loadWorkItems(force = false) {
+  await loadOverview(force);
+  if (force || !state.workItems.length) state.workItems = await get('/api/work-items');
+  if (state.selectedWork && !state.workItems.some((item) => item.recipe.uid === state.selectedWork)) {
+    state.selectedWork = '';
+    sessionStorage.removeItem('midden.selectedWork');
+  }
+  if (!state.selectedWork && state.workItems.length) state.selectedWork = state.workItems[0].recipe.uid;
+}
+
+async function selectWork(recipeID) {
+  state.selectedWork = recipeID;
+  sessionStorage.setItem('midden.selectedWork', recipeID);
+  state.workDetail = null;
+  state.selectedOutput = '';
+  state.outputDetail = null;
+  await renderStudio();
+}
+
+async function loadWorkDetail(force = false) {
+  if (!state.selectedWork) return null;
+  if (force || !state.workDetail || state.workDetail.recipe.uid !== state.selectedWork) {
+    state.workDetail = await get(`/api/work-item?id=${encodeURIComponent(state.selectedWork)}`);
+  }
+  return state.workDetail;
 }
 
 async function renderStudio() {
-  const overview = await loadOverview();
+  await loadWorkItems();
   const root = clear($('#studio-content'));
-  if (!state.selectedRecipe) {
-    append(root,
-      pageHead('Recipes and review', 'Create many assets from one approved evidence set.',
-        'Every plan shows outputs, makers, cost, egress, review gates, and destinations before it runs.',
-        [button('Design a production', 'button', () => openDesignModal({}))]),
-    );
-    const recipes = (overview.recipes || []).filter((recipe) => recipe.status !== 'archived');
-    if (recipes.length) root.append(recipeGrid(recipes));
-    else root.append(emptyState('No productions yet',
-      'Describe an outcome in Conductor, review its interpretation, then create the plan.',
-      button('Open Conductor', 'button ghost', () => activateView('conductor'))));
+  append(root, pageHead('Studio', 'One place to talk, operate, edit, and preview.',
+    'Work items stay visible. Chat is persistent, Console is controlled, and every generated file has an appropriate preview and download path.',
+    [
+      button('Import evidence set', 'button ghost', openCreateWorkItem),
+      button('New work item', 'button', openCreateWorkItem),
+    ]));
+  if (!state.workItems.length) {
+    root.append(emptyState('No work items yet',
+      'Recover evidence, then create a focused output plan without leaving Studio.',
+      button('Create the first work item', 'button', openCreateWorkItem)));
     return;
   }
-
-  let detail;
-  try {
-    detail = await loadRecipeDetail();
-  } catch (error) {
-    state.selectedRecipe = '';
-    state.recipeDetail = null;
-    throw error;
-  }
-  const recipe = detail.recipe;
-  const deterministicOnly = recipe.outputs.every((output) => !output.requires_model);
-  append(root,
-    pageHead('Production plan', recipe.title,
-      recipe.request || 'A saved multi-output refinery production.',
-      [
-        button('Back to productions', 'button ghost', () => {
-          state.selectedRecipe = '';
-          state.recipeDetail = null;
-          renderStudio().catch(showError);
-        }),
-        button('Clone recipe', 'button ghost', () => cloneRecipe(recipe.uid)),
-      ]),
-  );
-
-  const summary = el('div', 'metric-grid');
-  [
-    ['Status', humanStatus(recipe.status), 'explicit workflow state'],
-    ['Evidence', recipe.evidence_ids.length, `${detail.evidence_report.quality || 0}% quality`],
-    ['Outputs', recipe.outputs.length, 'reviewed independently'],
-    ['Estimate', deterministicOnly ? 'FREE' : detail.estimate?.unit_mid ? `~${Number(detail.estimate.unit_mid).toFixed(1)} ${detail.estimate.unit}` : formatCount(detail.estimate?.mid),
-      deterministicOnly ? 'no model invocation' : detail.estimate?.samples ? 'grounded by prior runs' : 'uncalibrated'],
-  ].forEach(([label, value, copy]) => {
-    const card = el('article', 'metric-card');
-    append(card, el('div', 'eyebrow', label), el('strong', null, value), el('span', null, copy));
-    summary.append(card);
-  });
-  root.append(summary);
-
-  root.append(renderRecipePlan(detail));
-  if (['draft', 'evidence_review', 'approved', 'failed'].includes(recipe.status)) {
-    root.append(renderEvidenceWorkbench(detail));
-  }
-  if (['approved', 'failed'].includes(recipe.status)) {
-    root.append(renderRunCommitment(detail));
-  }
-  if ((detail.runs || []).length) root.append(renderRunTimeline(detail.runs[0]));
-  if ((detail.outputs || []).length) root.append(renderReviewStudio(detail));
+  const detail = await loadWorkDetail();
+  const shell = el('div', 'studio-shell');
+  append(shell, renderWorkRail(), renderConversation(detail), renderPreview(detail));
+  root.append(shell);
 }
 
-function renderRecipePlan(detail) {
-  const recipe = detail.recipe;
-  const panel = el('section', 'panel');
-  panel.append(sectionHead('Recipe bundle', `${recipe.outputs.length} deliverables from one context`,
-    'Outputs share a claim graph but retain separate review and export gates.',
-    ['draft', 'evidence_review'].includes(recipe.status)
-      ? [button('Edit deliverables', 'button ghost compact', () => editRecipeOutputs(detail))]
-      : []));
-  const grid = el('div', 'recipe-grid');
-  recipe.outputs.forEach((output) => {
-    const card = el('article', 'recipe-card');
-    append(card,
-      el('div', 'eyebrow', output.format),
-      el('h3', null, output.title),
-      el('p', null, `${output.maker}. Audience: ${output.audience}.`),
-    );
-    const meta = el('div', 'recipe-meta');
-    append(meta, badge(output.requires_model ? 'spends' : 'free', output.requires_model ? 'spend' : 'free'),
-      badge(output.maker));
-    card.append(meta);
-    grid.append(card);
-  });
-  panel.append(grid);
-  return panel;
-}
-
-function editRecipeOutputs(detail) {
-  const body = openModal('Edit deliverables',
-    'Changing the output mix returns the recipe to evidence review.');
-  const selected = new Set(detail.recipe.outputs.map((output) => output.kind));
-  const checks = el('div', 'checkbox-list');
-  (detail.templates || refineryTemplateFallback()).forEach((template) => {
-    const label = el('label', 'check-card');
-    const input = el('input');
-    input.type = 'checkbox';
-    input.value = template.kind;
-    input.checked = selected.has(template.kind);
-    const copy = el('span');
-    append(copy, el('strong', null, template.title),
-      el('small', null, `${template.maker} · ${template.requires_model ? 'spends' : 'free'}`));
-    append(label, input, copy);
-    checks.append(label);
-  });
-  body.append(checks);
-  const actions = el('div', 'modal-actions');
-  actions.append(button('Cancel', 'button ghost', closeModal));
-  actions.append(button('Save deliverables', 'button', async () => {
-    const kinds = $$('input:checked', checks).map((input) => input.value);
-    if (!kinds.length) {
-      toast('Choose at least one deliverable', 'bad');
-      return;
-    }
-    try {
-      await post('/api/refinery/action', {
-        action: 'update_recipe', recipe_id: detail.recipe.uid, output_kinds: kinds,
-      });
-      closeModal();
-      state.recipeDetail = null;
-      state.overview = null;
-      await renderStudio();
-      toast('Deliverables updated; review the evidence again.', 'good');
-    } catch (error) {
-      showError(error);
-    }
-  }));
-  body.append(actions);
-}
-
-function renderEvidenceWorkbench(detail) {
-  const recipe = detail.recipe;
-  const report = detail.evidence_report || {};
-  const selected = new Set(recipe.evidence_ids || []);
-  const panel = el('section', 'panel');
-  panel.append(sectionHead('Evidence workbench', 'Control what every output is allowed to claim',
-    'Changes here propagate to the tutorial, slides, visuals, knowledge packs, and agent proposals.'));
-  const layout = el('div', 'evidence-layout');
-  const left = el('div');
-  const filters = el('div', 'filter-row evidence-filters');
-  const search = textInput('', 'Search selected evidence');
-  const needsReview = el('input');
-  needsReview.type = 'checkbox';
-  const reviewLabel = el('label', 'check');
-  append(reviewLabel, needsReview, el('span', null, 'Needs review only'));
-  append(filters, search, reviewLabel);
-  const list = el('div', 'evidence-list');
-  const candidatesByID = new Map((detail.candidates || []).map((nugget) => [nugget.uid, nugget]));
-  (detail.evidence || []).forEach((nugget) => candidatesByID.set(nugget.uid, nugget));
-  const allCandidates = Array.from(candidatesByID.values());
-  const selectedCandidates = allCandidates.filter((nugget) => selected.has(nugget.uid));
-  const unselectedCandidates = allCandidates.filter((nugget) => !selected.has(nugget.uid));
-  const displayedCandidates = selectedCandidates.concat(
-    unselectedCandidates.slice(0, Math.max(0, 180 - selectedCandidates.length)),
-  );
-  const renderCandidates = () => {
+function renderWorkRail() {
+  const rail = el('aside', 'work-rail');
+  const head = el('div', 'rail-head');
+  const top = el('div', 'actions');
+  top.style.justifyContent = 'space-between';
+  append(top, el('strong', null, 'Work items'), badge(`${state.workItems.length} active`, 'blue'));
+  const search = textInput('', 'Find work item');
+  append(head, top, search);
+  const list = el('div', 'work-list');
+  const draw = () => {
     clear(list);
     const query = search.value.trim().toLowerCase();
-    displayedCandidates
-      .filter((nugget) => !needsReview.checked || nugget.confidence < .75)
-      .filter((nugget) => !query ||
-        String(nugget.title || '').toLowerCase().includes(query) ||
-        String(nugget.body || '').toLowerCase().includes(query) ||
-        String(nugget.kind || '').toLowerCase().includes(query))
-      .forEach((nugget) => {
-        list.append(evidenceRow(nugget, true, selected.has(nugget.uid)));
+    state.workItems
+      .filter((item) => !query || `${item.recipe.title} ${item.recipe.request} ${item.recipe.workspace}`.toLowerCase().includes(query))
+      .forEach((item) => {
+        const recipe = item.recipe;
+        const node = el('button', `work-item ${recipe.uid === state.selectedWork ? 'active' : ''}`.trim());
+        node.type = 'button';
+        const description = recipe.outputs?.map((output) => output.title).slice(0, 3).join(', ') || 'Evidence work item';
+        append(node, el('strong', null, recipe.title), el('span', null, truncate(description, 72)));
+        const meta = el('div', 'work-item-meta');
+        append(meta, badge(humanStatus(recipe.status), statusKind(recipe.status)),
+          el('span', null, relativeAge(recipe.updated_at)));
+        node.append(meta);
+        node.addEventListener('click', () => selectWork(recipe.uid).catch(showError));
+        list.append(node);
       });
-    if (!list.children.length) {
-      list.append(emptyState('No evidence matches', 'Clear the search or review-only filter.'));
-    }
   };
-  search.addEventListener('input', renderCandidates);
-  needsReview.addEventListener('change', renderCandidates);
-  renderCandidates();
-  left.append(filters, list);
-  const right = el('div', 'rail');
-  const quality = el('div', 'rail-card');
-  append(quality,
-    el('div', 'eyebrow', 'Evidence quality'),
-    el('h3', null, `${report.quality || 0}% bundle quality`),
-    el('p', null, `${report.selected || 0} selected · ${report.coverage || 0}% claim-type coverage`),
-  );
-  const bar = el('div', 'quality-bar');
-  const fill = el('i');
-  fill.style.width = `${report.quality || 0}%`;
-  bar.append(fill);
-  quality.append(bar);
-  right.append(quality);
-  (report.warnings || []).forEach((warning) => right.append(el('div', 'warning', warning)));
-  if (!(report.warnings || []).length) right.append(el('div', 'success', 'The evidence set is ready for an explicit approval.'));
-
-  const controls = el('div', 'rail-card');
-  append(controls, el('h3', null, 'Evidence gate'),
-    el('p', null, 'Save selections freely. Approval is a separate state transition before any run.'));
-  const save = button('Save selection', 'button ghost', () => saveEvidenceSelection(detail, false));
-  const approve = button('Approve evidence set', 'button good', () => saveEvidenceSelection(detail, true));
-  append(controls, el('div', 'row-actions'), save, approve);
-  const actionWrap = $('.row-actions', controls);
-  actionWrap.append(save, approve);
-  right.append(controls);
-  append(layout, left, right);
-  panel.append(layout);
-  return panel;
+  search.addEventListener('input', draw);
+  draw();
+  const foot = el('div', 'work-rail-foot');
+  foot.append(button('New work item', 'button ghost compact', openCreateWorkItem));
+  append(rail, head, list, foot);
+  return rail;
 }
 
-async function saveEvidenceSelection(detail, approve) {
-  const root = $('#studio-content');
-  const inputs = $$('input[data-evidence]', root);
-  const visibleIDs = new Set(inputs.map((input) => input.value));
-  const ids = new Set((detail.recipe.evidence_ids || []).filter((id) => !visibleIDs.has(id)));
-  inputs.filter((input) => input.checked).forEach((input) => ids.add(input.value));
-  try {
-    await post('/api/refinery/action', {
-      action: approve ? 'approve_evidence' : 'save_evidence',
-      recipe_id: detail.recipe.uid,
-      evidence_ids: Array.from(ids),
-    });
-    state.recipeDetail = null;
-    state.overview = null;
-    await renderStudio();
-    toast(approve ? 'Evidence approved. The recipe can now run.' : 'Evidence selection saved.', 'good');
-  } catch (error) {
-    showError(error);
-  }
-}
-
-function renderRunCommitment(detail) {
-  const panel = el('section', 'hero');
+function renderConversation(detail) {
+  const pane = el('section', 'conversation-pane');
+  const head = el('header', 'conversation-head');
   const copy = el('div');
-  const modelOutputs = detail.recipe.outputs.filter((output) => output.requires_model).length;
-  append(copy,
-    el('div', 'eyebrow', 'Commitment'),
-    el('h2', null, 'Generate drafts only.'),
-    el('p', null, `${modelOutputs} output(s) use one warm model context. Deterministic packs stay local and free. The run writes only to Midden’s artifact workspace and stops before publishing, installation, upload, or training.`),
-  );
-  append(panel, copy, button('Preview cost and run', 'button good', () => previewProduction(detail.recipe.uid)));
-  return panel;
-}
+  append(copy, el('div', 'eyebrow', `${detail.recipe.evidence_ids.length} evidence · ${detail.outputs.length} outputs`),
+    el('h2', null, detail.recipe.title));
+  const budget = el('div', 'budget');
+  const line = el('div', 'budget-line');
+  const spent = Number(detail.thread?.estimated_spent || 0);
+  const limit = Number(detail.thread?.budget_tokens || 1_200_000);
+  append(line, el('span', null, detail.thread?.backend || 'AI CLI not selected'),
+    el('span', null, `${Math.min(100, Math.round(spent / limit * 100))}% budget`));
+  const progress = el('progress');
+  progress.max = limit;
+  progress.value = Math.min(limit, spent);
+  append(budget, line, progress);
+  append(head, copy, budget);
 
-async function previewProduction(recipeID) {
-  try {
-    const preview = await runJob({op: 'production', recipe_id: recipeID, apply: false},
-      'Previewing production', 'Calculates the full bundle estimate from the approved evidence and output mix.');
-    const result = preview.result || {};
-    const modelOutputs = (result.recipe?.outputs || []).filter((output) => output.requires_model).length;
-    const body = openModal('Approve production run',
-      'This approval creates drafts only. No destination receives anything.');
-    const estimate = result.estimate || preview.estimate || {};
-    const box = el('div', 'estimate-box');
-    append(box,
-      el('div', 'eyebrow', modelOutputs === 0 ? 'Free local production' : estimate.samples ? `${estimate.samples} calibrated prior run(s)` : 'Uncalibrated estimate'),
-      el('strong', null, result.estimate_text || (modelOutputs === 0 ? '0 model calls' : `${formatCount(estimate.low)}–${formatCount(estimate.high)} tokens`)),
-    );
-    const facts = el('div', 'estimate-facts');
-    [
-      ['Outputs', String(result.recipe?.outputs?.length || 0)],
-      ['Evidence', `${result.evidence_report?.selected || 0} item(s)`],
-      ['Backend', result.backend || 'auto-detect signed-in CLI'],
-      ['Model', result.model || 'backend default'],
-      ['Time', modelOutputs === 0 ? 'immediate' : `about ${Math.max(1, Math.ceil((result.estimated_seconds || 60) / 60))} minute(s)`],
-      ['External writes', 'none'],
-    ].forEach(([label, value]) => {
-      const item = el('div', 'estimate-fact');
-      append(item, el('span', null, label), el('strong', null, value));
-      facts.append(item);
+  const body = el('div', 'conversation-body');
+  const chat = renderChat(detail);
+  const consolePanel = renderConsole(detail);
+  chat.hidden = state.conversationMode !== 'chat';
+  consolePanel.hidden = state.conversationMode !== 'console';
+  append(body, chat, consolePanel);
+  const tabs = el('div', 'conversation-tabs');
+  const switcher = el('div', 'segmented');
+  ['chat', 'console'].forEach((mode) => {
+    const item = button(mode, `segment ${state.conversationMode === mode ? 'active' : ''}`.trim(), () => {
+      state.conversationMode = mode;
+      renderStudio().catch(showError);
     });
-    box.append(facts);
-    body.append(box);
-    if (modelOutputs > 0 && !estimate.samples) {
-      body.append(el('div', 'warning',
-        'This is a conservative first-run token range. Complete one small run to calibrate future credit and time estimates.'));
-    }
-    const fields = modelOutputs > 0 ? backendFields() : {backend: {value: ''}, model: {value: ''}};
-    if (modelOutputs > 0) {
-      append(body, field('Model backend', fields.backend), field('Model override', fields.model));
-    }
-    const actions = el('div', 'modal-actions');
-    actions.append(button('Not now', 'button ghost', closeModal));
-    const run = button('Approve and run', 'button good', async () => {
-      run.disabled = true;
-      closeModal();
-      try {
-        const finished = await runJob({
-          op: 'production', recipe_id: recipeID, apply: true,
-          backend: fields.backend.value, model: fields.model.value,
-        }, 'Running production', 'Every stage writes a durable timeline and pauses at the review studio.');
-        toast(`${finished.result?.outputs?.length || 0} draft(s) ready for review`, 'good');
-        state.recipeDetail = null;
-        state.overview = null;
-        await renderStudio();
-      } catch (error) {
-        showError(error);
-        state.recipeDetail = null;
-        state.overview = null;
-        await renderStudio().catch(showError);
-      }
-    });
-    actions.append(run);
-    body.append(actions);
-  } catch (error) {
-    showError(error);
-  }
-}
-
-function renderRunTimeline(run) {
-  const panel = el('section', 'run-card');
-  panel.append(sectionHead('Run timeline', `Production ${humanStatus(run.status)}`,
-    'Every transformation and checkpoint remains visible after the browser closes.'));
-  (run.stages || []).forEach((stage) => {
-    const row = el('div', 'run-line');
-    const time = el('time', null, stage.started_at ? formatDate(stage.started_at) : '--');
-    const dot = el('span', `status-dot ${stage.status || ''}`.trim());
-    const copy = el('div');
-    append(copy, el('strong', null, stage.label), el('small', null, stage.detail || 'Waiting'));
-    append(row, time, dot, copy, badge(humanStatus(stage.status), statusKind(stage.status)));
-    panel.append(row);
+    switcher.append(item);
   });
-  if (run.error) panel.append(el('div', 'warning', run.error));
+  tabs.append(switcher);
+  append(pane, head, body, tabs);
+  return pane;
+}
+
+function renderChat(detail) {
+  const panel = el('div', 'chat-panel');
+  const messages = el('div', 'messages');
+  messages.id = 'work-messages';
+  messages.append(el('div', 'message system',
+    `Evidence is fixed to this work item. Routine turns use one persistent CLI session and the approved ${formatCount(detail.thread?.budget_tokens || 1_200_000)}-token envelope.`));
+  if (!(detail.messages || []).length) {
+    messages.append(el('div', 'message agent',
+      'This work item is ready. Ask a question, request a revision, or inspect the current outputs on the right.'));
+  }
+  (detail.messages || []).forEach((message) => {
+    const node = el('div', `message ${message.role === 'agent' ? 'agent' : message.role}`);
+    append(node, document.createTextNode(message.body),
+      el('small', null, `${message.role === 'agent' ? detail.thread?.backend || 'AI CLI' : 'operator'} · ${formatDate(message.created_at)}`));
+    messages.append(node);
+  });
+  const composer = el('form', 'composer');
+  const input = textArea('', 'Ask, revise, or create another output…');
+  input.rows = 3;
+  input.disabled = state.pendingChat.has(detail.recipe.uid);
+  const foot = el('div', 'composer-foot');
+  const send = button(state.pendingChat.has(detail.recipe.uid) ? 'Working…' : 'Send', 'button compact');
+  send.disabled = state.pendingChat.has(detail.recipe.uid);
+  append(foot, el('span', null, 'Same session · same evidence · no per-turn approval'), send);
+  append(composer, input, foot);
+  composer.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const question = input.value.trim();
+    if (!question) return;
+    input.value = '';
+    const optimistic = el('div', 'message user', question);
+    const typing = el('div', 'message agent typing', 'Thinking in the persistent work session');
+    append(messages, optimistic, typing);
+    messages.scrollTop = messages.scrollHeight;
+    state.pendingChat.add(detail.recipe.uid);
+    input.disabled = true;
+    send.disabled = true;
+    send.textContent = 'Working…';
+    try {
+      await startJob({
+        op: 'work_chat', recipe_id: detail.recipe.uid, question,
+        backend: detail.thread?.backend || '', model: detail.thread?.model || '',
+        budget_tokens: detail.thread?.budget_tokens || 1_200_000,
+      }, {
+        message: 'Message sent. You can continue using Midden.',
+        onDone: async () => {
+          state.pendingChat.delete(detail.recipe.uid);
+          state.workDetail = null;
+          await renderStudio();
+        },
+        onFailed: async (job) => {
+          state.pendingChat.delete(detail.recipe.uid);
+          typing.remove();
+          input.disabled = false;
+          send.disabled = false;
+          send.textContent = 'Send';
+          notice(job.error || 'Work chat failed', 'bad');
+        },
+      });
+    } catch (error) {
+      state.pendingChat.delete(detail.recipe.uid);
+      typing.remove();
+      input.disabled = false;
+      send.disabled = false;
+      send.textContent = 'Send';
+      showError(error);
+    }
+  });
+  append(panel, messages, composer);
+  requestAnimationFrame(() => { messages.scrollTop = messages.scrollHeight; });
   return panel;
 }
 
-function renderReviewStudio(detail) {
-  const panel = el('section', 'panel');
-  panel.append(sectionHead('Review studio', 'Inspect every draft before export',
-    'Edit the source, trace provenance, approve or reject it, then choose a destination.'));
-  const grid = el('div', 'output-grid');
+function renderConsole(detail) {
+  const panel = el('div', 'console-panel');
+  const output = el('pre', 'terminal-output');
+  const history = state.consoleHistory.get(detail.recipe.uid) || [
+    'midden controlled console',
+    `work item: ${detail.recipe.title}`,
+    'commands: help · status · files · evidence · runs · openmontage status',
+    '',
+  ];
+  output.textContent = history.join('\n');
+  const form = el('form', 'terminal-input');
+  const prompt = el('span', null, '>');
+  const input = textInput('', 'status');
+  input.autocomplete = 'off';
+  input.spellcheck = false;
+  append(form, prompt, input);
+  form.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const command = input.value.trim();
+    if (!command) return;
+    history.push(`> ${command}`);
+    input.value = '';
+    try {
+      const result = await post('/api/work-console', {
+        recipe_id: detail.recipe.uid, command,
+      });
+      history.push(result.output || '(no output)', '');
+    } catch (error) {
+      history.push(`error: ${error.message}`, '');
+    }
+    state.consoleHistory.set(detail.recipe.uid, history);
+    output.textContent = history.join('\n');
+    output.scrollTop = output.scrollHeight;
+  });
+  append(panel, output, form);
+  return panel;
+}
+
+function renderPreview(detail) {
+  const pane = el('section', 'preview-pane');
+  const selected = detail.outputs.find((output) => output.uid === state.selectedOutput) || detail.outputs[0];
+  if (selected && selected.uid !== state.selectedOutput) {
+    state.selectedOutput = selected.uid;
+    state.outputDetail = null;
+  }
+  const head = el('header', 'preview-head');
+  const copy = el('div');
+  append(copy, el('div', 'eyebrow', 'Live output'),
+    el('h2', null, selected?.title || 'Production plan'));
+  const pills = el('div', 'pills');
+  append(pills, badge(humanStatus(selected?.status || detail.recipe.status), statusKind(selected?.status || detail.recipe.status)),
+    selected ? badge(selected.format) : null);
+  append(head, copy, pills);
+  pane.append(head);
+
+  const tabs = el('div', 'output-tabs');
   detail.outputs.forEach((output) => {
-    const card = el('article', 'output-card');
-    const preview = `${String(output.kind).toUpperCase()}\n${output.format} · ${output.maker}`;
-    append(card, el('div', 'output-preview', preview), el('h3', null, output.title),
-      el('p', null, `${output.evidence_ids.length} evidence item(s) · ${output.quality}% quality`));
-    const meta = el('div', 'output-meta');
-    append(meta, badge(humanStatus(output.status), statusKind(output.status)), badge(output.format));
-    card.append(meta);
-    const actions = el('div', 'card-actions');
-    actions.append(button(output.status === 'draft' ? 'Review' : 'Open', 'button', () => reviewOutput(output.uid)));
-    if (['reviewed', 'exported'].includes(output.status)) {
-      actions.append(button(output.status === 'exported' ? 'Exported' : 'Export local', 'button ghost',
-        () => exportOutput(output.uid)));
-    }
-    card.append(actions);
-    grid.append(card);
+    const tab = button(output.title, `output-tab ${output.uid === state.selectedOutput ? 'active' : ''}`.trim(), () => {
+      state.selectedOutput = output.uid;
+      state.outputDetail = null;
+      state.previewMode = 'rendered';
+      renderStudio().catch(showError);
+    });
+    tabs.append(tab);
   });
-  panel.append(grid);
-  return panel;
-}
+  if (!detail.outputs.length) tabs.append(button('+ Add output', 'output-tab', () => editWorkItemOutputs(detail)));
+  pane.append(tabs);
 
-async function reviewOutput(outputID) {
-  try {
-    const detail = await get(`/api/refinery/output?id=${encodeURIComponent(outputID)}`);
-    const output = detail.output;
-    const body = openDrawer(output.title);
-    body.classList.add('review-workbench');
-    const meta = el('div', 'row-actions');
-    append(meta, badge(humanStatus(output.status), statusKind(output.status)),
-      badge(output.format), badge(`${output.evidence_ids.length} evidence`, 'free'));
-    body.append(meta);
-    const tabs = el('div', 'tabs review-tabs');
-    const previewTab = button('Review', 'tab-button active');
-    const rawTab = button('Raw source', 'tab-button');
-    const provenanceTab = button('Provenance', 'tab-button');
-    append(tabs, previewTab, rawTab, provenanceTab);
-    body.append(tabs);
-
-    const reviewPanel = el('div', 'structured-review');
-    const rawPanel = el('div', 'raw-review');
-    rawPanel.hidden = true;
-    const provenancePanel = el('div', 'provenance-review');
-    provenancePanel.hidden = true;
-    const editor = textarea(detail.body || '');
-    editor.className = 'document-editor';
-    rawPanel.append(field('Editable source', editor));
-    const structured = structuredOutput(detail.body || '', output.format);
-    renderStructuredOutput(reviewPanel, structured, output);
-    renderProvenance(provenancePanel, detail.provenance);
-    append(body, reviewPanel, rawPanel, provenancePanel);
-
-    let active = 'review';
-    let rawDirty = false;
-    editor.addEventListener('input', () => { rawDirty = true; });
-    const activate = (name) => {
-      active = name;
-      previewTab.classList.toggle('active', name === 'review');
-      rawTab.classList.toggle('active', name === 'raw');
-      provenanceTab.classList.toggle('active', name === 'provenance');
-      reviewPanel.hidden = name !== 'review';
-      rawPanel.hidden = name !== 'raw';
-      provenancePanel.hidden = name !== 'provenance';
-    };
-    previewTab.addEventListener('click', () => activate('review'));
-    rawTab.addEventListener('click', () => activate('raw'));
-    provenanceTab.addEventListener('click', () => activate('provenance'));
-
-    const currentBody = () => {
-      if (rawDirty || active === 'raw' || structured.kind !== 'jsonl') return editor.value;
-      return structured.records
-        .filter((record) => record.selected)
-        .map((record) => JSON.stringify(record.value))
-        .join('\n') + '\n';
-    };
-    const currentEvidenceIDs = () => structured.kind === 'jsonl'
-      ? (rawDirty || active === 'raw' ? null : Array.from(new Set(structured.records
-        .filter((record) => record.selected)
-        .flatMap((record) => recordEvidenceIDs(record.value)))))
-      : null;
-    const actions = el('div', 'modal-actions');
-    actions.append(button('Reject', 'button danger', () => saveOutputReview(output, currentBody(), 'rejected', currentEvidenceIDs())));
-    actions.append(button('Save draft', 'button ghost', () => saveOutputReview(output, currentBody(), 'draft', currentEvidenceIDs())));
-    actions.append(button('Approve output', 'button good', () => saveOutputReview(output, currentBody(), 'reviewed', currentEvidenceIDs())));
-    body.append(actions);
-  } catch (error) {
-    showError(error);
+  const toolbar = el('div', 'preview-toolbar');
+  const modes = el('div', 'segmented');
+  ['rendered', 'source', 'provenance'].forEach((mode) => {
+    const modeButton = button(mode, `segment ${state.previewMode === mode ? 'active' : ''}`.trim(), () => {
+      state.previewMode = mode;
+      renderStudio().catch(showError);
+    });
+    if (!selected) modeButton.disabled = true;
+    modes.append(modeButton);
+  });
+  const actions = el('div', 'actions');
+  if (selected) {
+    append(actions,
+      button('Download', 'button ghost compact', () => downloadOutput(selected)),
+      ['reviewed', 'exported'].includes(selected.status)
+        ? button(selected.status === 'exported' ? 'Exported' : 'Export local', 'button compact', () => exportOutput(selected.uid))
+        : null);
+  } else {
+    append(actions,
+      ['draft', 'evidence_review'].includes(detail.recipe.status)
+        ? button('Review evidence', 'button ghost compact', () => openEvidenceReview(detail))
+        : null,
+      ['approved', 'failed'].includes(detail.recipe.status)
+        ? button('Preview run', 'button compact', () => previewProduction(detail.recipe.uid))
+        : null);
   }
-}
+  append(toolbar, modes, actions);
+  pane.append(toolbar);
 
-function recordEvidenceIDs(value) {
-  return [
-    value?.id,
-    value?.evidence_id,
-    value?.metadata?.evidence_id,
-    value?.provenance?.evidence_id,
-    value?.provenance?.chosen_evidence_id,
-    value?.provenance?.rejected_evidence_id,
-  ].filter(Boolean);
-}
-
-function structuredOutput(body, format) {
-  if (format === 'jsonl') {
-    const records = [];
-    for (const [index, line] of body.split(/\r?\n/).entries()) {
-      if (!line.trim()) continue;
-      try {
-        records.push({index, value: JSON.parse(line), selected: true});
-      } catch {
-        return {kind: 'text', body, error: `Line ${index + 1} is not valid JSON.`};
-      }
-    }
-    return {kind: 'jsonl', records};
+  const content = el('div', 'preview-content');
+  if (selected) {
+    content.append(el('div', 'loading-shell', 'Loading output…'));
+    loadOutputDetail(selected.uid).then(() => {
+      clear(content).append(renderOutputContent(detail, selected));
+    }).catch((error) => clear(content).append(emptyState('Output could not be loaded', error.message)));
+  } else {
+    content.append(renderPlanPreview(detail));
   }
+  pane.append(content);
+  return pane;
+}
+
+async function loadOutputDetail(outputID) {
+  if (!state.outputDetail || state.outputDetail.output.uid !== outputID) {
+    state.outputDetail = await get(`/api/refinery/output?id=${encodeURIComponent(outputID)}`);
+  }
+  return state.outputDetail;
+}
+
+function renderPlanPreview(detail) {
+  const stage = el('article', 'document-stage');
+  append(stage, el('div', 'eyebrow', humanStatus(detail.recipe.status)),
+    el('h1', null, detail.recipe.title),
+    el('p', null, detail.recipe.request || 'Saved evidence-grounded production plan.'));
+  const list = el('ul');
+  detail.recipe.outputs.forEach((output) => {
+    list.append(el('li', null, `${output.title} · ${output.format} · ${output.requires_model ? 'model-backed' : 'deterministic'}`));
+  });
+  stage.append(list);
+  const actions = el('div', 'actions');
+  if (['draft', 'evidence_review'].includes(detail.recipe.status)) {
+    append(actions, button('Review evidence', 'button', () => openEvidenceReview(detail)),
+      button('Edit outputs', 'button ghost', () => editWorkItemOutputs(detail)));
+  }
+  if (['approved', 'failed'].includes(detail.recipe.status)) {
+    actions.append(button('Preview cost and run', 'button success', () => previewProduction(detail.recipe.uid)));
+  }
+  stage.append(actions);
+  return stage;
+}
+
+function renderOutputContent(detail, output) {
+  const outputDetail = state.outputDetail;
+  if (!outputDetail) return emptyState('Loading', 'Output is still loading.');
+  if (state.previewMode === 'source') return renderSourceEditor(outputDetail);
+  if (state.previewMode === 'provenance') return renderProvenance(outputDetail.provenance);
+  return renderOwnedPreview(outputDetail.body || '', output.format, output);
+}
+
+function renderOwnedPreview(body, format, output) {
+  if (format === 'jsonl') return renderJSONL(body, output);
   if (format === 'json') {
     try {
-      return {kind: 'json', value: JSON.parse(body)};
-    } catch {
-      return {kind: 'text', body, error: 'This file is not valid JSON.'};
+      const value = JSON.parse(body);
+      const stage = el('div', 'record-list');
+      Object.entries(value).forEach(([key, item]) => {
+        const card = el('article', 'record-card');
+        append(card, el('h3', null, humanStatus(key)),
+          el('p', null, typeof item === 'object' ? JSON.stringify(item, null, 2) : String(item)));
+        stage.append(card);
+      });
+      return stage;
+    } catch {}
+  }
+  if (['markdown', 'marp'].includes(format)) {
+    const stage = el('article', 'document-stage');
+    stage.innerHTML = markdownToHTML(body);
+    return stage;
+  }
+  if (format === 'd2') {
+    const wrap = el('div', 'rendered-stage');
+    const image = el('img', 'rendered-media');
+    image.alt = output.title;
+    image.src = `/api/output-rendered?id=${encodeURIComponent(output.uid)}`;
+    image.addEventListener('error', () => {
+      clear(wrap).append(emptyState('D2 source is ready',
+        'D2 is not installed or could not render this file. Connect it under Tools, or edit and download the source.'));
+      wrap.append(el('pre', 'source-stage', body));
+    }, {once: true});
+    wrap.append(image);
+    return wrap;
+  }
+  if (['png', 'jpg', 'jpeg', 'gif', 'webp'].includes(format)) {
+    const image = el('img', 'rendered-media');
+    image.alt = output.title;
+    image.src = `/api/output-rendered?id=${encodeURIComponent(output.uid)}`;
+    return append(el('div', 'rendered-stage'), image);
+  }
+  if (['mp4', 'webm'].includes(format)) {
+    const video = el('video', 'rendered-media');
+    video.controls = true;
+    video.src = `/api/output-rendered?id=${encodeURIComponent(output.uid)}`;
+    return append(el('div', 'rendered-stage'), video);
+  }
+  return el('pre', 'source-stage', body || 'This output is empty.');
+}
+
+function markdownToHTML(markdown) {
+  const lines = String(markdown || '').replace(/\r/g, '').split('\n');
+  let html = '';
+  let listOpen = false;
+  let codeOpen = false;
+  const inline = (value) => escapeHTML(value)
+    .replace(/`([^`]+)`/g, '<code>$1</code>')
+    .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+    .replace(/\*([^*]+)\*/g, '<em>$1</em>');
+  for (const line of lines) {
+    if (/^```/.test(line)) {
+      if (listOpen) { html += '</ul>'; listOpen = false; }
+      html += codeOpen ? '</code></pre>' : '<pre><code>';
+      codeOpen = !codeOpen;
+      continue;
+    }
+    if (codeOpen) {
+      html += `${escapeHTML(line)}\n`;
+      continue;
+    }
+    const heading = line.match(/^(#{1,3})\s+(.+)$/);
+    if (heading) {
+      if (listOpen) { html += '</ul>'; listOpen = false; }
+      const level = heading[1].length;
+      html += `<h${level}>${inline(heading[2])}</h${level}>`;
+      continue;
+    }
+    const list = line.match(/^\s*[-*]\s+(.+)$/);
+    if (list) {
+      if (!listOpen) { html += '<ul>'; listOpen = true; }
+      html += `<li>${inline(list[1])}</li>`;
+      continue;
+    }
+    if (listOpen) { html += '</ul>'; listOpen = false; }
+    if (/^>\s?/.test(line)) {
+      html += `<blockquote>${inline(line.replace(/^>\s?/, ''))}</blockquote>`;
+    } else if (line.trim()) {
+      html += `<p>${inline(line)}</p>`;
     }
   }
-  return {kind: 'text', body};
+  if (listOpen) html += '</ul>';
+  if (codeOpen) html += '</code></pre>';
+  return html || '<p>This output is empty.</p>';
 }
 
-function recordTitle(value, index) {
-  return value?.metadata?.title || value?.description || value?.instruction ||
-    value?.prompt || value?.title || `Record ${index + 1}`;
+function renderJSONL(body, output) {
+  const list = el('div', 'record-list');
+  const lines = String(body || '').split(/\r?\n/).filter((line) => line.trim());
+  lines.forEach((line, index) => {
+    const card = el('article', 'record-card');
+    try {
+      const value = JSON.parse(line);
+      const title = value?.metadata?.title || value?.title || value?.description || `Record ${index + 1}`;
+      const content = value?.text || value?.content || value?.response || value?.expected || JSON.stringify(value, null, 2);
+      append(card, el('h3', null, title), el('p', null, content));
+    } catch {
+      append(card, el('h3', null, `Invalid line ${index + 1}`), el('p', null, line));
+    }
+    list.append(card);
+  });
+  if (!list.children.length) list.append(emptyState('No records', `${output.title} is empty.`));
+  return list;
 }
 
-function recordBody(value) {
-  return value?.text || value?.response || value?.expected || value?.chosen ||
-    value?.content || JSON.stringify(value, null, 2);
+function renderSourceEditor(detail) {
+  const wrap = el('div', 'source-editor');
+  const editor = textArea(detail.body || '');
+  editor.className = 'document-editor';
+  const actions = el('div', 'actions');
+  append(actions,
+    button('Reject', 'button danger compact', () => saveOutputReview(detail.output, editor.value, 'rejected')),
+    button('Save draft', 'button ghost compact', () => saveOutputReview(detail.output, editor.value, 'draft')),
+    button('Approve output', 'button success compact', () => saveOutputReview(detail.output, editor.value, 'reviewed')));
+  append(wrap, editor, actions);
+  return wrap;
 }
 
-function renderStructuredOutput(panel, structured, output) {
-  clear(panel);
-  if (structured.error) panel.append(el('div', 'warning', structured.error));
-  if (structured.kind === 'jsonl') {
-    const toolbar = el('div', 'review-toolbar');
-    const count = el('strong', null, `${structured.records.length} record(s)`);
-    const selectAll = button('Select all', 'button ghost compact', () => {
-      structured.records.forEach((record) => { record.selected = true; });
-      $$('input[data-record-index]', panel).forEach((input) => { input.checked = true; });
-      updateCount();
-    });
-    const selectNone = button('Select none', 'button ghost compact', () => {
-      structured.records.forEach((record) => { record.selected = false; });
-      $$('input[data-record-index]', panel).forEach((input) => { input.checked = false; });
-      updateCount();
-    });
-    const updateCount = () => {
-      count.textContent = `${structured.records.filter((record) => record.selected).length} of ${structured.records.length} included`;
-    };
-    append(toolbar, count, el('div', 'row-actions'));
-    $('.row-actions', toolbar).append(selectAll, selectNone);
-    panel.append(toolbar);
-    const list = el('div', 'record-review-list');
-    structured.records.forEach((record, index) => {
-      const card = el('article', 'record-review-card');
-      const check = el('input');
-      check.type = 'checkbox';
-      check.checked = true;
-      check.dataset.recordIndex = String(index);
-      check.addEventListener('change', () => {
-        record.selected = check.checked;
-        card.classList.toggle('excluded', !check.checked);
-        updateCount();
-      });
-      const copy = el('div');
-      const title = el('h3', null, recordTitle(record.value, index));
-      const metadata = el('div', 'record-meta');
-      const kind = record.value?.metadata?.kind || record.value?.kind || output.kind;
-      const confidence = record.value?.metadata?.confidence ?? record.value?.confidence;
-      append(metadata, badge(kind || 'record'),
-        confidence !== undefined ? badge(`${Math.round(Number(confidence) * 100)}% confidence`, Number(confidence) < .75 ? 'spend' : 'free') : null,
-        record.value?.metadata?.tool ? badge(record.value.metadata.tool) : null);
-      const text = el('p', null, recordBody(record.value));
-      append(copy, title, metadata, text);
-      append(card, check, copy);
-      list.append(card);
-    });
-    panel.append(list);
-    updateCount();
-    return;
-  }
-  if (structured.kind === 'json') {
-    const summary = el('div', 'json-summary');
-    Object.entries(structured.value || {}).slice(0, 12).forEach(([key, value]) => {
-      const row = el('div', 'json-summary-row');
-      append(row, el('strong', null, humanStatus(key)),
-        el('span', null, typeof value === 'object' ? JSON.stringify(value, null, 2) : String(value)));
-      summary.append(row);
-    });
-    panel.append(summary);
-    return;
-  }
-  panel.append(el('pre', 'document-preview', structured.body || 'This output is empty.'));
-}
-
-function renderProvenance(panel, body) {
-  clear(panel);
-  if (!body) {
-    panel.append(emptyState('No provenance sidecar found', 'This output cannot be approved until provenance is available.'));
-    return;
-  }
+function renderProvenance(body) {
+  const grid = el('div', 'provenance-grid');
+  if (!body) return emptyState('No provenance sidecar', 'This output cannot be approved without provenance.');
   try {
-    const parsed = JSON.parse(body);
-    append(panel,
-      metricGrid([
-        {label: 'Recipe', value: String(parsed.recipe_id || '').slice(0, 8), copy: parsed.title || 'production'},
-        {label: 'Model', value: parsed.model || 'deterministic', copy: parsed.maker || 'Midden'},
-        {label: 'Evidence', value: parsed.evidence?.length || 0, copy: 'source records'},
-        {label: 'Raw transcripts', value: parsed.raw_transcripts_included ? 'included' : 'excluded', copy: 'privacy boundary'},
-      ]),
-    );
-    const list = el('div', 'provenance-list');
-    (parsed.evidence || []).forEach((item) => {
-      const row = el('article', 'provenance-card');
-      append(row, el('h3', null, item.title || item.evidence_id),
-        el('p', 'note', `${item.tool || 'source'} · ${String(item.session_id || '').slice(0, 8)} · ${Math.round(Number(item.confidence || 0) * 100)}%`));
-      list.append(row);
+    const value = JSON.parse(body);
+    (value.evidence || []).forEach((item) => {
+      const card = el('article', 'provenance-card');
+      append(card, el('h3', null, item.title || item.evidence_id),
+        el('p', null, `${item.tool || 'source'} · ${String(item.session_id || '').slice(0, 8)} · ${Math.round(Number(item.confidence || 0) * 100)}% confidence`));
+      grid.append(card);
     });
-    panel.append(list);
+    if (!grid.children.length) {
+      grid.append(el('pre', 'source-stage', JSON.stringify(value, null, 2)));
+    }
   } catch {
-    panel.append(el('pre', 'provenance', body));
+    grid.append(el('pre', 'source-stage', body));
   }
+  return grid;
 }
 
-async function saveOutputReview(output, body, decision, evidenceIDs = null) {
+async function saveOutputReview(output, body, decision) {
   try {
     await post('/api/refinery/action', {
       action: 'review_output', output_id: output.uid, decision, body,
-      evidence_ids: evidenceIDs,
     });
-    closeDrawer();
-    state.recipeDetail = null;
+    state.workDetail = null;
+    state.outputDetail = null;
     state.overview = null;
     await renderStudio();
-    toast(`Output ${humanStatus(decision)}`, decision === 'rejected' ? '' : 'good');
+    toast(`Output ${humanStatus(decision)}`);
   } catch (error) {
     showError(error);
   }
+}
+
+function downloadOutput(output) {
+  window.location.href = `/api/output-download?id=${encodeURIComponent(output.uid)}`;
+  toast('Download started.');
 }
 
 async function exportOutput(outputID) {
@@ -1596,335 +1410,490 @@ async function exportOutput(outputID) {
     const result = await post('/api/refinery/action', {
       action: 'export_output', output_id: outputID, destination: 'local_vault',
     });
-    state.recipeDetail = null;
+    state.workDetail = null;
+    state.outputDetail = null;
     state.overview = null;
     await renderStudio();
-    notice('The reviewed output and provenance were exported locally.', 'good', [
-      button('Copy path', 'button ghost compact', () => copyText(result.path)),
-    ]);
+    notice(`Exported locally: ${result.path}`);
   } catch (error) {
     showError(error);
   }
 }
 
-async function cloneRecipe(recipeID) {
-  try {
-    const result = await post('/api/refinery/action', {action: 'clone_recipe', recipe_id: recipeID});
-    state.overview = null;
-    state.selectedRecipe = result.recipe.uid;
-    state.recipeDetail = null;
-    await renderStudio();
-    toast('Recipe cloned against the current evidence set.', 'good');
-  } catch (error) {
-    showError(error);
-  }
+function openEvidenceReview(detail) {
+  const body = openDrawer(`Evidence · ${detail.recipe.title}`);
+  body.append(el('p', 'muted', 'Control exactly what every output is allowed to claim.'));
+  const selected = new Set(detail.recipe.evidence_ids || []);
+  const list = el('div', 'record-list');
+  (detail.evidence || []).forEach((nugget) => {
+    const card = el('label', 'record-card');
+    const check = el('input', 'row-check');
+    check.type = 'checkbox';
+    check.value = nugget.uid;
+    check.checked = selected.has(nugget.uid);
+    check.addEventListener('change', () => {
+      if (check.checked) selected.add(nugget.uid);
+      else selected.delete(nugget.uid);
+    });
+    const copy = el('div');
+    append(copy, el('h3', null, nugget.title || humanStatus(nugget.kind)),
+      el('p', null, truncate(nugget.body, 320)));
+    append(card, check, copy);
+    list.append(card);
+  });
+  body.append(list);
+  const actions = el('div', 'actions');
+  append(actions,
+    button('Save selection', 'button ghost', async () => {
+      await post('/api/refinery/action', {
+        action: 'save_evidence', recipe_id: detail.recipe.uid,
+        evidence_ids: Array.from(selected),
+      });
+      closeDrawer();
+      state.workDetail = null;
+      state.workItems = [];
+      await renderStudio();
+    }),
+    button('Approve evidence', 'button success', async () => {
+      await post('/api/refinery/action', {
+        action: 'approve_evidence', recipe_id: detail.recipe.uid,
+        evidence_ids: Array.from(selected),
+      });
+      closeDrawer();
+      state.workDetail = null;
+      state.workItems = [];
+      await renderStudio();
+      toast('Evidence approved. The work item can run.');
+    }));
+  body.append(actions);
 }
 
-async function renderKnowledge() {
+function editWorkItemOutputs(detail) {
+  const body = openModal('Edit outputs', 'Changing the output mix returns the work item to evidence review.');
+  const selected = new Set((detail.recipe.outputs || []).map((output) => output.kind));
+  const templates = [
+    ['tutorial','Technical tutorial'], ['adr','Decision record'], ['release_pack','Release pack'],
+    ['slides','Presentation deck'], ['diagram','Architecture diagram'], ['video_brief','Video brief'],
+    ['handbook','Field guide'], ['flashcards','Flashcards'], ['quiz','Scenario quiz'],
+    ['notebook_pack','Notebook pack'], ['skill','Skill proposal'], ['eval_pack','Evaluation pack'],
+    ['retrieval_pack','Retrieval pack'], ['provenance_manifest','Provenance manifest'],
+  ];
+  const grid = el('div', 'form-grid');
+  templates.forEach(([kind, title]) => {
+    const label = el('label', 'check-row');
+    const input = el('input');
+    input.type = 'checkbox';
+    input.value = kind;
+    input.checked = selected.has(kind);
+    append(label, input, el('span', null, title));
+    grid.append(label);
+  });
+  body.append(grid);
+  const actions = el('div', 'modal-actions');
+  append(actions, button('Cancel', 'button ghost', closeModal),
+    button('Save outputs', 'button', async () => {
+      const kinds = $$('input:checked', grid).map((input) => input.value);
+      await post('/api/refinery/action', {
+        action: 'update_recipe', recipe_id: detail.recipe.uid, output_kinds: kinds,
+      });
+      closeModal();
+      state.workDetail = null;
+      state.workItems = [];
+      await renderStudio();
+    }));
+  body.append(actions);
+}
+
+async function previewProduction(recipeID) {
+  await startJob({op: 'production', recipe_id: recipeID, apply: false}, {
+    message: 'Preparing the production estimate.',
+    onDone: (job) => {
+      const result = job.result || {};
+      const estimate = result.estimate || job.estimate || {};
+      const body = openModal('Start production',
+        'This approval creates local drafts only. Nothing is published or installed.');
+      append(body, metricGrid([
+        {label: 'Outputs', value: result.recipe?.outputs?.length || 0, copy: 'drafts'},
+        {label: 'Evidence', value: result.evidence_report?.selected || 0, copy: `${result.evidence_report?.quality || 0}% quality`},
+        {label: 'Estimate', value: result.estimate_text || formatCount(estimate.mid), copy: estimate.samples ? 'calibrated' : 'conservative'},
+      ]));
+      const backend = selectInput([
+        {value: '', label: 'Auto-detect signed-in CLI'},
+        {value: 'copilot', label: 'Copilot CLI'},
+        {value: 'claude', label: 'Claude Code'},
+        {value: 'opencode', label: 'OpenCode'},
+      ]);
+      body.append(field('Backend', backend));
+      const actions = el('div', 'modal-actions');
+      append(actions, button('Not now', 'button ghost', closeModal),
+        button('Run in background', 'button success', async () => {
+          closeModal();
+          await startJob({
+            op: 'production', recipe_id: recipeID, apply: true, backend: backend.value,
+          }, {
+            message: 'Production is running in the background.',
+            onDone: async () => {
+              state.workDetail = null;
+              state.workItems = [];
+              state.overview = null;
+              await renderStudio();
+              toast('Drafts are ready for review.');
+            },
+          });
+        }));
+      body.append(actions);
+    },
+  });
+}
+
+function openCreateWorkItem() {
+  const body = openModal('New work item',
+    'Choose an evidence scope and the finished outcome. Nothing runs until its evidence is approved.');
+  const workspace = selectInput(workspaceOptions(false));
+  const title = textInput('', 'Optional work-item name');
+  const prompt = textArea('', 'Create a tutorial and architecture diagram from this evidence.');
+  prompt.rows = 4;
+  const kinds = selectInput([
+    {value: '', label: 'Infer outputs from request'},
+    {value: 'tutorial,diagram', label: 'Tutorial + diagram'},
+    {value: 'adr,handbook', label: 'ADR + field guide'},
+    {value: 'video_brief,provenance_manifest', label: 'Video brief + provenance'},
+    {value: 'skill,eval_pack', label: 'Skill + evaluation pack'},
+  ]);
+  append(body, field('Evidence workspace', workspace), field('Name', title),
+    field('Finished outcome', prompt), field('Output starter', kinds));
+  const actions = el('div', 'modal-actions');
+  append(actions, button('Cancel', 'button ghost', closeModal),
+    button('Create work item', 'button', async () => {
+      const outputKinds = kinds.value ? kinds.value.split(',') : [];
+      const result = await post('/api/refinery/action', {
+        action: 'design', workspace: workspace.value, prompt: prompt.value,
+        title: title.value, output_kinds: outputKinds,
+      });
+      closeModal();
+      state.workItems = [];
+      state.overview = null;
+      await loadWorkItems(true);
+      await selectWork(result.recipe.uid);
+      toast('Work item created. Review its evidence before running.');
+    }));
+  body.append(actions);
+}
+
+async function renderLibrary() {
   const overview = await loadOverview();
-  const root = clear($('#knowledge-content'));
-  append(root,
-    pageHead('Knowledge and learning', 'Turn lessons into a system you can revisit.',
-      'The same approved evidence becomes durable reference material, retrieval context, and spaced repetition.'),
-  );
-  const grid = el('div', 'recipe-grid');
+  const root = clear($('#library-content'));
+  append(root, pageHead('Library', 'Everything recovered and created, in usable form.',
+    'Browse rendered results, source files, versions, provenance, and destinations without reopening a whole production.',
+    [button('Open Studio', 'button', () => activateView('studio'))]));
+  const toolbar = el('div', 'library-toolbar');
+  const filters = el('div', 'segmented');
+  const categories = [
+    ['all','All'], ['document','Documents'], ['visual','Visuals'],
+    ['video','Video'], ['data','Data'], ['agent','Agent'],
+  ];
+  categories.forEach(([kind, label]) => {
+    filters.append(button(label, `segment ${state.libraryFilter === kind ? 'active' : ''}`.trim(), () => {
+      state.libraryFilter = kind;
+      renderLibrary().catch(showError);
+    }));
+  });
+  append(toolbar, filters, badge(`${overview.outputs?.length || 0} outputs`));
+  root.append(toolbar);
+  const grid = el('div', 'library-grid');
+  (overview.outputs || [])
+    .filter((output) => state.libraryFilter === 'all' || outputCategory(output) === state.libraryFilter)
+    .forEach((output) => {
+      const card = el('article', 'asset-card');
+      const category = outputCategory(output);
+      const thumb = el('div', `asset-thumb ${category}`,
+        `${humanStatus(output.kind)}\n${String(output.format || '').toUpperCase()}`);
+      thumb.style.whiteSpace = 'pre-line';
+      const body = el('div', 'asset-body');
+      const meta = el('div', 'asset-meta');
+      append(meta, badge(humanStatus(output.status), statusKind(output.status)),
+        el('span', 'muted', relativeAge(output.updated_at)));
+      append(body, meta, el('h3', null, output.title),
+        el('p', null, `${output.evidence_ids?.length || 0} evidence item(s) · ${output.quality || 0}% quality`));
+      const actions = el('div', 'actions');
+      append(actions,
+        button('Open', 'button compact', async () => {
+          await selectWork(output.recipe_id);
+          activateView('studio');
+        }),
+        button('Download', 'button ghost compact', () => downloadOutput(output)));
+      body.append(actions);
+      append(card, thumb, body);
+      grid.append(card);
+    });
+  if (!grid.children.length) root.append(emptyState('No outputs match', 'Change the Library filter or create a work item.'));
+  else root.append(grid);
+}
+
+function outputCategory(output) {
+  if (['tutorial','adr','release_pack','handbook','quiz','notebook_pack'].includes(output.kind)) return 'document';
+  if (['slides','diagram'].includes(output.kind)) return 'visual';
+  if (output.kind === 'video_brief' || ['mp4','webm','gif'].includes(output.format)) return 'video';
+  if (['eval_pack','retrieval_pack','sft_pack','preference_pack','privacy_manifest','provenance_manifest'].includes(output.kind)) return 'data';
+  if (['skill','instruction_patch','agent_profile'].includes(output.kind)) return 'agent';
+  return 'document';
+}
+
+async function renderCleanup() {
+  if (!state.cleanup) state.cleanup = await get('/api/cleanup-candidates');
+  const root = clear($('#cleanup-content'));
+  const candidates = state.cleanup.candidates || [];
+  const eligible = candidates.filter((item) => item.decision === 'eligible');
+  const held = candidates.filter((item) => item.decision === 'held');
+  const protectedItems = candidates.filter((item) => item.decision === 'protected');
+  append(root, pageHead('Cleanup', 'Clear source data only when recovery proves it is safe.',
+    'Eligibility is explainable and reversible. A newer session is useful evidence, never sufficient proof by itself.',
+    [button('Refresh eligibility', 'button ghost', () => {
+      state.cleanup = null;
+      renderCleanup().catch(showError);
+    })]));
+  append(root, metricGrid([
+    {label: 'Eligible now', value: eligible.length, copy: formatBytes(state.cleanup.eligible_bytes)},
+    {label: 'Held', value: held.length, copy: 'missing recovery gates'},
+    {label: 'Protected', value: protectedItems.length, copy: 'live, current, or referenced'},
+    {label: 'Reviewed outputs', value: candidates.reduce((sum, item) => sum + item.reviewed_outputs, 0), copy: 'supporting cleanup decisions'},
+    {label: 'Candidates', value: candidates.length, copy: 'closed source transcripts'},
+  ]));
+  const layout = el('div', 'split-grid');
+  layout.append(renderCleanupTable(candidates), renderCleanupPolicy());
+  root.append(layout);
+  $('#nav-cleanup-count').textContent = String(eligible.length);
+}
+
+function renderCleanupTable(candidates) {
+  const panel = el('section', 'panel');
+  const inner = el('div', 'panel-inner');
+  inner.append(panelHead('Eligibility queue', 'Every recommendation includes its proof',
+    'Inspect the complete recovery chain before any archive preview.',
+    [badge('archive first', 'free')]));
+  const wrap = el('div', 'table-wrap');
+  const table = el('table');
+  const head = el('thead');
+  const row = el('tr');
+  ['Session','Dormant','Evidence','Used by','Footprint','Decision',''].forEach((label) => row.append(el('th', null, label)));
+  head.append(row);
+  const body = el('tbody');
+  candidates.slice(0, 100).forEach((candidate) => {
+    const item = el('tr');
+    const sessionCell = el('td');
+    append(sessionCell, el('span', 'session-title', candidate.session.title || candidate.session.short),
+      el('span', 'session-path', `${candidate.session.tool} · ${candidate.session.dir}`));
+    append(item, sessionCell, el('td', null, `${candidate.dormant_days}d`),
+      el('td', null, String(candidate.evidence)),
+      el('td', null, `${candidate.reviewed_outputs}/${candidate.outputs}`),
+      el('td', null, formatBytes(candidate.session.bytes)), el('td'), el('td'));
+    item.children[5].append(badge(candidate.decision, statusKind(candidate.decision)));
+    item.children[6].append(button('Inspect', 'button ghost compact', () => openCleanupCandidate(candidate)));
+    body.append(item);
+  });
+  if (!body.children.length) {
+    const empty = el('tr');
+    const cell = el('td');
+    cell.colSpan = 7;
+    cell.append(emptyState('No cleanup candidates', 'Mine and review evidence before considering source cleanup.'));
+    empty.append(cell);
+    body.append(empty);
+  }
+  append(table, head, body);
+  wrap.append(table);
+  inner.append(wrap);
+  panel.append(inner);
+  return panel;
+}
+
+function renderCleanupPolicy() {
+  const panel = el('aside', 'panel');
+  const inner = el('div', 'panel-inner');
+  append(inner, el('div', 'eyebrow', 'Default policy'),
+    el('h2', null, 'Recovery before removal'));
+  const list = el('div', 'gate-list');
   [
-    {
-      kicker: 'Handbook', title: 'Project field guide',
-      copy: 'Architecture, decisions, commands, troubleshooting, and glossary.',
-      kinds: ['handbook', 'provenance_manifest'],
-    },
-    {
-      kicker: 'Learning', title: 'Flashcards and scenario quiz',
-      copy: 'Atomic cards, applied questions, rationales, and source citations.',
-      kinds: ['flashcards', 'quiz', 'provenance_manifest'],
-    },
-    {
-      kicker: 'Research', title: 'Local notebook source pack',
-      copy: 'A reviewed, redacted source pack for a local vault or Open Notebook.',
-      kinds: ['notebook_pack', 'retrieval_pack', 'provenance_manifest'],
-    },
-  ].forEach((item) => {
-    const card = el('article', 'recipe-card');
-    append(card, el('div', 'eyebrow', item.kicker), el('h3', null, item.title), el('p', null, item.copy));
-    const actions = el('div', 'card-actions');
-    actions.append(button('Build this pack', 'button', () => openDesignModal({
-      prompt: `Create ${item.title.toLowerCase()} from the selected project evidence.`,
-      kinds: item.kinds,
-    })));
-    card.append(actions);
+    ['Source fingerprint matches','The session has not changed since its successful assay.'],
+    ['Evidence exists','Recovered claims retain exact source provenance.'],
+    ['Outputs are reviewed','Owned results exist before source cleanup is recommended.'],
+    ['No active references','No running job or open work item depends on the session.'],
+    ['Archive before purge','Permanent removal remains a separate later decision.'],
+  ].forEach(([title, copy]) => {
+    const gate = el('div', 'gate');
+    append(gate, el('span', 'gate-mark', 'OK'), append(el('div'), el('strong', null, title), el('span', null, copy)));
+    list.append(gate);
+  });
+  append(inner, list);
+  panel.append(inner);
+  return panel;
+}
+
+function openCleanupCandidate(candidate) {
+  const body = openDrawer(candidate.session.title || candidate.session.short);
+  append(body, badge(candidate.decision, statusKind(candidate.decision)),
+    el('p', 'muted', `${candidate.dormant_days} days dormant · ${candidate.newer_sessions} newer workspace session(s)`));
+  const gates = el('div', 'gate-list');
+  candidate.gates.forEach((item) => {
+    const gate = el('div', `gate ${item.pass ? '' : 'failed'}`.trim());
+    append(gate, el('span', 'gate-mark', item.pass ? 'OK' : '!'),
+      append(el('div'), el('strong', null, humanStatus(item.key)), el('span', null, item.detail)));
+    gates.append(gate);
+  });
+  body.append(gates);
+  const actions = el('div', 'actions');
+  if (candidate.decision === 'eligible') {
+    actions.append(button('Preview reversible archive', 'button warning', () => {
+      closeDrawer();
+      previewArchive(candidate.session).catch(showError);
+    }));
+  } else {
+    actions.append(button('Open related work', 'button', () => {
+      closeDrawer();
+      activateView(candidate.active_refs ? 'studio' : 'recover');
+    }));
+  }
+  body.append(actions);
+}
+
+async function renderActivity() {
+  const [runs, costData, operations] = await Promise.all([
+    get('/api/recovery-runs'), get('/api/cost'), get('/api/ops'),
+  ]);
+  state.recoveryRuns = runs || [];
+  const root = clear($('#activity-content'));
+  append(root, pageHead('Activity', 'Long work continues without owning the screen.',
+    'Jobs are durable, navigable, and independent from the page that started them.',
+    [button('Open job dock', 'button', () => $('#task-dock').classList.add('open'))]));
+  append(root, metricGrid([
+    {label: 'Active jobs', value: state.jobs.filter((job) => ['queued','running'].includes(job.status)).length, copy: 'currently executing'},
+    {label: 'Recovery runs', value: state.recoveryRuns.length, copy: 'durable scopes'},
+    {label: 'Model runs', value: costData.totals?.runs || 0, copy: 'cost ledger'},
+    {label: 'Audit events', value: operations.length, copy: 'append-only records'},
+    {label: 'Outputs', value: state.overview?.stats?.outputs || 0, copy: 'owned local files'},
+  ]));
+  const layout = el('div', 'content-grid');
+  const jobsPanel = el('section', 'panel');
+  const jobsInner = el('div', 'panel-inner');
+  jobsInner.append(panelHead('Jobs', 'Recent and running work',
+    'Inspect progress, completion, or failure without returning to the originating page.'));
+  const list = el('div', 'job-list');
+  state.jobs.forEach((job) => {
+    const card = el('article', 'job-card');
+    const copy = el('div');
+    append(copy, el('h3', null, `${humanStatus(job.op)} · ${job.scope || 'all'}`),
+      el('p', null, job.error || job.progress || 'Waiting'));
+    append(card, copy, badge(humanStatus(job.status), statusKind(job.status)));
+    list.append(card);
+  });
+  if (!list.children.length) list.append(emptyState('No jobs yet', 'Start a mine, chat turn, or production.'));
+  jobsInner.append(list);
+  jobsPanel.append(jobsInner);
+
+  const right = el('div', 'stack');
+  const costPanel = el('section', 'panel');
+  const costInner = el('div', 'panel-inner');
+  append(costInner, panelHead('Cost ledger', 'Current measured usage',
+    'Real usage is read back from the selected CLI where available.'),
+    metricGrid([
+      {label: 'Items', value: costData.totals?.items || 0, copy: 'evidence and outputs'},
+      {label: 'Tokens', value: formatCount(costData.totals?.tokens || 0), copy: 'total movement'},
+    ]));
+  costPanel.append(costInner);
+  const auditPanel = el('section', 'panel');
+  const auditInner = el('div', 'panel-inner');
+  auditInner.append(panelHead('Audit', 'Recent owner-visible mutations',
+    'Reviews, exports, production, and cleanup actions remain traceable.'));
+  const auditList = el('div', 'run-list');
+  operations.slice(0, 8).forEach((operation) => {
+    const row = el('article', 'run-row');
+    append(row, append(el('div'), el('h3', null, humanStatus(operation.op)),
+      el('p', null, operation.detail || operation.session_id || 'recorded')),
+      badge(operation.ok ? 'complete' : 'failed', operation.ok ? 'free' : 'danger'));
+    auditList.append(row);
+  });
+  auditInner.append(auditList);
+  auditPanel.append(auditInner);
+  append(right, costPanel, auditPanel);
+  append(layout, jobsPanel, right);
+  root.append(layout);
+}
+
+async function loadTools(force = false) {
+  if (force || !state.connections) {
+    const [connections, integrations, plugins] = await Promise.all([
+      get('/api/refinery/connections'), get('/api/integrations'), get('/api/plugins'),
+    ]);
+    state.connections = connections || [];
+    state.integrations = integrations || [];
+    state.plugins = plugins || [];
+  }
+}
+
+async function renderTools() {
+  await loadTools();
+  const root = clear($('#tools-content'));
+  append(root, pageHead('Tools and settings',
+    'Capabilities connect once, then appear where work needs them.',
+    'Plugins, tools, skills, viewers, and destinations have separate responsibilities. Missing software is explained contextually.',
+    [button('Check advanced manifests', 'button ghost', () => probePlugins())]));
+  const taxonomy = el('div', 'taxonomy-grid');
+  [
+    ['Plugin','Connects a runtime or service and declares setup, permissions, commands, and health.'],
+    ['Tool','One callable action such as render video, build diagram, or send notebook source.'],
+    ['Skill','Instructions and workflow knowledge a persistent work session can use.'],
+    ['Viewer','Renders Markdown, D2, JSONL, diffs, images, and video inside Studio.'],
+    ['Destination','Receives an explicitly approved output after local review.'],
+  ].forEach(([title, copy]) => {
+    const card = el('article', 'taxonomy-card');
+    append(card, el('strong', null, title), el('p', null, copy));
+    taxonomy.append(card);
+  });
+  root.append(taxonomy);
+
+  const managedByID = new Map(state.integrations.map((item) => [item.id, item]));
+  const grid = el('div', 'tool-grid');
+  state.connections.forEach((connection) => {
+    const card = el('article', 'tool-card');
+    const logo = el('div', 'tool-logo', connection.name.split(/\s+/).map((part) => part[0]).join('').slice(0, 2).toUpperCase());
+    const copy = el('div');
+    append(copy, el('h3', null, connection.name), el('p', null, connection.description));
+    const pills = el('div', 'pills');
+    append(pills, badge(humanStatus(connection.status), statusKind(connection.status)),
+      badge(connection.managed ? 'plugin' : 'tool'), badge(connection.cost, connection.cost === 'spends' ? 'spend' : ''));
+    copy.append(pills);
+    const managed = managedByID.get(connection.id);
+    let action;
+    if (managed) {
+      action = button(managed.state === 'not_set_up' ? 'Set up' : 'Edit setup', 'button ghost compact',
+        () => configureIntegration(managed));
+    } else if (connection.status === 'ready') {
+      action = button('Use in Studio', 'button ghost compact', () => activateView('studio'));
+    } else {
+      action = button('View setup', 'button ghost compact', () => toast(connection.detail));
+    }
+    append(card, logo, copy, action);
     grid.append(card);
   });
   root.append(grid);
 
-  const outputs = (overview.outputs || []).filter((output) =>
-    ['handbook', 'flashcards', 'quiz', 'notebook_pack', 'retrieval_pack'].includes(output.kind));
-  const panel = el('section', 'panel');
-  panel.append(sectionHead('Knowledge library',
-    outputs.length ? `${outputs.length} knowledge output(s)` : 'No knowledge packs yet',
-    'Connections appear only after a reviewed pack needs a destination.'));
-  if (outputs.length) {
-    const outputGrid = el('div', 'output-grid');
-    outputs.forEach((output) => {
-      const card = el('article', 'output-card');
-      append(card, el('div', 'output-preview', `${output.kind.toUpperCase()}\n${output.format}`),
-        el('h3', null, output.title), el('p', null, `${output.quality}% evidence quality`));
-      const actions = el('div', 'card-actions');
-      actions.append(button('Open production', 'button', () => openRecipe(output.recipe_id)));
-      card.append(actions);
-      outputGrid.append(card);
-    });
-    panel.append(outputGrid);
-  } else {
-    panel.append(emptyState('Keep the learning',
-      'Choose a workspace and build a handbook, flashcards, quiz, or notebook pack.',
-      button('Build knowledge pack', 'button', () => openDesignModal({
-        kinds: ['handbook', 'flashcards', 'quiz', 'notebook_pack', 'provenance_manifest'],
-      }))));
-  }
-  root.append(panel);
-  root.append(journeySteps([
-    ['Choose lessons', 'workspace evidence'],
-    ['Build pack', 'handbook and learning'],
-    ['Review truth', 'citations and gaps'],
-    ['Connect destination', 'only when needed'],
-    ['Return', 'new evidence and cadence'],
-  ]));
-}
-
-async function renderAgentForge() {
-  const overview = await loadOverview();
-  const root = clear($('#agent-content'));
-  append(root,
-    pageHead('Agent improvement', 'Turn repeated mistakes into measurable proposals.',
-      'Midden proposes skills, instructions, and specialists from repeated evidence, creates regression cases, and installs nothing automatically.'),
-  );
-  const proposals = overview.agent_proposals || [];
-  if (proposals.length) {
-    const grid = el('div', 'proposal-grid');
-    proposals.forEach((proposal) => {
-      const card = el('article', 'proposal-card');
-      append(card,
-        el('div', 'eyebrow', humanStatus(proposal.kind)),
-        el('h3', null, proposal.title),
-        el('p', null, proposal.summary),
-      );
-      const meta = el('div', 'recipe-meta');
-      append(meta, badge(`${proposal.support} observations`, 'free'),
-        badge(`${proposal.eval_cases} evals`), badge('proposal only', 'danger'));
-      card.append(meta);
-      const actions = el('div', 'card-actions');
-      actions.append(button('Prepare proposal + evals', 'button', () => openDesignModal({
-        workspace: proposal.workspace,
-        prompt: `Use the repeated evidence behind "${proposal.title}" to propose a scoped ${humanStatus(proposal.kind)} and an evaluation pack. Do not install anything.`,
-        kinds: [proposal.kind, 'eval_pack', 'provenance_manifest'],
-        evidenceIds: proposal.evidence_ids,
-      })));
-      card.append(actions);
-      grid.append(card);
-    });
-    root.append(grid);
-  } else {
-    root.append(emptyState('No repeated pattern is strong enough yet',
-      'Single observations never become agent rules. Mine more work or review the evidence library.',
-      button('Mine new work', 'button', runMine)));
-  }
-
-  const gate = el('section', 'panel');
-  gate.append(sectionHead('Evaluation before installation', 'Evidence → proposal → eval → approval',
-    'A plausible instruction is not enough. The proposed behavior must beat the current behavior on held-out cases.'));
-  const list = el('div', 'step-list');
-  [
-    ['A', 'Generate evidence-derived cases', 'Successes, failures, edge cases, and adversarial variants.', 'FREE'],
-    ['B', 'Run current vs proposed behavior', 'Use Promptfoo or a selected-agent comparison.', 'SPENDS'],
-    ['C', 'Approve one reversible scope', 'Project, user, or selected agent only.', 'HUMAN GATE'],
-    ['D', 'Monitor later sessions', 'Measure whether the original failure repeats.', 'EVIDENCE'],
-  ].forEach(([n, title, copy, status]) => {
-    const row = el('div', 'step-row');
-    const text = el('div');
-    append(text, el('strong', null, title), el('small', null, copy));
-    append(row, el('span', 'step-number', n), text, badge(status, status === 'SPENDS' ? 'spend' : status === 'HUMAN GATE' ? 'danger' : 'free'));
-    list.append(row);
-  });
-  gate.append(list);
-  root.append(gate);
-
-  const outputs = (overview.outputs || []).filter((output) =>
-    ['skill', 'instruction_patch', 'agent_profile', 'eval_pack'].includes(output.kind));
-  if (outputs.length) {
-    const panel = el('section', 'panel');
-    panel.append(sectionHead('Proposal history', `${outputs.length} draft or reviewed improvement output(s)`,
-      'Open the parent production to inspect evidence, evals, and review state.'));
-    const grid = el('div', 'output-grid');
-    outputs.forEach((output) => {
-      const card = el('article', 'output-card');
-      append(card, el('div', 'output-preview', `${output.kind.toUpperCase()}\nPROPOSAL · NOT INSTALLED`),
-        el('h3', null, output.title), el('p', null, `${output.evidence_ids.length} evidence item(s)`));
-      const actions = el('div', 'card-actions');
-      actions.append(button('Open production', 'button', () => openRecipe(output.recipe_id)));
-      card.append(actions);
-      grid.append(card);
-    });
-    panel.append(grid);
-    root.append(panel);
-  }
-}
-
-async function renderPersonalization() {
-  const overview = await loadOverview();
-  const report = overview.personalization || {};
-  const root = clear($('#personalization-content'));
-  append(root,
-    pageHead('Personalization lab', report.training_ready
-      ? 'Your evidence passes the conservative data-volume gates.'
-      : 'Your history can support useful packs before a reliable fine-tune.',
-    'Midden separates retrieval memory, supervised examples, preference pairs, and held-out evals instead of dumping transcripts into training.'),
-    metricGrid([
-      {label: 'Retrieval memories', value: formatCount(report.retrieval), copy: 'useful immediately after review'},
-      {label: 'SFT candidates', value: formatCount(report.sft), copy: 'high-confidence examples'},
-      {label: 'Preference pairs', value: formatCount(report.preference_pairs), copy: 'accepted versus rejected'},
-      {label: 'Eval cases', value: formatCount(report.evals), copy: 'held-out expected behavior'},
-    ]),
-  );
-
-  const layout = el('div', 'grid-2');
-  const gates = el('section', 'panel');
-  gates.append(sectionHead('Quality and privacy gates', 'Training stays locked until every gate passes',
-    'Retrieval and eval exports remain valuable even when training is not ready.'));
-  const list = el('div', 'step-list');
-  (report.gates || []).forEach((gate, index) => {
-    const row = el('div', 'step-row');
-    const copy = el('div');
-    append(copy, el('strong', null, gate.label),
-      el('small', null, `${gate.detail} Current: ${gate.current}${gate.target ? ` / ${gate.target}` : ''}.`));
-    append(row, el('span', 'step-number', index + 1), copy,
-      badge(humanStatus(gate.status), statusKind(gate.status)));
-    list.append(row);
-  });
-  gates.append(list);
-
-  const recommendation = el('section', 'panel');
-  recommendation.append(el('div', report.training_ready ? 'success' : 'warning', report.recommendation));
-  const actions = el('div', 'row-actions');
-  actions.append(button('Prepare safe data pack', 'button', () => openDesignModal({
-    prompt: 'Prepare a local, privacy-reviewed retrieval, SFT, preference, and evaluation data pack. Include provenance and privacy manifests. Do not train or upload anything.',
-    kinds: ['retrieval_pack', 'sft_pack', 'preference_pack', 'eval_pack', 'privacy_manifest', 'provenance_manifest'],
-  })));
-  actions.append(button('Inspect evidence', 'button ghost', () => activateView('mine')));
-  recommendation.append(actions);
-  append(layout, gates, recommendation);
-  root.append(layout);
-
-  const outputs = (overview.outputs || []).filter((output) =>
-    ['retrieval_pack', 'sft_pack', 'preference_pack', 'eval_pack', 'privacy_manifest'].includes(output.kind));
-  if (outputs.length) {
-    const panel = el('section', 'panel');
-    panel.append(sectionHead('Private data packs', `${outputs.length} generated output(s)`,
-      'Every pack remains local and review-gated.'));
-    const grid = el('div', 'output-grid');
-    outputs.forEach((output) => {
-      const card = el('article', 'output-card');
-      append(card, el('div', 'output-preview', `${output.kind.toUpperCase()}\nLOCAL · PROVENANCED`),
-        el('h3', null, output.title), el('p', null, humanStatus(output.status)));
-      const actions = el('div', 'card-actions');
-      actions.append(button('Open production', 'button', () => openRecipe(output.recipe_id)));
-      card.append(actions);
-      grid.append(card);
-    });
-    panel.append(grid);
-    root.append(panel);
-  }
-}
-
-async function loadConnections(force = false) {
-  if (!state.connections || force) {
-    const [connections, integrations] = await Promise.all([
-      get('/api/refinery/connections'),
-      get('/api/integrations'),
-    ]);
-    state.connections = connections;
-    state.integrations = integrations;
-  }
-  return {connections: state.connections, integrations: state.integrations};
-}
-
-async function renderConnections() {
-  const root = clear($('#connections-content'));
-  append(root, pageHead('Capabilities in context', 'Connect tools when a recipe needs them.',
-    'Midden groups capabilities by the outcome they unlock. Opening this page performs local detection only; service tests remain explicit.'));
-  let data;
-  try {
-    data = await loadConnections();
-  } catch (error) {
-    root.append(emptyState('Connections could not be loaded', error.message));
-    return;
-  }
-  const integrationByID = new Map((data.integrations || []).map((item) => [item.id, item]));
-  const groups = new Map();
-  data.connections.forEach((connection) => {
-    if (!groups.has(connection.category)) groups.set(connection.category, []);
-    groups.get(connection.category).push(connection);
-  });
-  let groupIndex = 0;
-  groups.forEach((connections, category) => {
-    const section = el('details', 'connection-group');
-    section.open = groupIndex < 2 || connections.some((connection) => connection.managed || connection.status === 'ready');
-    const summary = el('summary', 'connection-group-summary');
-    const readyCount = connections.filter((connection) => connection.status === 'ready').length;
-    append(summary, el('h2', null, category),
-      badge(readyCount ? `${readyCount} ready` : `${connections.length} capability`, readyCount ? 'ready' : ''));
-    section.append(summary);
-    const grid = el('div', 'connection-grid');
-    connections.forEach((connection) => {
-      const card = el('article', 'connection-card');
-      append(card, el('div', 'eyebrow', connection.outcome), el('h3', null, connection.name),
-        el('p', null, connection.description));
-      const meta = el('div', 'connection-meta');
-      append(meta, badge(humanStatus(connection.status), statusKind(connection.status)),
-        badge(connection.cost, connection.cost === 'spends' ? 'spend' : connection.cost === 'lab' ? 'lab' : 'free'));
-      card.append(meta);
-      card.append(el('div', 'connection-outcome', connection.detail));
-      const actions = el('div', 'card-actions');
-      const managed = integrationByID.get(connection.id);
-      if (managed) {
-        actions.append(button(managed.state === 'not_set_up' ? 'Set up' : 'Edit setup', 'button ghost',
-          () => configureIntegration(managed)));
-        if (!['not_set_up', 'turned_off'].includes(managed.state)) {
-          actions.append(button('Test explicitly', 'button', () => testIntegration(managed.id)));
-        }
-      } else if (connection.id === 'training') {
-        actions.append(button('View readiness', 'button ghost', () => activateView('personalization')));
-      } else if (connection.id === 'anki') {
-        actions.append(button('Build learning pack', 'button ghost', () => activateView('knowledge')));
-      } else if (connection.status === 'ready') {
-        actions.append(badge('available now', 'ready'));
-      } else {
-        actions.append(button(connection.action, 'button ghost', () => {
-          toast(connection.detail);
-        }));
-      }
-      card.append(actions);
-      grid.append(card);
-    });
-    section.append(grid);
-    root.append(section);
-    groupIndex += 1;
-  });
-
   const advanced = el('section', 'panel');
-  advanced.append(sectionHead('Advanced configuration', 'Declarative manifests remain available',
-    'Midden never probes an advanced target until you explicitly request it.',
-    [button('Check advanced manifests', 'button ghost compact', probeAdvancedPlugins)]));
-  const list = el('div');
-  advanced.append(list);
-  try {
-    const plugins = state.plugins || await get('/api/plugins');
-    state.plugins = plugins;
-    renderPluginList(list, plugins);
-  } catch (error) {
-    list.append(el('p', 'note', error.message));
+  const inner = el('div', 'panel-inner');
+  inner.append(panelHead('Advanced manifests', 'Declarative adapters remain available',
+    'Listing is passive. Probes happen only after an explicit request.'));
+  if (!state.plugins.length) inner.append(emptyState('No advanced manifests', 'Managed settings cover the common integrations.'));
+  else {
+    const list = el('div', 'run-list');
+    state.plugins.forEach((plugin) => {
+      const row = el('article', 'run-row');
+      append(row, append(el('div'), el('h3', null, plugin.name), el('p', null, plugin.detail)),
+        badge(humanStatus(plugin.status), statusKind(plugin.status)));
+      list.append(row);
+    });
+    inner.append(list);
   }
+  advanced.append(inner);
   root.append(advanced);
+  $('#nav-tools-count').textContent = String(state.connections.length);
 }
 
 function configureIntegration(item) {
@@ -1934,66 +1903,43 @@ function configureIntegration(item) {
 
 function configureOpenNotebook(item) {
   const body = openModal('Set up Open Notebook',
-    'Midden saves local URLs and whether a password is required. Password values remain action-scoped and are never stored.');
+    'Midden stores loopback URLs and whether a password is required. The password itself is never stored.');
   const api = textInput(item.settings?.api_url || 'http://127.0.0.1:5055/api');
   const ui = textInput(item.settings?.ui_url || 'http://127.0.0.1:8502');
-  const password = el('input');
-  password.type = 'checkbox';
-  password.checked = Boolean(item.settings?.password_required);
-  const passwordLabel = el('label', 'check-card');
-  const copy = el('span');
-  append(copy, el('strong', null, 'Password required'),
-    el('small', null, 'The password is requested only when testing or sending.'));
-  append(passwordLabel, password, copy);
-  append(body, field('API URL', api), field('UI URL', ui), passwordLabel);
-  if (item.github_url) {
-    const link = el('a', null, 'Open official setup guide');
-    link.href = item.github_url;
-    link.target = '_blank';
-    link.rel = 'noopener noreferrer';
-    body.append(link);
-  }
+  const required = el('input');
+  required.type = 'checkbox';
+  required.checked = Boolean(item.settings?.password_required);
+  const check = el('label', 'check-row');
+  append(check, required, el('span', null, 'Password required for explicit send actions'));
+  append(body, field('API URL', api), field('UI URL', ui), check);
   const actions = el('div', 'modal-actions');
-  actions.append(button('Cancel', 'button ghost', closeModal));
-  actions.append(button('Save setup', 'button', async () => {
-    try {
+  append(actions, button('Cancel', 'button ghost', closeModal),
+    button('Save setup', 'button', async () => {
       await post('/api/integrations/configure', {
         id: item.id, enabled: true, api_url: api.value, ui_url: ui.value,
-        password_required: password.checked, replace_legacy: item.legacy,
+        password_required: required.checked, replace_legacy: item.legacy,
       });
       closeModal();
       state.connections = null;
       state.integrations = null;
-      await renderConnections();
-      toast('Open Notebook setup saved. Test it explicitly when ready.', 'good');
-    } catch (error) {
-      showError(error);
-    }
-  }));
+      await renderTools();
+      toast('Open Notebook setup saved.');
+    }));
   body.append(actions);
 }
 
 function configureOpenMontage(item) {
   const body = openModal('Set up OpenMontage',
-    'Midden records the checked-out repository path and the signed-in CLI OpenMontage should use. It does not install dependencies.');
-  const home = textInput(item.settings?.home || '', 'absolute path to OpenMontage');
+    'Midden records the installed repository and controlled AI CLI profile. It does not install dependencies.');
+  const home = textInput(item.settings?.home || '', 'Absolute path to OpenMontage');
   const backend = selectInput([
-    {value: 'copilot', label: 'Copilot CLI'},
-    {value: 'claude', label: 'Claude Code'},
+    {value: 'copilot', label: 'Copilot CLI'}, {value: 'claude', label: 'Claude Code'},
     {value: 'opencode', label: 'OpenCode'},
   ], item.settings?.backend || 'copilot');
-  append(body, field('OpenMontage home', home), field('Model backend', backend));
-  if (item.github_url) {
-    const link = el('a', null, 'Open official setup guide');
-    link.href = item.github_url;
-    link.target = '_blank';
-    link.rel = 'noopener noreferrer';
-    body.append(link);
-  }
+  append(body, field('OpenMontage home', home), field('Backend', backend));
   const actions = el('div', 'modal-actions');
-  actions.append(button('Cancel', 'button ghost', closeModal));
-  actions.append(button('Save setup', 'button', async () => {
-    try {
+  append(actions, button('Cancel', 'button ghost', closeModal),
+    button('Save setup', 'button', async () => {
       await post('/api/integrations/configure', {
         id: item.id, enabled: true, home: home.value, backend: backend.value,
         replace_legacy: item.legacy,
@@ -2001,711 +1947,48 @@ function configureOpenMontage(item) {
       closeModal();
       state.connections = null;
       state.integrations = null;
-      await renderConnections();
-      toast('OpenMontage setup saved. Test prerequisites explicitly.', 'good');
-    } catch (error) {
-      showError(error);
-    }
-  }));
+      await renderTools();
+      toast('OpenMontage setup saved.');
+    }));
   body.append(actions);
 }
 
-async function testIntegration(id) {
-  try {
-    await post('/api/integrations/test', {id});
-    state.connections = null;
-    state.integrations = null;
-    await renderConnections();
-    toast('Integration test complete.', 'good');
-  } catch (error) {
-    showError(error);
-  }
-}
-
-function renderPluginList(root, plugins) {
-  clear(root);
-  if (!plugins.length) {
-    root.append(el('p', 'note', 'No advanced manifests are installed.'));
-    return;
-  }
-  const tableWrap = el('div', 'table-wrap');
-  const table = el('table');
-  const head = el('thead');
-  const row = el('tr');
-  ['Name', 'Kind', 'Cost', 'Status', 'Detail'].forEach((label) => row.append(el('th', null, label)));
-  head.append(row);
-  const body = el('tbody');
-  plugins.forEach((plugin) => {
-    const item = el('tr');
-    append(item, el('td', null, plugin.name), el('td', null, plugin.kind), el('td', null, plugin.cost),
-      el('td', null, humanStatus(plugin.status)), el('td', null, plugin.detail));
-    body.append(item);
-  });
-  append(table, head, body);
-  tableWrap.append(table);
-  root.append(tableWrap);
-}
-
-async function probeAdvancedPlugins() {
+async function probePlugins() {
   try {
     state.plugins = await post('/api/plugins/probe', {});
-    await renderConnections();
-    toast('Advanced manifests checked explicitly.', 'good');
+    await renderTools();
+    toast('Advanced manifests checked.');
   } catch (error) {
     showError(error);
-  }
-}
-
-function saveConductorMessages() {
-  try {
-    localStorage.setItem('midden.conductor.messages', JSON.stringify(state.conductorMessages.slice(-40)));
-  } catch {}
-}
-
-function addConductorMessage(role, text, extra = {}) {
-  state.conductorMessages.push({role, text, at: new Date().toISOString(), ...extra});
-  saveConductorMessages();
-}
-
-function clearConductorError() {
-  const error = $('#conductor-error');
-  if (error) {
-    error.hidden = true;
-    error.textContent = '';
-  }
-}
-
-function setConductorError(message) {
-  const error = $('#conductor-error');
-  if (!error) return;
-  error.textContent = message;
-  error.hidden = false;
-}
-
-function classifyConductorInput(value) {
-  const text = value.trim().toLowerCase();
-  if (/^(hi|hello|hey|yo|good (morning|afternoon|evening))[!.?]*$/.test(text)) return 'greeting';
-  if (/^(help|what can you do|how does this work|show me what you can do)[!.?]*$/.test(text)) return 'help';
-  if (/^(what|which|why|how|where|when|who|show|tell|find|list|summarize|search)\b/.test(text) || text.endsWith('?')) return 'question';
-  if (/\b(create|turn|build|prepare|write|make|generate|export|propose|draft|produce)\b/.test(text) ||
-      /\b(tutorial|article|adr|release|slides?|deck|diagram|video|handbook|flashcards?|quiz|notebook|skill|eval|retrieval|sft|preference|manifest)\b/.test(text)) {
-    return 'design';
-  }
-  return 'ambiguous';
-}
-
-function simpleConductorAnswer(value, overview) {
-  const text = value.toLowerCase();
-  if (/what can|what.*create|show.*opportunit|what.*yield/.test(text)) {
-    if (!overview.yield?.ready) {
-      return 'I can see your session sources, but I do not have reclaimed evidence yet. Run the free Mine pass, then extract a small evidence scope before I recommend outputs.';
-    }
-    const recommended = overview.yield.recommended;
-    const category = (overview.yield.categories || [])
-      .filter((item) => item.count > 0)
-      .map((item) => `${item.count} ${item.title.toLowerCase()}`)
-      .join(', ');
-    return `You have ${overview.stats.nuggets} reclaimed evidence items supporting ${category || `${overview.yield.total} opportunities`}. The strongest current scope is ${workspaceName(recommended.workspace)} with ${recommended.evidence} evidence items.`;
-  }
-  if (/how much evidence|how many evidence|what evidence/.test(text)) {
-    return `Midden currently has ${overview.stats.nuggets} reclaimed evidence items across ${(overview.workspaces || []).filter((workspace) => workspace.nuggets > 0).length} evidenced workspace(s).`;
-  }
-  return '';
-}
-
-function renderConductorMessage(message, composer) {
-  const node = el('div', `message ${message.role}`);
-  node.append(el('p', null, message.text));
-  if (message.plan?.recipe) {
-    const recipe = message.plan.recipe;
-    const plan = el('div', 'conductor-plan');
-    append(plan,
-      el('div', 'eyebrow', 'Proposed plan'),
-      el('h3', null, recipe.title),
-      el('p', 'note', `${recipe.evidence_ids.length} evidence items · ${recipe.outputs.length} outputs · ${message.plan.estimated_seconds ? `about ${Math.ceil(message.plan.estimated_seconds / 60)} minute(s) · ` : ''}${message.plan.estimate_text}`),
-    );
-    if (message.plan.estimate?.mid && !message.plan.estimate?.samples) {
-      plan.append(badge('first-run conservative estimate', 'spend'));
-    }
-    const outputs = el('div', 'conductor-plan-outputs');
-    recipe.outputs.forEach((output) => outputs.append(badge(output.title, output.requires_model ? 'spend' : 'free')));
-    plan.append(outputs);
-    const actions = el('div', 'row-actions');
-    if (message.plan_status === 'created') {
-      actions.append(badge('plan created', 'ready'));
-    } else {
-      actions.append(button('Create this plan', 'button good compact', () => confirmConductorPlan(message)));
-      actions.append(button('Adjust request', 'button ghost compact', () => {
-        composer.value = recipe.request;
-        composer.focus();
-        composer.setSelectionRange(composer.value.length, composer.value.length);
-      }));
-    }
-    plan.append(actions);
-    node.append(plan);
-  }
-  return node;
-}
-
-async function confirmConductorPlan(message) {
-  const recipe = message.plan?.recipe;
-  if (!recipe || message.plan_status === 'created') return;
-  try {
-    const result = await post('/api/refinery/action', {
-      action: 'design',
-      workspace: recipe.workspace,
-      prompt: recipe.request,
-      title: recipe.title,
-      output_kinds: recipe.outputs.map((output) => output.kind),
-      evidence_ids: recipe.evidence_ids,
-    });
-    message.plan_status = 'created';
-    saveConductorMessages();
-    addConductorMessage('agent',
-      `Created “${result.recipe.title}”. Nothing has run or spent. Review the evidence before approving it.`);
-    state.overview = null;
-    state.selectedRecipe = result.recipe.uid;
-    state.recipeDetail = null;
-    activateView('studio');
-  } catch (error) {
-    setConductorError(error.message);
-  }
-}
-
-async function renderConductor() {
-  const overview = await loadOverview();
-  const root = clear($('#conductor-content'));
-  append(root, pageHead('Conversational control', 'Ask, create, and run—one step at a time.',
-    'Conductor clarifies your intent first, previews a plan second, and creates or runs only after your confirmation.'));
-  const layout = el('div', 'chat-layout');
-  const chat = el('section', 'chat-shell');
-  const head = el('div', 'chat-head');
-  append(head, el('strong', null, 'Conductor'));
-  const modes = el('div', 'mode-switch');
-  ['auto', 'ask', 'design', 'run'].forEach((mode) => {
-    const node = button(mode.toUpperCase(), `mode-button ${state.conductorMode === mode ? 'active' : ''}`.trim(), () => {
-      state.conductorMode = mode;
-      renderConductor().catch(showError);
-    });
-    modes.append(node);
-  });
-  modes.append(button('CLEAR', 'mode-button', () => {
-    state.conductorMessages = [];
-    state.conductorDraft = '';
-    saveConductorMessages();
-    renderConductor().catch(showError);
-  }));
-  head.append(modes);
-  chat.append(head);
-  const composer = textarea(state.conductorDraft, conductorPlaceholder());
-  composer.id = 'conductor-input';
-  composer.rows = 3;
-  composer.addEventListener('input', () => {
-    state.conductorDraft = composer.value;
-    clearConductorError();
-  });
-  composer.addEventListener('keydown', (event) => {
-    if (event.key === 'Enter' && !event.shiftKey) {
-      event.preventDefault();
-      handleConductor(composer.value);
-    }
-  });
-  const messages = el('div', 'messages');
-  if (!state.conductorMessages.length) {
-    messages.append(renderConductorMessage({
-      role: 'agent',
-      text: 'Hi. I can search your reclaimed evidence, explain what it supports, design a reviewed production, or run an approved plan. What are you trying to accomplish?',
-    }, composer));
-  }
-  state.conductorMessages.forEach((message) => {
-    messages.append(renderConductorMessage(message, composer));
-  });
-  const suggestions = el('div', 'conductor-suggestions');
-  [
-    'What can I create from my evidence?',
-    'Create a tutorial and diagram from Orvantix evidence.',
-    'Show my approved plans.',
-  ].forEach((label) => suggestions.append(button(label, 'chip', () => {
-    composer.value = label;
-    state.conductorDraft = label;
-    composer.focus();
-  })));
-  messages.append(suggestions);
-  chat.append(messages);
-  const composerWrap = el('div', 'composer');
-  composerWrap.append(composer);
-  const inlineError = el('div', 'inline-error');
-  inlineError.id = 'conductor-error';
-  inlineError.hidden = true;
-  composerWrap.append(inlineError);
-  const composerActions = el('div', 'row-actions');
-  const safety = el('span', 'progress-note', conductorSafety());
-  const send = button(conductorButtonLabel(), 'button', () => handleConductor(composer.value));
-  append(composerActions, safety, send);
-  composerWrap.append(composerActions);
-  chat.append(composerWrap);
-
-  const rail = el('div', 'rail');
-  const scope = el('div', 'rail-card');
-  const evidencedWorkspaces = (overview.workspaces || []).filter((workspace) => workspace.nuggets > 0).length;
-  append(scope, el('h3', null, 'Current evidence'),
-    el('p', null, `${overview.stats.nuggets} evidence item(s) · ${evidencedWorkspaces} evidenced workspace(s) · ${overview.stats.outputs} generated output(s)`));
-  rail.append(scope);
-  const safetyCard = el('div', 'rail-card');
-  append(safetyCard, el('h3', null, 'Safety boundary'),
-    el('p', null, 'The Conductor sees the mined index and selected evidence slices, never raw session stores. Publishing, install, upload, training, and shell each remain separate approvals.'));
-  rail.append(safetyCard);
-  const recipes = (overview.recipes || []).filter((recipe) => recipe.status === 'approved');
-  const ready = el('div', 'rail-card');
-  append(ready, el('h3', null, 'Approved recipes'),
-    el('p', null, recipes.length ? `${recipes.length} production(s) are ready for a cost preview.` : 'No recipe is approved yet.'));
-  rail.append(ready);
-  const shell = el('div', 'rail-card');
-  append(shell, el('h3', null, 'Shell boundary'),
-    el('p', null, 'Shell is disabled. Enabling it later will require exact command, working directory, and a separate approval.'));
-  rail.append(shell);
-  append(layout, chat, rail);
-  root.append(layout);
-  messages.scrollTop = messages.scrollHeight;
-}
-
-function conductorPlaceholder() {
-  switch (state.conductorMode) {
-  case 'auto': return 'Say hi, ask a question, or describe the outcome you want.';
-  case 'ask': return 'What repeated failures are costing me the most time?';
-  case 'run': return 'Which approved plan should I run?';
-  default: return 'Create a tutorial, diagram, and evaluated skill from Orvantix evidence.';
-  }
-}
-
-function conductorSafety() {
-  switch (state.conductorMode) {
-  case 'auto': return 'CLARIFY FIRST · NO ACTION';
-  case 'ask': return 'ESTIMATE BEFORE MODEL';
-  case 'run': return 'APPROVED RECIPES ONLY';
-  default: return 'PREVIEW PLAN · NO ACTION';
-  }
-}
-
-function conductorButtonLabel() {
-  switch (state.conductorMode) {
-  case 'run': return 'Choose plan';
-  default: return 'Send';
-  }
-}
-
-async function handleConductor(prompt) {
-  const value = String(prompt || '').trim();
-  clearConductorError();
-  if (state.conductorMode !== 'run' && !value) {
-    setConductorError('Tell me what you want to learn, create, or run.');
-    return;
-  }
-  if (state.conductorMode === 'run') {
-    const approved = (state.overview?.recipes || []).filter((recipe) => recipe.status === 'approved');
-    if (!approved.length) {
-      addConductorMessage('agent', 'There is no approved plan to run yet. Create a plan, review its evidence, and approve it first.');
-      state.conductorDraft = '';
-      await renderConductor();
-      return;
-    }
-    const body = openModal('Choose an approved production',
-      'Run mode previews cost before starting and never publishes automatically.');
-    const list = el('div', 'step-list');
-    approved.forEach((recipe) => {
-      const row = el('div', 'step-row');
-      const copy = el('div');
-      append(copy, el('strong', null, recipe.title),
-        el('small', null, `${recipe.outputs.length} outputs · ${recipe.evidence_ids.length} evidence items`));
-      append(row, el('span', 'step-number', 'R'), copy,
-        button('Preview run', 'button compact', () => {
-          closeModal();
-          previewProduction(recipe.uid);
-        }));
-      list.append(row);
-    });
-    body.append(list);
-    return;
-  }
-
-  addConductorMessage('user', value);
-  state.conductorDraft = '';
-  const intent = state.conductorMode === 'auto' ? classifyConductorInput(value) : state.conductorMode;
-  if (intent === 'greeting') {
-    addConductorMessage('agent',
-      'Hi. I can search your evidence, explain what it supports, design a production, or run an approved plan. What would you like to do?');
-    await renderConductor();
-    return;
-  }
-  if (intent === 'help') {
-    addConductorMessage('agent',
-      'Try “What can I create?”, “Find repeated webhook failures,” or “Create a tutorial and diagram from Orvantix evidence.” I will clarify anything ambiguous before creating a plan.');
-    await renderConductor();
-    return;
-  }
-  if (state.overview.stats.nuggets === 0) {
-    addConductorMessage('agent',
-      'I can see your session sources, but no reclaimed evidence is ready yet. Run the free Mine pass, then extract a small evidence scope. I will not create an unsupported plan.');
-    await renderConductor();
-    return;
-  }
-  if (intent === 'question' || intent === 'ask') {
-    const localAnswer = simpleConductorAnswer(value, state.overview);
-    if (localAnswer) {
-      addConductorMessage('agent', localAnswer);
-      await renderConductor();
-      return;
-    }
-    addConductorMessage('agent',
-      `I can answer that from ${state.overview.stats.nuggets} reclaimed evidence items. I will show the model estimate before making the call.`);
-    await renderConductor();
-    try {
-      const preview = await runJob({op: 'ask', question: value, apply: false},
-        'Estimating answer', 'The estimate uses Midden’s compressed evidence, not raw transcripts.');
-      openSpendConfirmation('Answer from the evidence', preview, async () => {
-        const run = await runJob({op: 'ask', question: value, apply: true},
-          'Answering from your evidence', 'The selected CLI receives a bounded redacted brief.');
-        addConductorMessage('agent', run.result?.answer || 'The model returned no answer.');
-        await renderConductor();
-      });
-    } catch (error) {
-      setConductorError(error.message);
-    }
-    return;
-  }
-
-  if (intent === 'design') {
-    const lowered = value.toLowerCase();
-    const matchedWorkspace = (state.overview?.workspaces || []).find((workspace) => {
-      const name = String(workspace.name || '').toLowerCase();
-      const id = String(workspace.id || '').toLowerCase();
-      return workspace.nuggets > 0 && ((name.length > 2 && lowered.includes(name)) ||
-        (id.length > 3 && lowered.includes(id)));
-    });
-    await renderConductor();
-    try {
-      const result = await post('/api/refinery/action', {
-        action: 'preview_design', prompt: value, workspace: matchedWorkspace?.id || '',
-      });
-      addConductorMessage('agent',
-        `I interpreted that as “${result.recipe.title}”. Review the outputs and evidence scope below; I will create nothing until you confirm.`,
-        {plan: result, plan_status: 'preview'});
-      await renderConductor();
-    } catch (error) {
-      setConductorError(error.message);
-    }
-    return;
-  }
-  addConductorMessage('agent',
-    'I need a little more direction. Are you trying to search your evidence, create something from it, or run an approved plan?');
-  await renderConductor();
-}
-
-async function renderOperations() {
-  const root = clear($('#operations-content'));
-  append(root, pageHead('Sources, cost, and audit', 'Operate the proven mining core.',
-    'Session rescue, deterministic cleanup previews, cost accounting, jobs, and the append-only operation log remain available inside the refinery.'));
-  const tabs = el('div', 'tabs');
-  [
-    ['sessions', 'Sessions'],
-    ['cost', 'Cost'],
-    ['jobs', 'Jobs'],
-    ['log', 'Audit log'],
-  ].forEach(([id, label]) => {
-    tabs.append(button(label, `tab-button ${state.operationsTab === id ? 'active' : ''}`.trim(), () => {
-      state.operationsTab = id;
-      renderOperations().catch(showError);
-    }));
-  });
-  root.append(tabs);
-  const panel = el('section', 'panel');
-  root.append(panel);
-  if (state.operationsTab === 'sessions') await renderSessionsOperation(panel);
-  if (state.operationsTab === 'cost') await renderCostOperation(panel);
-  if (state.operationsTab === 'jobs') await renderJobsOperation(panel);
-  if (state.operationsTab === 'log') await renderLogOperation(panel);
-}
-
-async function renderSessionsOperation(panel) {
-  panel.append(sectionHead('Indexed sessions', 'Find, resume, rescue, mine, or clean one session',
-    'Consequence-first ordering surfaces resume risk and large transcripts before routine history.'));
-  const filters = el('div', 'filter-row');
-  const tool = selectInput([
-    {value: '', label: 'All tools'},
-    {value: 'copilot', label: 'Copilot'},
-    {value: 'claude', label: 'Claude'},
-    {value: 'opencode', label: 'OpenCode'},
-  ]);
-  const days = selectInput([
-    {value: '7', label: 'Last 7 days'},
-    {value: '30', label: 'Last 30 days'},
-    {value: '', label: 'Any time'},
-  ], '7');
-  const search = textInput('', 'filter title or workspace');
-  append(filters, tool, days, search);
-  panel.append(filters);
-  const summary = el('p', 'note session-page-summary');
-  const list = el('div');
-  const pager = el('div', 'session-pager');
-  panel.append(summary, list, pager);
-  let page = 0;
-  const pageSize = 20;
-  let searchTimer;
-
-  const load = async () => {
-    const params = new URLSearchParams({
-      limit: String(pageSize),
-      offset: String(page * pageSize),
-      sort: 'consequence',
-    });
-    if (tool.value) params.set('tool', tool.value);
-    if (days.value) params.set('days', days.value);
-    if (search.value.trim()) params.set('search', search.value.trim());
-    const [sessions, stats] = await Promise.all([
-      get(`/api/sessions?${params}`),
-      get(`/api/session-stats?${params}`),
-    ]);
-    clear(list);
-    sessions.forEach((session) => {
-        const row = el('button', 'session-row');
-        row.type = 'button';
-        row.setAttribute('aria-label', `Open session: ${session.title || session.short}`);
-        const head = el('div', 'panel-head');
-        const copy = el('div');
-        append(copy, el('h3', null, session.title || session.short),
-          el('p', null, `${session.tool} · ${session.short} · ${session.dir}`));
-        const badges = el('div', 'row-actions');
-        append(badges, badge(formatBytes(session.bytes)),
-          session.live ? badge('open now', 'free') : null,
-          session.risk !== 'ok' ? badge(session.risk, session.risk === 'critical' ? 'danger' : 'spend') : null);
-        append(head, copy, badges);
-        row.append(head);
-        row.addEventListener('click', () => openSessionDrawer(session));
-        list.append(row);
-      });
-    if (!list.children.length) list.append(emptyState('No sessions match', 'Change the filters or refresh the source index.'));
-    const first = stats.target ? page * pageSize + 1 : 0;
-    const last = Math.min(stats.target, page * pageSize + sessions.length);
-    summary.textContent = `${first}–${last} of ${stats.target} matching session(s)` +
-      (stats.hidden_noise ? ` · ${stats.hidden_noise} automated hidden` : '') +
-      (stats.indexed_at ? ` · ${indexAgeLabel(stats.indexed_at)}` : '');
-    clear(pager);
-    const previous = button('Previous', 'button ghost compact', () => {
-      page = Math.max(0, page - 1);
-      load().catch(showError);
-    });
-    previous.disabled = page === 0;
-    const next = button('Next', 'button ghost compact', () => {
-      page += 1;
-      load().catch(showError);
-    });
-    next.disabled = last >= stats.target;
-    append(pager, previous, el('span', null, `Page ${page + 1} of ${Math.max(1, Math.ceil(stats.target / pageSize))}`), next);
-  };
-  const resetAndLoad = () => {
-    page = 0;
-    load().catch(showError);
-  };
-  tool.addEventListener('change', resetAndLoad);
-  days.addEventListener('change', resetAndLoad);
-  search.addEventListener('input', () => {
-    clearTimeout(searchTimer);
-    searchTimer = setTimeout(resetAndLoad, 220);
-  });
-  await load();
-}
-
-function indexAgeLabel(value) {
-  return `indexed ${relativeAge(value)}`;
-}
-
-async function openSessionDrawer(session) {
-  const body = openDrawer(session.title || session.short);
-  body.append(el('p', 'note', `${session.tool} · ${session.id} · ${session.dir}`));
-  const meta = metricGrid([
-    {label: 'Transcript', value: formatBytes(session.bytes), copy: session.risk === 'ok' ? 'below resume-risk threshold' : `${session.risk} resume risk`},
-    {label: 'Turns', value: session.turns, copy: `updated ${session.age}`},
-    {label: 'Workspace', value: session.dir_exists ? 'present' : 'missing', copy: session.repo || session.dir},
-    {label: 'State', value: session.live ? 'open' : 'closed', copy: session.live ? 'switch to the existing terminal' : 'safe to inspect'},
-  ]);
-  body.append(meta);
-  const actions = el('div', 'row-actions');
-  actions.append(button('Copy resume command', 'button ghost', () => copyText(session.resume)));
-  actions.append(button('Rescue handoff', 'button good', () => rescueSession(session.id)));
-  actions.append(button('Mine this session', 'button', () => openReclaimModal(session.dir)));
-  actions.append(button('Preview prune', 'button ghost', () => previewSessionAction(session, 'prune')));
-  actions.append(button('Preview archive', 'button ghost', () => previewSessionAction(session, 'archive')));
-  body.append(actions);
-  try {
-    const detail = await get(`/api/session?id=${encodeURIComponent(session.id)}`);
-    if (detail.harvest) {
-      const pre = el('pre', 'provenance', JSON.stringify(detail.harvest, null, 2));
-      const details = el('details');
-      append(details, el('summary', null, 'Inspect bounded session harvest'), pre);
-      body.append(details);
-    }
-  } catch (error) {
-    body.append(el('div', 'warning', error.message));
   }
 }
 
 async function copyText(value) {
   try {
     await navigator.clipboard.writeText(value || '');
-    toast('Copied to clipboard', 'good');
+    toast('Copied to clipboard.');
   } catch {
-    toast('Clipboard access failed', 'bad');
+    toast('Clipboard access failed.', 'bad');
   }
-}
-
-async function rescueSession(sessionID) {
-  closeDrawer();
-  try {
-    const job = await runJob({op: 'brief', session_id: sessionID, records: 12},
-      'Rescuing session', 'This is deterministic, read-only, and free. The handoff is saved as a local artifact.');
-    const result = job.result || {};
-    const body = openDrawer(`Handoff · ${result.title || result.session}`);
-    body.append(el('p', 'note', result.saved ? `Saved to ${result.saved}` : 'Clipboard-ready handoff'));
-    const pre = el('pre', 'provenance', result.body || '');
-    body.append(pre);
-    body.append(button('Copy handoff', 'button', () => copyText(result.body)));
-  } catch (error) {
-    showError(error);
-  }
-}
-
-async function previewSessionAction(session, op) {
-  closeDrawer();
-  try {
-    const preview = await runJob({op, session_id: session.id, apply: false},
-      `Previewing ${op}`, 'Dry run only. No source transcript is changed.');
-    const result = preview.result || {};
-    const body = openModal(`${humanStatus(op)} preview`, 'Review the exact scope before applying.');
-    const box = el('div', 'estimate-box');
-    append(box, el('strong', null, op === 'prune' ? formatBytes(result.total_saved || 0) : `${result.rows?.length || 0} transcript(s)`),
-      el('p', 'note', op === 'prune' ? 'estimated recoverable bytes' : 'eligible for archive'));
-    body.append(box);
-    const actions = el('div', 'modal-actions');
-    actions.append(button('Cancel', 'button ghost', closeModal));
-    actions.append(button(`Apply ${op}`, 'button danger', async () => {
-      closeModal();
-      try {
-        await runJob({op, session_id: session.id, apply: true, confirm: true},
-          `Applying ${op}`, 'Midden records the operation and verification result in its audit log.');
-        toast(`${humanStatus(op)} complete`, 'good');
-        await refreshOverview();
-      } catch (error) {
-        showError(error);
-      }
-    }));
-    body.append(actions);
-  } catch (error) {
-    showError(error);
-  }
-}
-
-async function renderCostOperation(panel) {
-  const data = await get('/api/cost');
-  panel.append(sectionHead('Cost ledger', 'Prediction and actual usage side by side',
-    'Midden reads real usage back from the signed-in CLI session stores.'));
-  panel.append(metricGrid([
-    {label: 'Runs', value: data.totals.runs, copy: 'recorded model operations'},
-    {label: 'Items', value: data.totals.items, copy: 'evidence or outputs produced'},
-    {label: 'Tokens', value: formatCount(data.totals.tokens), copy: 'input, output, and cache movement'},
-    {label: 'AIU', value: Number(data.totals.aiu || 0).toFixed(1), copy: data.totals.usd ? `$${Number(data.totals.usd).toFixed(2)} also reported` : 'subscription credits where available'},
-  ]));
-  const tableWrap = el('div', 'table-wrap');
-  const table = el('table');
-  const head = el('thead');
-  const hrow = el('tr');
-  ['Operation', 'Scope', 'Items', 'Actual', 'Started', 'Status'].forEach((label) => hrow.append(el('th', null, label)));
-  head.append(hrow);
-  const tbody = el('tbody');
-  (data.runs || []).forEach((run) => {
-    const row = el('tr');
-    const actual = run.usage?.aiu
-      ? `${Number(run.usage.aiu).toFixed(1)} AIU`
-      : run.usage?.usd
-        ? `$${Number(run.usage.usd).toFixed(2)}`
-        : `${formatCount((run.usage?.input_tokens || 0) + (run.usage?.output_tokens || 0) + (run.usage?.cache_read_tokens || 0) + (run.usage?.cache_write_tokens || 0))} tok`;
-    append(row, el('td', null, run.op), el('td', null, run.scope), el('td', null, run.items),
-      el('td', null, actual), el('td', null, formatDate(run.started_at)),
-      el('td', null, run.ok ? 'complete' : 'failed'));
-    tbody.append(row);
-  });
-  append(table, head, tbody);
-  tableWrap.append(table);
-  panel.append(tableWrap);
-}
-
-async function renderJobsOperation(panel) {
-  const jobs = await get('/api/jobs');
-  panel.append(sectionHead('Background jobs', jobs.length ? `${jobs.length} recent operation(s)` : 'No recent jobs',
-    'Long operations remain visible while the browser stays open.'));
-  if (!jobs.length) {
-    panel.append(emptyState('No jobs yet', 'Mine, extract evidence, or run a production to create one.'));
-    return;
-  }
-  jobs.forEach((job) => {
-    const card = el('div', 'run-card');
-    const head = el('div', 'run-head');
-    const copy = el('div');
-    append(copy, el('div', 'eyebrow', job.op), el('h3', 'panel-title', job.scope || 'all'));
-    append(head, copy, badge(humanStatus(job.status), statusKind(job.status)));
-    card.append(head);
-    card.append(el('p', 'note', job.error || job.progress || 'Waiting'));
-    panel.append(card);
-  });
-}
-
-async function renderLogOperation(panel) {
-  const operations = await get('/api/ops');
-  panel.append(sectionHead('Append-only operation log',
-    operations.length ? `${operations.length} recent mutation record(s)` : 'No mutating operations recorded',
-    'Derived writes, cleanup, exports, reviews, and production actions are auditable.'));
-  if (!operations.length) {
-    panel.append(emptyState('The log is empty', 'Read-only browsing does not create audit entries.'));
-    return;
-  }
-  const tableWrap = el('div', 'table-wrap');
-  const table = el('table');
-  const head = el('thead');
-  const hrow = el('tr');
-  ['Time', 'Operation', 'Session', 'Before', 'After', 'Detail', 'Status'].forEach((label) => hrow.append(el('th', null, label)));
-  head.append(hrow);
-  const body = el('tbody');
-  operations.forEach((operation) => {
-    const row = el('tr');
-    append(row, el('td', null, formatDate(operation.created_at)), el('td', null, operation.op),
-      el('td', null, operation.session_id || '—'), el('td', null, formatBytes(operation.before)),
-      el('td', null, formatBytes(operation.after)), el('td', null, operation.detail),
-      el('td', null, operation.ok ? 'ok' : 'failed'));
-    body.append(row);
-  });
-  append(table, head, body);
-  tableWrap.append(table);
-  panel.append(tableWrap);
 }
 
 async function renderActiveView() {
   await loadOverview();
   switch (state.activeView) {
-  case 'home': return renderHome();
-  case 'mine': return renderMine();
+  case 'recover': return renderRecover();
   case 'studio': return renderStudio();
-  case 'knowledge': return renderKnowledge();
-  case 'agent-forge': return renderAgentForge();
-  case 'personalization': return renderPersonalization();
-  case 'connections': return renderConnections();
-  case 'conductor': return renderConductor();
-  case 'operations': return renderOperations();
+  case 'library': return renderLibrary();
+  case 'cleanup': return renderCleanup();
+  case 'activity': return renderActivity();
+  case 'tools': return renderTools();
   }
 }
 
-loadOverview(true)
-  .then(() => renderHome())
+configurePrimaryAction('recover');
+Promise.all([loadOverview(true), refreshJobs()])
+  .then(() => renderRecover())
   .catch((error) => {
     console.error(error);
-    clear($('#home-content')).append(emptyState('Midden could not load', friendlyError(error),
+    clear($('#recover-content')).append(emptyState('Midden could not load', error.message,
       button('Retry', 'button', () => location.reload())));
   });

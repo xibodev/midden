@@ -1,16 +1,17 @@
 # Human acceptance test
 
-Run this only after the automated build and browser gates pass. It is the final
-nondestructive operator check for a release.
+Run this after the automated build and desktop browser gates pass. It is the
+final nondestructive operator check for a release.
 
 ## Test rules
 
 - Start from a fresh clone.
 - Use a new `MIDDEN_HOME`.
-- Do not run prune, archive, delete, publish, install, upload, training, or
-  shell actions.
-- Use one small workspace for model-backed evidence extraction.
-- Stop if any estimate is unacceptable.
+- Do not prune, archive, publish, install, upload, train, or purge.
+- Use one small exact session for model-backed evidence extraction.
+- Stop if any long-running estimate is unacceptable.
+- Midden is a desktop workbench. Test a normal desktop window and a compact
+  desktop window; phone/mobile behavior is not a release requirement.
 
 ## 1. Fresh clone and build
 
@@ -18,9 +19,7 @@ nondestructive operator check for a release.
 git clone <repository-url> midden-human-test
 Set-Location .\midden-human-test
 
-go version
 go test ./...
-
 New-Item -ItemType Directory -Force .\bin | Out-Null
 go build -trimpath -o .\bin\midden.exe .\cmd\midden
 .\bin\midden.exe version
@@ -32,11 +31,10 @@ $env:MIDDEN_HOME = (Join-Path $PWD '.midden-human-test')
 Pass if:
 
 - the build requires no undocumented dependency;
-- version prints `midden 2.1.0`;
-- `start` explains what is present, what can spend, and what to do next;
-- no existing Midden state was reused.
+- version prints `midden 2.2.0`;
+- no existing Midden state is reused.
 
-## 2. Launch
+## 2. Launch and navigation
 
 ```powershell
 .\bin\midden.exe ui
@@ -44,126 +42,121 @@ Pass if:
 
 Pass if:
 
-- a browser opens to a loopback URL;
-- Home renders without an unexplained empty page;
-- navigation labels and the next action are understandable;
-- no horizontal scrolling is required at normal desktop width.
+- the browser opens to a loopback URL;
+- Recover explains the next action;
+- Recover, Studio, Library, Cleanup, Activity, and Tools all open;
+- there is no body-level horizontal scrolling at approximately 1440×900 or
+  1024×768.
 
-## 3. Mine
+## 3. Exact-session mine
 
-Open **Mine** and select **Scan and calculate yield**.
+In **Recover**:
 
-Pass if:
-
-- the operation clearly says it is deterministic and free;
-- progress is visible;
-- source availability is understandable;
-- assay-only state does not invent recommended assets;
-- the evidence library explains why it is empty.
-
-## 4. Extract a small evidence scope
-
-Select **Extract evidence**, choose one workspace, a short time range, and
-**Summary · cheapest**.
+1. Filter and select one small closed session.
+2. Open **New mine**.
+3. Choose **Assay only · free**.
+4. Start the mine.
+5. Navigate to another view while it runs.
 
 Pass if:
 
-- the first action estimates only;
-- backend, model, time, charge confidence, and external writes are visible;
-- no model call begins before approval;
-- the completed run reports how many evidence items were stored.
+- no execution modal blocks the application;
+- the background dock and Activity show progress;
+- the completed mine appears in durable history with its exact session scope;
+- source file size and modification time remain unchanged.
 
-## 5. Test Conductor as a person
+## 4. Evidence extraction
 
-Open **Conductor** and send:
+For the same exact session:
 
-```text
-hi
-```
-
-Pass if it replies conversationally and stays in Conductor.
-
-Then send:
-
-```text
-I need help with my project.
-```
-
-Pass if it asks whether you want to search, create, or run rather than guessing.
-
-Then send:
-
-```text
-What can I create from my evidence?
-```
-
-Pass if the answer is grounded in the visible evidence count and does not call
-a model unnecessarily.
-
-Then request:
-
-```text
-Create an ADR and troubleshooting guide from this workspace.
-```
+1. Choose **Extract evidence**.
+2. Compare Summary and Deep previews.
+3. Confirm their record limits differ.
+4. Approve one small extraction.
 
 Pass if:
 
-- a plan preview appears in the conversation;
-- outputs and evidence count are visible;
-- nothing is persisted before **Create this plan**;
-- after confirmation, Midden says nothing has run or spent and opens Studio.
+- preview does not invoke a model;
+- backend, depth, scope, estimate, and time are visible;
+- extraction runs in the background;
+- the result reports stored evidence.
 
-## 6. Studio evidence gate
+## 5. Studio work item
 
-Pass if:
-
-- selected evidence is readable;
-- low-confidence items are identifiable;
-- search and review-only filtering work;
-- selections can be changed and saved;
-- production cannot run before **Approve evidence set**.
-
-## 7. Production and review
-
-After approving evidence, select **Preview cost and run**.
+Create a work item from the recovered evidence.
 
 Pass if:
 
-- the approval says drafts only and external writes none;
-- the run has a durable, understandable timeline;
-- generated outputs open inside Midden;
-- structured packs are readable rather than raw JSONL walls;
-- individual records can be included or excluded;
-- provenance changes with the reviewed output;
-- export remains unavailable until that output is reviewed.
+- it appears in the permanent work-item rail;
+- selecting Studio again keeps the full list visible;
+- evidence can be inspected, changed, saved, and approved;
+- production remains blocked until evidence approval.
 
-## 8. Mobile and keyboard
+## 6. Persistent chat
 
-Resize to a narrow phone-like width and complete basic navigation.
+Send two concise messages in Studio.
 
 Pass if:
 
-- the drawer opens, closes, and has a scrim;
-- controls are comfortably tappable;
-- no content is clipped horizontally.
+- no cost dialog appears for each routine turn;
+- both turns run under the visible work-item budget;
+- messages survive a browser refresh;
+- the second turn resumes the same AI CLI session;
+- navigation remains available while the turn runs.
+
+Use Console `status` and `files`.
+
+Pass if:
+
+- the commands return work-item diagnostics;
+- arbitrary shell commands are rejected.
+
+## 7. Production, preview, and download
+
+Run a small approved output plan.
+
+Pass if:
+
+- the long-running production gets one explicit estimate/approval;
+- generated outputs become local drafts;
+- Markdown renders as a formatted document;
+- JSONL renders as readable records;
+- Source is editable;
+- Provenance identifies supporting evidence;
+- Download returns the owned source without navigating away;
+- an absent optional renderer produces an honest fallback rather than a fake
+  rendered result.
+
+## 8. Library, Cleanup, Activity, and Tools
+
+Pass if:
+
+- Library filters outputs and downloads them independently of Studio;
+- Cleanup explains every eligibility gate;
+- protected or held sessions cannot be archived through the UI;
+- Activity retains jobs after browser refresh;
+- Tools distinguishes plugins, tools, skills, viewers, and destinations;
+- managed Open Notebook and OpenMontage settings remain editable.
+
+## 9. Keyboard and compact desktop
 
 Using only the keyboard:
 
 - activate the skip link;
-- move through navigation and session rows;
-- open and close a dialog;
-- confirm focus is trapped in the dialog and restored afterward.
+- navigate the sidebar;
+- open and close a dialog and drawer;
+- confirm focus remains contained and is restored.
 
-## 9. Stop and report
+Resize to a compact desktop window around 1024×768. Pass if the workbench
+remains usable without body-level horizontal overflow.
+
+## 10. Stop and report
 
 Press `Ctrl+C` in the UI terminal.
 
 Report:
 
 - **PASS** or **FAIL**;
-- the first step that failed;
-- what you expected;
-- what happened instead;
+- the first failed step;
+- expected versus actual behavior;
 - a screenshot only if it contains no private session content.
-
-A release is human-accepted only when all sections pass.

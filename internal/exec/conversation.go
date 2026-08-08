@@ -38,6 +38,16 @@ func (r *Runner) NewConversation() *Conversation {
 	return &Conversation{runner: r, sessionID: NewUUID()}
 }
 
+// ResumeConversation reconnects to a session that was previously primed and
+// whose identifier was stored by the caller. It never falls back to a fresh
+// context: a failed resume must be surfaced rather than producing a plausible
+// answer that has lost its evidence.
+func (r *Runner) ResumeConversation(sessionID string) *Conversation {
+	return &Conversation{
+		runner: r, sessionID: strings.TrimSpace(sessionID), primed: true,
+	}
+}
+
 // SessionID is the underlying CLI session.
 func (c *Conversation) SessionID() string { return c.sessionID }
 

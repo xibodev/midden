@@ -299,8 +299,7 @@ func TestRefineryUIContainsCompleteJourneyNavigation(t *testing.T) {
 	}
 	html := string(htmlBytes)
 	for _, label := range []string{
-		"Home", "Mine", "Studio", "Knowledge", "Agent forge",
-		"Personalization", "Connections", "Conductor", "Operations",
+		"Recover", "Studio", "Library", "Cleanup", "Activity", "Tools",
 	} {
 		if !strings.Contains(html, label) {
 			t.Errorf("embedded UI missing %q", label)
@@ -312,8 +311,10 @@ func TestRefineryUIContainsCompleteJourneyNavigation(t *testing.T) {
 	}
 	js := string(jsBytes)
 	for _, endpoint := range []string{
-		"/api/refinery", "/api/refinery/recipe", "/api/refinery/output",
+		"/api/refinery", "/api/refinery/output",
 		"/api/refinery/action", "/api/refinery/connections",
+		"/api/recovery-runs", "/api/work-items", "/api/work-item",
+		"/api/work-console", "/api/output-download", "/api/cleanup-candidates",
 	} {
 		if !strings.Contains(js, endpoint) {
 			t.Errorf("embedded UI does not use %s", endpoint)
@@ -397,6 +398,19 @@ func TestMineWaitsForExistingScanLock(t *testing.T) {
 	}
 }
 
+func TestMineScopeKeepsExactSessionUnbounded(t *testing.T) {
+	exact := mineScope(actionRequest{
+		SessionKeys: []string{"claude:old-session"}, Days: 0,
+	})
+	if exact.Days != 0 {
+		t.Fatalf("exact session days=%d, want unbounded", exact.Days)
+	}
+	defaultScope := mineScope(actionRequest{})
+	if defaultScope.Days != 30 {
+		t.Fatalf("default days=%d, want 30", defaultScope.Days)
+	}
+}
+
 func TestEmptyNuggetsHandlerReturnsJSONArray(t *testing.T) {
 	t.Setenv("MIDDEN_HOME", t.TempDir())
 	db, err := index.Open()
@@ -413,15 +427,15 @@ func TestEmptyNuggetsHandlerReturnsJSONArray(t *testing.T) {
 	}
 }
 
-func TestEmbeddedUIContainsConversationalConfirmation(t *testing.T) {
+func TestEmbeddedUIContainsPersistentWorkbench(t *testing.T) {
 	body, err := uiFS.ReadFile("ui/app.js")
 	if err != nil {
 		t.Fatal(err)
 	}
 	js := string(body)
 	for _, want := range []string{
-		"classifyConductorInput", "Create this plan", "CLARIFY FIRST", "preview_design",
-		"el('button', 'session-row')",
+		"work_chat", "Same session", "session_ids", "previewEvidenceExtraction",
+		"renderTaskDock", "renderOwnedPreview", "openCleanupCandidate",
 	} {
 		if !strings.Contains(js, want) {
 			t.Errorf("app.js missing %q", want)

@@ -730,11 +730,17 @@ func (s *Server) completeRecipeIfReviewed(recipeID string) {
 // doMine performs the free deterministic first pass: refresh scoped session
 // metadata, classify transcripts, and calculate the potential yield. It never
 // invokes a model.
-func (s *Server) doMine(id string, req actionRequest) (any, error) {
+func mineScope(req actionRequest) core.Scope {
 	scope := req.scope()
-	if scope.Days <= 0 {
+	if scope.Days <= 0 && req.SessionID == "" &&
+		len(req.SessionIDs) == 0 && len(req.SessionKeys) == 0 {
 		scope.Days = 30
 	}
+	return scope
+}
+
+func (s *Server) doMine(id string, req actionRequest) (any, error) {
+	scope := mineScope(req)
 	lock, err := s.acquireScanLockForJob(id, 2*time.Minute)
 	if err != nil {
 		return nil, err
@@ -743,6 +749,7 @@ func (s *Server) doMine(id string, req actionRequest) (any, error) {
 
 	s.jobs.update(id, func(job *Job) { job.Progress = "reading session sources" })
 	sessions, collected := adapter.CollectDetailed(scope)
+	sessions = req.filterExactSessions(sessions)
 	if len(sessions) == 0 && len(collected.Errors) > 0 {
 		return nil, collected.Errors[0]
 	}

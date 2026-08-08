@@ -2,7 +2,7 @@
 app: Midden
 feature: Recovery workbench redesign
 style: interactive full-journey prototype
-target: responsive desktop and mobile
+target: desktop workbench, including compact desktop windows
 output_file: MIDDEN-WORKBENCH-FULL-JOURNEYS.html
 ---
 
@@ -84,14 +84,12 @@ capabilities, contextual tools, or Activity filters.
   - preview pane: minmax(420px, 1.25fr);
   - background-job dock anchored at bottom-right.
 
-# Mobile layout
+# Compact desktop layout
 
-- Sidebar becomes a drawer.
-- All navigation targets remain available.
-- Studio stacks work list, conversation, and preview.
-- Job dock spans the lower viewport.
-- Tables become scrollable or compact cards.
-- Tap targets remain at least 44px.
+- Sidebar may become a drawer when the application window is narrow.
+- Studio may move the preview below the work-item and conversation panes.
+- Tables remain horizontally contained.
+- This is window-resize resilience, not a phone or mobile product target.
 
 # Interaction plan
 

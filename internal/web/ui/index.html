@@ -3,8 +3,8 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="color-scheme" content="light dark">
-  <title>midden · evidence refinery</title>
+  <meta name="color-scheme" content="dark">
+  <title>midden · recovery workbench</title>
   <link rel="icon" href="favicon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="app.css">
 </head>
@@ -15,45 +15,39 @@
       <div class="brand">
         <span>
           <span class="brand-mark">midden</span>
-          <span class="brand-sub">evidence refinery</span>
+          <span class="brand-sub">recovery workbench</span>
         </span>
-        <button id="nav-close" class="icon-button nav-close" type="button" aria-label="Close navigation">×</button>
+        <button id="nav-close" class="icon-button nav-close" type="button" aria-label="Close navigation">&times;</button>
       </div>
 
       <nav class="primary-nav" aria-label="Product">
-        <button class="nav-item active" data-view="home" type="button">
-          <span aria-hidden="true">⌂</span><span>Home</span>
-        </button>
-        <button class="nav-item" data-view="mine" type="button">
-          <span aria-hidden="true">◇</span><span>Mine</span>
+        <span class="nav-section">Recover and create</span>
+        <button class="nav-item active" data-view="recover" type="button">
+          <span class="nav-symbol" aria-hidden="true">R</span><span>Recover</span><span class="nav-count" id="nav-recover-count">0</span>
         </button>
         <button class="nav-item" data-view="studio" type="button">
-          <span aria-hidden="true">▱</span><span>Studio</span>
+          <span class="nav-symbol" aria-hidden="true">S</span><span>Studio</span><span class="nav-count" id="nav-studio-count">0</span>
         </button>
-        <button class="nav-item" data-view="knowledge" type="button">
-          <span aria-hidden="true">▤</span><span>Knowledge</span>
+        <button class="nav-item" data-view="library" type="button">
+          <span class="nav-symbol" aria-hidden="true">L</span><span>Library</span><span class="nav-count" id="nav-library-count">0</span>
         </button>
-        <button class="nav-item" data-view="agent-forge" type="button">
-          <span aria-hidden="true">✦</span><span>Agent forge</span>
+        <button class="nav-item" data-view="cleanup" type="button">
+          <span class="nav-symbol" aria-hidden="true">C</span><span>Cleanup</span><span class="nav-count" id="nav-cleanup-count">0</span>
         </button>
-        <button class="nav-item" data-view="personalization" type="button">
-          <span aria-hidden="true">◎</span><span>Personalization</span>
+
+        <span class="nav-section">System</span>
+        <button class="nav-item" data-view="activity" type="button">
+          <span class="nav-symbol" aria-hidden="true">A</span><span>Activity</span><span class="nav-count" id="nav-activity-count">0</span>
         </button>
-        <button class="nav-item" data-view="connections" type="button">
-          <span aria-hidden="true">⌁</span><span>Connections</span>
-        </button>
-        <button class="nav-item" data-view="conductor" type="button">
-          <span aria-hidden="true">◉</span><span>Conductor</span>
+        <button class="nav-item" data-view="tools" type="button">
+          <span class="nav-symbol" aria-hidden="true">T</span><span>Tools</span><span class="nav-count" id="nav-tools-count">0</span>
         </button>
       </nav>
 
       <div class="sidebar-bottom">
-        <button class="nav-item secondary" data-view="operations" type="button">
-          <span aria-hidden="true">⚙</span><span>Operations</span>
-        </button>
-        <div class="privacy-note">
-          <strong>Local by default</strong>
-          <span>Source sessions remain read-only. Publishing and model spend always require approval.</span>
+        <div class="local-card">
+          <strong><span class="status-dot"></span> Local service ready</strong>
+          <span>Source stores remain read-only. Jobs, chat, previews, and exports stay on this machine.</span>
         </div>
       </div>
     </aside>
@@ -62,67 +56,54 @@
     <div class="workspace">
       <header class="topbar">
         <div class="topbar-left">
-          <button id="nav-toggle" class="icon-button nav-toggle" type="button" aria-label="Open navigation">☰</button>
+          <button id="nav-toggle" class="icon-button nav-toggle" type="button" aria-label="Open navigation">Menu</button>
           <div>
-            <div class="eyebrow" id="view-kicker">Evidence refinery</div>
-            <div class="breadcrumb" id="view-title">Home</div>
+            <div class="eyebrow" id="view-kicker">Recovery desk</div>
+            <div class="breadcrumb" id="view-title">Recover</div>
           </div>
         </div>
         <div class="topbar-actions">
           <div class="topbar-badges" id="global-badges"></div>
-          <button id="refresh-data" class="button ghost compact" type="button">Refresh sources</button>
+          <button id="top-primary-action" class="button compact" type="button">New mine</button>
         </div>
       </header>
       <div class="notice-region" id="notice-region" role="status" aria-live="polite" hidden></div>
 
       <main id="main">
-        <section class="view active" id="home" aria-labelledby="home-heading">
-          <div id="home-content" class="view-content loading-shell">
-            <p class="loading-label">Loading your local index…</p>
-            <div class="loading-card"></div>
-            <div class="loading-grid"><div></div><div></div><div></div></div>
-          </div>
+        <section class="view active" id="recover" aria-label="Recover">
+          <div id="recover-content" class="view-content loading-shell"><p class="loading-label">Loading recovery state…</p></div>
         </section>
-
-        <section class="view" id="mine" aria-labelledby="mine-heading">
-          <div id="mine-content" class="view-content"></div>
-        </section>
-
-        <section class="view" id="studio" aria-labelledby="studio-heading">
+        <section class="view" id="studio" aria-label="Studio">
           <div id="studio-content" class="view-content"></div>
         </section>
-
-        <section class="view" id="knowledge" aria-labelledby="knowledge-heading">
-          <div id="knowledge-content" class="view-content"></div>
+        <section class="view" id="library" aria-label="Library">
+          <div id="library-content" class="view-content"></div>
         </section>
-
-        <section class="view" id="agent-forge" aria-labelledby="agent-heading">
-          <div id="agent-content" class="view-content"></div>
+        <section class="view" id="cleanup" aria-label="Cleanup">
+          <div id="cleanup-content" class="view-content"></div>
         </section>
-
-        <section class="view" id="personalization" aria-labelledby="personalization-heading">
-          <div id="personalization-content" class="view-content"></div>
+        <section class="view" id="activity" aria-label="Activity">
+          <div id="activity-content" class="view-content"></div>
         </section>
-
-        <section class="view" id="connections" aria-labelledby="connections-heading">
-          <div id="connections-content" class="view-content"></div>
-        </section>
-
-        <section class="view" id="conductor" aria-labelledby="conductor-heading">
-          <div id="conductor-content" class="view-content"></div>
-        </section>
-
-        <section class="view" id="operations" aria-labelledby="operations-heading">
-          <div id="operations-content" class="view-content"></div>
+        <section class="view" id="tools" aria-label="Tools">
+          <div id="tools-content" class="view-content"></div>
         </section>
       </main>
     </div>
   </div>
 
+  <aside class="task-dock" id="task-dock" aria-label="Background jobs">
+    <button class="task-dock-head" id="task-dock-toggle" type="button">
+      <span class="task-dock-title"><span class="status-dot"></span><strong id="task-dock-title">Background jobs</strong></span>
+      <span class="badge blue" id="task-dock-status">idle</span>
+    </button>
+    <div class="task-dock-body" id="task-dock-body"></div>
+  </aside>
+
   <div class="modal" id="modal" hidden>
     <div class="modal-backdrop" data-close-modal></div>
     <section class="modal-card" role="dialog" aria-modal="true" aria-labelledby="modal-title">
-      <button class="icon-button modal-close" id="modal-close" type="button" aria-label="Close">×</button>
+      <button class="icon-button modal-close" id="modal-close" type="button" aria-label="Close">&times;</button>
       <div id="modal-body"></div>
     </section>
   </div>
@@ -130,14 +111,13 @@
   <div class="drawer" id="drawer" hidden>
     <div class="drawer-backdrop" data-close-drawer></div>
     <aside class="drawer-card" role="dialog" aria-modal="true" aria-label="Details">
-      <button class="icon-button drawer-close" id="drawer-close" type="button" aria-label="Close">×</button>
+      <button class="icon-button drawer-close" id="drawer-close" type="button" aria-label="Close">&times;</button>
       <div id="drawer-body"></div>
     </aside>
   </div>
 
   <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
   <div class="sr-only" id="live-region" aria-live="polite"></div>
-
   <script src="app.js"></script>
 </body>
 </html>

@@ -186,7 +186,10 @@ func (d *DB) migrate() error {
 	if err := d.migrateRuns(); err != nil {
 		return err
 	}
-	return d.migrateRefinery()
+	if err := d.migrateRefinery(); err != nil {
+		return err
+	}
+	return d.migrateWorkbench()
 }
 
 // ensureSessionGeneration upgrades indexes created before scan_gen existed.

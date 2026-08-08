@@ -53,6 +53,7 @@ type Server struct {
 	integrationMu sync.Mutex
 	legacyTestMu  sync.RWMutex
 	legacyTests   map[string]legacyIntegrationTest
+	workChatLocks sync.Map
 	reindexMu     sync.Mutex
 	reindexing    bool
 	reindexedAt   time.Time
@@ -61,7 +62,7 @@ type Server struct {
 
 func NewServer(db *index.DB) *Server {
 	s := &Server{
-		db: db, jobs: NewJobs(), cache: newSnapshotCache(),
+		db: db, jobs: NewJobs(db), cache: newSnapshotCache(),
 		legacyTests:    map[string]legacyIntegrationTest{},
 		backgroundWork: true,
 	}
@@ -93,6 +94,13 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/action", s.handleAction)
 	mux.HandleFunc("/api/jobs", s.handleJobs)
 	mux.HandleFunc("/api/job-status", s.handleJobStatus)
+	mux.HandleFunc("/api/recovery-runs", s.handleRecoveryRuns)
+	mux.HandleFunc("/api/work-items", s.handleWorkItems)
+	mux.HandleFunc("/api/work-item", s.handleWorkItem)
+	mux.HandleFunc("/api/work-console", s.handleWorkConsole)
+	mux.HandleFunc("/api/output-download", s.handleOutputDownload)
+	mux.HandleFunc("/api/output-rendered", s.handleOutputRendered)
+	mux.HandleFunc("/api/cleanup-candidates", s.handleCleanupCandidates)
 	mux.HandleFunc("/api/cost", s.handleCost)
 	mux.HandleFunc("/api/templates", s.handleTemplates)
 	mux.HandleFunc("/api/resume", s.handleResume)

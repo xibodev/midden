@@ -115,14 +115,15 @@ Default: `127.0.0.1:7777`.
 
 Midden does not expose a flag to bind to a public interface.
 
-## Browser-local state
+## Work-item and browser state
 
-The last 40 Conductor messages are stored in the browser's local storage for
-continuity. Recipe, run, output, and evidence state is stored in Midden's
-SQLite index.
+Studio conversations, AI CLI session identifiers, budget envelopes, jobs,
+mine runs, recipes, outputs, and evidence are stored in Midden's SQLite index.
+They survive browser refreshes and Midden restarts.
 
-Use **CLEAR** in Conductor to remove the saved chat history for that browser
-profile. Clearing it does not delete recipes or outputs.
+The browser stores only lightweight presentation choices such as the most
+recently selected work item. Clearing browser storage does not remove a
+conversation, output, mine run, or job history.
 
 ## Managed integrations
 

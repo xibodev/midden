@@ -1,15 +1,15 @@
 # Optional integrations
 
-Midden is complete without integrations. Connections add local makers or
+Midden is complete without integrations. Tools adds local makers or
 destinations after the core scan, evidence, recipe, review, and export workflow
 is working.
 
-The normal setup path is **Connections** in `midden ui`. Advanced YAML
+The normal setup path is **Tools** in `midden ui`. Advanced YAML
 manifests are an escape hatch, not a prerequisite.
 
 ## Managed settings
 
-Open **Connections** to:
+Open **Tools** to:
 
 1. Read what an integration does and whether later actions can spend.
 2. Open the upstream installation guide.
@@ -31,7 +31,7 @@ The settings file is bounded and credential-free.
 
 ## Detected local makers
 
-Connections can report locally installed tools such as:
+Tools can report locally installed capabilities such as:
 
 - Pandoc
 - Quarto
@@ -63,7 +63,7 @@ Midden does not install or start Open Notebook.
 
 ### Midden setup
 
-In **Connections → Open Notebook**, configure:
+In **Tools → Open Notebook**, configure:
 
 - API URL, normally `http://127.0.0.1:5055/api`;
 - UI URL, normally `http://127.0.0.1:8502`;
@@ -114,7 +114,7 @@ Its upstream setup requires:
 - FFmpeg;
 - an authenticated agentic CLI.
 
-In **Connections → OpenMontage**, configure:
+In **Tools → OpenMontage**, configure:
 
 - the absolute path to the checked-out repository;
 - `copilot`, `claude`, or `opencode` as its backend.
@@ -196,10 +196,12 @@ Migration:
 - requires **Finish migration** if interrupted;
 - refuses to use conflicting managed and advanced configurations.
 
-## Conductor and shell boundary
+## Studio and Console boundary
 
-Conductor can search reclaimed evidence, answer evidence questions, design a
-recipe, and run an approved production. Shell execution is disabled.
+Studio can continue one evidence-grounded AI CLI conversation, design a work
+item, and run an approved production. Console exposes allowlisted diagnostics
+such as status, files, evidence, runs, and OpenMontage status. It is not a host
+shell.
 
 Any future shell-capable feature is a separate trust domain. It must reject a
 working directory inside:

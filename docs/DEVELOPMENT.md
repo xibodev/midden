@@ -87,12 +87,12 @@ There is no generated web bundle to commit.
 
 For human testing, exercise:
 
-- desktop and narrow/mobile widths;
+- normal desktop and compact desktop window widths;
 - keyboard-only navigation;
-- Conductor greeting, clarification, question, design, and run modes;
-- Mine with no assay, assay-only, and reclaimed-evidence states;
+- persistent Studio chat, controlled Console, work-item selection, and budget state;
+- Recover with no assay, exact-session assay, recovery history, and reclaimed-evidence states;
 - structured JSONL review and filtered provenance;
-- Operations search and pagination;
+- Library filters, downloads, Activity history, and Cleanup eligibility;
 - dialog focus trap and focus restoration.
 
 ## Test data

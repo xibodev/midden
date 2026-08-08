@@ -59,6 +59,17 @@ func TestAskRequiresPriming(t *testing.T) {
 	}
 }
 
+func TestResumeConversationKeepsAssignedSession(t *testing.T) {
+	conversation := (&Runner{Backend: Copilot, DryRun: true}).
+		ResumeConversation("known-session")
+	if conversation.SessionID() != "known-session" {
+		t.Fatalf("session=%q", conversation.SessionID())
+	}
+	if _, err := conversation.Ask(nil, "continue"); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestSalvageInvocationsStripMCP(t *testing.T) {
 	// Salvage only reads text. Loading tool definitions on every launch is
 	// pure waste, and on a heavily configured machine it is the largest

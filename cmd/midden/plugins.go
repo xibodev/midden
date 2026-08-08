@@ -47,7 +47,7 @@ func cmdPlugins(args []string) error {
 
 	fmt.Printf("\n  %s  %s\n", render.Bold("INTEGRATIONS"), render.Dim(*dir))
 	if len(loaded) == 0 {
-		fmt.Printf("\n  %s\n\n", render.Dim("No advanced manifests found. Run `midden ui` and open Integrations to set up built-in tools."))
+		fmt.Printf("\n  %s\n\n", render.Dim("No advanced manifests found. Run `midden ui` and open Tools to set up built-in capabilities."))
 		return nil
 	}
 
