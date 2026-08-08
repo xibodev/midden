@@ -44,7 +44,7 @@ go build -trimpath -o .\bin\midden.exe .\cmd\midden
 Expected version:
 
 ```text
-midden 2.2.0
+midden 0.0.1
 ```
 
 For an isolated first run, keep Midden's own data inside the clone:

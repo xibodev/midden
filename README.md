@@ -14,7 +14,7 @@ Midden is:
 - **Evidence-grounded:** Studio will not create or run an unsupported work item
   when no reclaimed evidence exists.
 
-Current release: **2.2.0**.
+Current development version: **0.0.1**. It has not been publicly released.
 
 ## Fastest clean install on Windows
 
@@ -72,9 +72,9 @@ upgrades, and removal.
 Nothing publishes, installs an agent, uploads data, trains a model, or executes
 a shell command automatically.
 
-See [Getting started](docs/GETTING_STARTED.md) for a guided first run and
-[Human acceptance test](docs/ACCEPTANCE_TEST.md) for the final nondestructive
-operator check.
+See [Getting started](docs/GETTING_STARTED.md) for a guided first run and the
+[optional manual walkthrough](docs/ACCEPTANCE_TEST.md) for subjective UX
+feedback.
 
 ## What is free and what can spend
 
@@ -178,7 +178,7 @@ backend selection, ports, environment variables, and backup guidance.
 - [MCP setup](docs/MCP.md)
 - [Optional integrations](docs/INTEGRATIONS.md)
 - [Development](docs/DEVELOPMENT.md)
-- [Human acceptance test](docs/ACCEPTANCE_TEST.md)
+- [Optional manual walkthrough](docs/ACCEPTANCE_TEST.md)
 - [Release status](STATUS.md)
 
 ## Development snapshot

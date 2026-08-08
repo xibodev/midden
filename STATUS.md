@@ -1,8 +1,8 @@
-# Release status
+# Development status
 
-## Current release
+## Current development version
 
-**Midden 2.2.0**
+**Midden 0.0.1 — unreleased**
 
 The product now uses the standalone recovery-workbench architecture approved
 after human UAT. Kuse remains a possible optional client; Midden's Go engine,
@@ -131,14 +131,15 @@ Recover exact sessions
   file type.
 - Cleanup eligibility treats reviewed output references as the current evidence
   ownership gate; record-level evidence review is not yet stored independently.
-- The complete human acceptance checklist remains an operator gate.
+- The optional manual walkthrough remains available for subjective UX feedback;
+  it is not an engineering completion gate.
 
 ## Release gate
 
 ```text
 clean clone
 → go test ./...
-→ build 2.2.0
+→ build 0.0.1
 → isolated MIDDEN_HOME
 → exact-session mine
 → small evidence extraction
@@ -150,4 +151,5 @@ clean clone
 → desktop keyboard and compact-window check
 ```
 
-See [docs/ACCEPTANCE_TEST.md](docs/ACCEPTANCE_TEST.md).
+See [docs/ACCEPTANCE_TEST.md](docs/ACCEPTANCE_TEST.md) only when a manual
+product walkthrough is useful.

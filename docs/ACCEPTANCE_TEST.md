@@ -1,7 +1,8 @@
-# Human acceptance test
+# Optional manual desktop walkthrough
 
-Run this after the automated build and desktop browser gates pass. It is the
-final nondestructive operator check for a release.
+This walkthrough is for subjective usability feedback and real-person product
+critique. It is not required to complete the build, tests, or engineering
+release gate.
 
 ## Test rules
 
@@ -31,7 +32,7 @@ $env:MIDDEN_HOME = (Join-Path $PWD '.midden-human-test')
 Pass if:
 
 - the build requires no undocumented dependency;
-- version prints `midden 2.2.0`;
+- version prints `midden 0.0.1`;
 - no existing Midden state is reused.
 
 ## 2. Launch and navigation
@@ -160,3 +161,5 @@ Report:
 - the first failed step;
 - expected versus actual behavior;
 - a screenshot only if it contains no private session content.
+
+Automated engineering completion does not depend on this walkthrough.

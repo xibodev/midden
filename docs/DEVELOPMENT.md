@@ -132,5 +132,5 @@ go build -trimpath -o .\bin\midden.exe .\cmd\midden
 .\bin\midden.exe version
 ```
 
-Then run the clean-clone procedure in [Human acceptance test](ACCEPTANCE_TEST.md)
-using a new `MIDDEN_HOME`.
+For subjective UX feedback, optionally run the clean-clone procedure in
+[the manual walkthrough](ACCEPTANCE_TEST.md) using a new `MIDDEN_HOME`.
