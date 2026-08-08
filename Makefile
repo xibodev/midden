@@ -1,17 +1,17 @@
-# midden — M0
+# Midden development shortcuts.
 #
-# Deterministic, read-only session mapping across Copilot CLI, Claude Code and
-# opencode. No LLM calls anywhere in this milestone.
+# GNU Make is optional. The cross-platform source of truth is documented in
+# docs/DEVELOPMENT.md and uses direct Go commands.
 
-BINARY := midden
+BINARY ?= midden
 PKG    := ./cmd/midden
 
-.PHONY: all build test vet fmt check clean install run-doctor
+.PHONY: all build test vet fmt check clean install start ui
 
 all: check build
 
 build:
-	go build -o $(BINARY) $(PKG)
+	go build -trimpath -o $(BINARY) $(PKG)
 
 test:
 	go test ./...
@@ -20,7 +20,7 @@ vet:
 	go vet ./...
 
 fmt:
-	gofmt -l -w .
+	go fmt ./...
 
 check: fmt vet test
 
@@ -28,7 +28,10 @@ install:
 	go install $(PKG)
 
 clean:
-	rm -f $(BINARY) $(BINARY).exe
+	$(RM) $(BINARY) $(BINARY).exe
 
-run-doctor: build
-	./$(BINARY) doctor
+start: build
+	./$(BINARY) start
+
+ui: build
+	./$(BINARY) ui

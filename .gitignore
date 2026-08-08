@@ -20,7 +20,7 @@ vendor/
 *.db
 *.db-shm
 *.db-wal
-/.midden/
+/.midden*/
 /index/
 /nuggets/
 /artifacts/
@@ -33,6 +33,9 @@ vendor/
 /web/dist/
 /web/node_modules/
 node_modules/
+
+# Generated quality and UAT evidence
+/.quality-run/
 
 # Editor / OS
 .vscode/

@@ -1,1881 +1,2711 @@
 'use strict';
 
-const $ = (s) => document.querySelector(s);
-const el = (tag, cls, text) => {
-  const n = document.createElement(tag);
-  if (cls) n.className = cls;
-  if (text !== undefined) n.textContent = text;
-  return n;
-};
+const $ = (selector, root = document) => root.querySelector(selector);
+const $$ = (selector, root = document) => Array.from(root.querySelectorAll(selector));
 
-const get = async (path) => {
-  const r = await fetch(path);
-  if (!r.ok) throw new Error((await r.text()) || r.statusText);
-  return r.json();
-};
+function el(tag, className, text) {
+  const node = document.createElement(tag);
+  if (className) node.className = className;
+  if (text !== undefined && text !== null) node.textContent = String(text);
+  return node;
+}
 
-// Rows and their count are separate endpoints for compatibility. Carry the
-// cache generation alongside each response so the UI can reject a pair split
-// by a concurrent refresh rather than joining old rows to new freshness.
-const getWithSnapshot = async (path) => {
-  const r = await fetch(path);
-  if (!r.ok) throw new Error((await r.text()) || r.statusText);
-  return { data: await r.json(), snapshot: r.headers.get('X-Midden-Snapshot') };
-};
-
-const post = async (path, body) => {
-  const r = await fetch(path, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'X-Midden-Request': '1' },
-    body: JSON.stringify(body),
+function append(parent, ...children) {
+  children.flat().forEach((child) => {
+    if (child === undefined || child === null || child === false) return;
+    parent.append(child instanceof Node ? child : document.createTextNode(String(child)));
   });
-  if (!r.ok) throw new Error((await r.text()) || r.statusText);
-  return r.json();
-};
-
-function bytes(n) {
-  if (!n) return '0 B';
-  const u = ['B', 'KiB', 'MiB', 'GiB', 'TiB'];
-  let i = 0;
-  while (n >= 1024 && i < u.length - 1) { n /= 1024; i++; }
-  return `${n.toFixed(i === 0 ? 0 : 1)} ${u[i]}`;
+  return parent;
 }
 
-// indexAge says how old the indexed view is. The page is served from an index,
-// not from a live read of the stores; hiding that is how a dashboard starts
-// showing yesterday's world as though it were now.
-function indexAge(iso) {
-  if (!iso) return 'not yet scanned';
-  const mins = (Date.now() - new Date(iso).getTime()) / 60000;
-  if (!isFinite(mins) || mins < 0) return '';
-  if (mins < 2) return 'indexed just now';
-  if (mins < 90) return `indexed ${Math.round(mins)}m ago`;
-  const hrs = mins / 60;
-  if (hrs < 36) return `indexed ${Math.round(hrs)}h ago`;
-  return `indexed ${Math.round(hrs / 24)}d ago \u2014 run a scan`;
+function clear(node) {
+  node.replaceChildren();
+  return node;
 }
 
-function tok(n) {
-  if (!n) return '0';
-  if (n >= 1e6) return (n / 1e6).toFixed(1) + 'M';
-  if (n >= 1e3) return Math.round(n / 1e3) + 'k';
-  return String(n);
+function button(label, className = 'button', onClick) {
+  const node = el('button', className, label);
+  node.type = 'button';
+  if (onClick) node.addEventListener('click', onClick);
+  return node;
 }
 
-function toast(msg, kind) {
-  const t = $('#toast');
-  t.textContent = msg;
-  t.className = 'toast' + (kind ? ' ' + kind : '');
-  t.hidden = false;
-  clearTimeout(window.__toast);
-  window.__toast = setTimeout(() => { t.hidden = true; }, 3200);
+function badge(label, kind = '') {
+  return el('span', `badge ${kind}`.trim(), label);
 }
 
-// A copy button beside every command, because selecting a long shell line by
-// hand is exactly the friction this tool exists to remove.
-function copyBtn(text, label) {
-  const b = el('button', 'copy', label || 'copy');
-  b.addEventListener('click', (e) => {
-    e.stopPropagation();
-    navigator.clipboard.writeText(text).then(
-      () => { b.textContent = 'copied'; toast('Copied to clipboard'); setTimeout(() => { b.textContent = label || 'copy'; }, 1400); },
-      () => toast('Copy failed', 'bad')
-    );
-  });
-  return b;
-}
-
-// ---- navigation -------------------------------------------------------------
-
-const loaders = {};
-
-document.querySelectorAll('.tab').forEach((tab) => {
-  tab.addEventListener('click', () => {
-    document.querySelectorAll('.tab').forEach((t) => t.classList.remove('active'));
-    document.querySelectorAll('.view').forEach((v) => v.classList.remove('active'));
-    tab.classList.add('active');
-    const id = tab.dataset.view;
-    $('#' + id).classList.add('active');
-    if (loaders[id]) loaders[id]();
-  });
-});
-
-function show(view) {
-  document.querySelector(`.tab[data-view="${view}"]`).click();
-}
-
-// Refresh is intentionally an explicit, named operation rather than a hidden
-// background side effect. The index is the fast read path; this is how an
-// operator asks it to become current again.
-async function refreshData() {
-  const button = $('#refresh-data');
-  const original = button.textContent;
-  button.disabled = true;
-  button.textContent = 'Refreshing…';
-  try {
-    const job = await post('/api/action', { op: 'refresh' });
-    const done = await pollJob(job.id, (j) => {
-      button.textContent = j.progress || 'Refreshing…';
-    });
-    if (done.status === 'failed') throw new Error(done.error || 'refresh failed');
-
-    const r = done.result || {};
-    const removed = r.reconciled || {};
-    const n = (removed.ghost_sessions || []).length +
-      (removed.duplicate_artifact_rows || 0) +
-      (removed.stale_manifests || []).length +
-      (removed.orphan_manifests || []).length;
-    if (r.partial) {
-      toast('Partially refreshed · one or more source stores could not be read', 'bad');
-    } else {
-      toast(n ? `Refreshed · removed ${n} stale index row(s)` : 'Data refreshed', 'good');
-    }
-
-    const active = document.querySelector('.tab.active');
-    if (active && loaders[active.dataset.view]) await loaders[active.dataset.view]();
-  } catch (e) {
-    toast('Refresh failed: ' + e.message, 'bad');
-  } finally {
-    button.disabled = false;
-    button.textContent = original;
-  }
-}
-
-$('#refresh-data').addEventListener('click', refreshData);
-
-// ---- modal ------------------------------------------------------------------
-
-function clearModalContent() {
-  const box = $('#modal-body');
-  box.querySelectorAll('input[type=password]').forEach((input) => { input.value = ''; });
-  box.replaceChildren();
-}
-
-function closeModal() {
-  clearModalContent();
-  $('#modal').hidden = true;
-}
-
-function openModal(build) {
-  const box = $('#modal-body');
-  clearModalContent();
-  build(box);
-  $('#modal').hidden = false;
-}
-$('#modal-close').addEventListener('click', closeModal);
-$('#modal').addEventListener('click', (e) => {
-  if (e.target.id === 'modal') closeModal();
-});
-document.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape') { closeModal(); $('#drawer').hidden = true; }
-});
-
-// ---- DO: the action surface -------------------------------------------------
-
-const ACTIONS = [
-  {
-    op: 'reclaim', title: 'Mine sessions for knowledge', costly: true,
-    blurb: 'Extract decisions, fixes, gotchas and dead ends as reusable nuggets.',
-    build: scopeForm,
-  },
-  {
-    op: 'refine', title: 'Write something from what I know', costly: true,
-    blurb: 'Turn nuggets into a tutorial, FAQ, ADR, troubleshooting guide or post.',
-    build: refineForm,
-  },
-  {
-    op: 'prune', title: 'Recover disk space', costly: false,
-    blurb: 'Replace bulky tool payloads with markers. Every record is preserved and verified.',
-    build: scopeForm,
-  },
-  {
-    op: 'archive', title: 'Archive old transcripts', costly: false,
-    blurb: 'Move transcripts out of the tool\u2019s active path, keeping a manifest.',
-    build: scopeForm,
-  },
-];
-
-loaders.do = async () => {
-  const wrap = $('#action-cards');
-  wrap.replaceChildren();
-  ACTIONS.forEach((a) => {
-    const c = el('div', 'action reveal');
-    c.append(el('h3', null, a.title));
-    c.append(el('p', null, a.blurb));
-    const foot = el('div', 'foot');
-    foot.append(el('span', 'pill' + (a.costly ? ' warn' : ''), a.costly ? 'SPENDS' : 'FREE'));
-    const go = el('button', 'btn primary', 'Start');
-    const open = () => openModal((box) => a.build(box, a));
-    go.addEventListener('click', open);
-    foot.append(go);
-    c.append(foot);
-
-    // The card looks like the target, so it should be one. Only the small
-    // button responded, which meant the obvious click did nothing at all.
-    c.tabIndex = 0;
-    c.setAttribute('role', 'button');
-    c.setAttribute('aria-label', a.title);
-    c.addEventListener('click', (e) => { if (e.target !== go) open(); });
-    c.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(); }
-    });
-
-    wrap.append(c);
-  });
-
-  refreshJobs();
-  loadGuidance();
-  loadIntegrationPrompt();
-};
-
-// Guidance is computed from real state, so the first thing you see is what
-// actually matters today rather than a fixed menu.
-async function loadGuidance() {
-  let d;
-  try { d = await get('/api/next'); } catch { return; }
-
-  const cheap = $('#cheap-list');
-  cheap.replaceChildren();
-  (d.cheapest || []).forEach((t) => cheap.append(el('li', null, t)));
-
-  const panel = $('#next-panel');
-  const list = $('#next-list');
-  const steps = d.steps || [];
-  if (!steps.length) { panel.hidden = true; return; }
-
-  panel.hidden = false;
-  list.replaceChildren();
-
-  steps.slice(0, 4).forEach((s, i) => {
-    const row = el('div', 'next reveal');
-    row.style.animationDelay = (i * 60) + 'ms';
-
-    const top = el('div', 'top');
-    top.append(el('span', 'pill' + (s.cost === 'SPENDS' ? ' warn' : ''), s.cost));
-    top.append(el('span', 'title', s.why));
-    row.append(top);
-
-    const cmd = el('div', 'cmd mono');
-    cmd.append(el('span', null, s.command));
-    cmd.append(copyBtn(s.command));
-    row.append(cmd);
-    row.append(el('div', 'meta', s.value));
-
-    // Actions the UI can perform directly get a button; the rest are
-    // copy-and-run, which is honest rather than pretending everything is
-    // clickable.
-    const briefMatch = /^midden brief (\S+)/.exec(s.command);
-    if (briefMatch) {
-      const b = el('button', 'btn', 'Rescue it here');
-      b.addEventListener('click', () => openModal((box) => briefForm(box, briefMatch[1])));
-      row.append(b);
-    } else {
-      const opMatch = /^midden (prune|archive|reclaim|refine|catalog)\b/.exec(s.command);
-      if (opMatch && ACTIONS.some((a) => a.op === opMatch[1])) {
-        const act = ACTIONS.find((a) => a.op === opMatch[1]);
-        const b = el('button', 'btn', 'Do it here');
-        b.addEventListener('click', () => openModal((box) => act.build(box, act)));
-        row.append(b);
-      }
-    }
-    list.append(row);
-  });
-}
-
-async function loadIntegrationPrompt() {
-  const panel = $('#integration-setup-prompt');
-  const copy = $('#integration-setup-copy');
-  try {
-    const items = await get('/api/integrations');
-    const unconfigured = items.filter((item) => item.state === 'not_set_up');
-    const legacy = items.filter((item) => item.state === 'legacy');
-    if (!unconfigured.length && !legacy.length) {
-      panel.hidden = true;
-      return;
-    }
-    panel.hidden = false;
-    if (legacy.length) {
-      copy.textContent = 'Midden found an older advanced integration setup. Adopt it into Settings to manage it without editing files.';
-    } else {
-      copy.textContent = 'Connect a local knowledge notebook or video-production workspace when you are ready. Setup is optional and stays on this machine.';
-    }
-  } catch {
-    panel.hidden = true;
-  }
-}
-
-$('#open-integrations').addEventListener('click', () => show('integrations'));
-
-// briefForm rescues a session that is past the resume cliff.
-//
-// This is the action the tool ranks above every other, and it used to be the
-// only one you could not perform here — the most urgent thing in the product
-// was a string to copy into a terminal. It is free, read-only and
-// deterministic, so it runs on open rather than making you ask twice.
-function briefForm(box, sessionID) {
-  box.append(costHeading({ costly: false, title: 'Rescue this session' }));
-  box.append(el('p', 'note',
-    'Reads the transcript and writes a paste-able prompt that carries the work '
-    + 'into a fresh session. Nothing is modified, and no model is called.'));
-
-  const out = el('div', 'result');
-  out.append(el('p', 'note', 'reading transcript...'));
-  box.append(out);
-
-  post('/api/action', { op: 'brief', session_id: sessionID, apply: false })
-    .then((job) => pollJob(job.id, (j) => {
-      out.replaceChildren(el('p', 'note', j.progress || 'working...'));
-    }))
-    .then((done) => {
-      const r = (done && done.result) || {};
-      if (!r.body) throw new Error(done && done.error ? done.error : 'no brief produced');
-
-      out.replaceChildren();
-      out.append(el('p', 'note',
-        `${r.user_turns} user turn(s) recovered from ${r.records} records \u00b7 ${r.dir || ''}`));
-      if (r.warning) out.append(el('p', 'warn-note', r.warning));
-
-      const pre = el('pre', 'brief-body mono');
-      pre.textContent = r.body;
-      out.append(pre);
-
-      const bar = el('div', 'modal-foot');
-      // Say where it was kept. A rescue you cannot find again is one you
-      // have to redo.
-      bar.append(el('span', 'foot-note', r.saved
-        ? 'Saved \u2014 also on the Artifacts tab. Paste it into a new session in that workspace.'
-        : 'Paste this into a new session in that workspace to continue the work.'));
-      const copy = el('button', 'btn primary', 'Copy handoff');
-      copy.addEventListener('click', async () => {
-        await navigator.clipboard.writeText(r.body);
-        toast('Handoff copied \u2014 paste it into a fresh session');
-      });
-      bar.append(copy);
-      out.append(bar);
-    })
-    .catch((e) => out.replaceChildren(el('p', 'bad', e.message)));
-}
-
-// costHeading puts the cost class on the dialog itself.
-//
-// The badge was on the card behind the dialog and nowhere inside it, so the
-// one fact worth knowing disappeared at the exact moment of committing, and a
-// free action and a paid one looked identical.
-function costHeading(action) {
-  const h = el('h2');
-  h.append(el('span', 'pill' + (action.costly ? ' warn' : ''), action.costly ? 'SPENDS' : 'FREE'));
-  h.append(el('span', 'h2-text', action.title));
-  return h;
-}
-
-function field(label, node) {
-  const w = el('label', 'field');
-  w.append(el('span', null, label));
-  w.append(node);
-  return w;
-}
-
-function scopeForm(box, action) {
-  box.append(costHeading(action));
-  box.append(el('p', 'note', action.blurb));
-
-  const ws = el('input');
-  ws.type = 'text';
-  ws.placeholder = 'e.g. orvantix (blank = all)';
-
-  const days = el('select');
-  [['', 'any time'], ['7', 'last 7 days'], ['14', 'last 14 days'], ['30', 'last 30 days']]
-    .forEach(([v, t]) => { const o = el('option', null, t); o.value = v; days.append(o); });
-  days.value = action.op === 'reclaim' ? '7' : '';
-
-  const tool = el('select');
-  [['', 'all tools'], ['copilot', 'copilot'], ['claude', 'claude'], ['opencode', 'opencode']]
-    .forEach(([v, t]) => { const o = el('option', null, t); o.value = v; tool.append(o); });
-
-  box.append(field('Workspace contains', ws));
-  box.append(field('Time range', days));
-  box.append(field('Tool', tool));
-
-  const out = el('div', 'result');
-  box.append(out);
-
-  const bar = el('div', 'modal-foot');
-  const preview = el('button', 'btn primary', action.costly ? 'Estimate cost' : 'Preview');
-  const run = el('button', 'btn', 'Run');
-  run.disabled = true;
-  // Run is gated behind a preview, which is the safest thing this dialog
-  // does — but a greyed button with no explanation reads as broken rather
-  // than as protection, so say what unlocks it.
-  run.title = action.costly
-    ? 'Estimate the cost first — the estimate is free'
-    : 'Preview first — nothing is written until you do';
-  bar.append(el('span', 'foot-note', action.costly
-    ? 'The estimate is free. Nothing is charged until you press Run.'
-    : 'Preview is free and writes nothing. Nothing changes until you press Run.'));
-  bar.append(preview, run);
-  box.append(bar);
-
-  const req = () => ({
-    op: action.op,
-    workspace: ws.value.trim(),
-    days: parseInt(days.value || '0', 10),
-    tool: tool.value,
-  });
-
-  preview.addEventListener('click', async () => {
-    out.replaceChildren(el('p', 'note', 'checking...'));
-    try {
-      const job = await post('/api/action', { ...req(), apply: false });
-      const done = await pollJob(job.id, (j) => {
-        out.replaceChildren(el('p', 'note', j.progress || 'working...'));
-      });
-      renderPreview(out, done, action);
-      // The preview has been seen, so Run becomes the primary action and the
-      // preview steps back. Emphasis follows what is now safe to do.
-      run.disabled = false;
-      run.className = 'btn primary';
-      preview.className = 'btn';
-    } catch (e) {
-      out.replaceChildren(el('p', 'bad', e.message));
-    }
-  });
-
-  run.addEventListener('click', async () => {
-    if (action.op === 'archive' && !confirm('Archive moves transcripts out of the tool\u2019s path. Continue?')) return;
-    run.disabled = true;
-    try {
-      const job = await post('/api/action', { ...req(), apply: true, confirm: true });
-      closeModal();
-      show('do');
-      trackJob(job.id);
-      toast('Started \u2014 progress below');
-    } catch (e) {
-      out.replaceChildren(el('p', 'bad', e.message));
-      run.disabled = false;
-    }
-  });
-}
-
-function refineForm(box, action) {
-  box.append(el('h2', null, action.title));
-
-  const ws = el('input');
-  ws.type = 'text';
-  ws.placeholder = 'workspace (blank = all evidence)';
-  box.append(field('Evidence from', ws));
-
-  const list = el('div', 'template-list');
-  box.append(el('p', 'note', 'loading what your evidence supports...'));
-  box.append(list);
-
-  const out = el('div', 'result');
-  box.append(out);
-
-  const bar = el('div', 'modal-foot');
-  const preview = el('button', 'btn', 'Estimate cost');
-  const run = el('button', 'btn primary', 'Write');
-  run.disabled = true;
-  bar.append(preview, run);
-  box.append(bar);
-
-  const chosen = new Set();
-  get('/api/templates').then((d) => {
-    list.replaceChildren();
-    if (!d.nuggets) {
-      list.append(el('p', 'bad', 'No nuggets yet \u2014 run "Mine sessions" first.'));
-      return;
-    }
-    d.templates.forEach((t) => {
-      const row = el('label', 'tpl' + (t.supported ? '' : ' unsupported'));
-      const cb = el('input');
-      cb.type = 'checkbox';
-      cb.disabled = !t.supported;
-      cb.addEventListener('change', () => {
-        cb.checked ? chosen.add(t.name) : chosen.delete(t.name);
-      });
-      row.append(cb);
-      const txt = el('div');
-      txt.append(el('strong', null, t.title));
-      txt.append(el('div', 'meta', t.supported ? t.why : 'not enough evidence yet'));
-      row.append(txt);
-      list.append(row);
-    });
-  });
-
-  const req = () => ({
-    op: 'refine', workspace: ws.value.trim(), templates: [...chosen],
-  });
-
-  preview.addEventListener('click', async () => {
-    if (!chosen.size) { out.replaceChildren(el('p', 'bad', 'Choose at least one.')); return; }
-    out.replaceChildren(el('p', 'note', 'estimating...'));
-    try {
-      const job = await post('/api/action', { ...req(), apply: false });
-      const done = await pollJob(job.id);
-      renderPreview(out, done, action);
-      run.disabled = false;
-    } catch (e) {
-      out.replaceChildren(el('p', 'bad', e.message));
-    }
-  });
-
-  run.addEventListener('click', async () => {
-    run.disabled = true;
-    try {
-      const job = await post('/api/action', { ...req(), apply: true });
-      closeModal();
-      show('do');
-      trackJob(job.id);
-      toast('Writing \u2014 progress below');
-    } catch (e) {
-      out.replaceChildren(el('p', 'bad', e.message));
-      run.disabled = false;
-    }
-  });
-}
-
-function renderPreview(out, job, action) {
-  out.replaceChildren();
-  if (job.status === 'failed') {
-    out.append(el('p', 'bad', job.error));
-    return;
-  }
-  const r = job.result || {};
-
-  if (r.estimate_text) {
-    const p = el('div', 'estimate');
-    p.append(el('div', 'k', 'Estimated cost'));
-    p.append(el('div', 'v', r.estimate_text));
-    if (r.sessions) p.append(el('div', 'meta', `${r.sessions} session(s) in scope`));
-    if (r.artifacts) p.append(el('div', 'meta', `${r.artifacts} artifact(s) from ${r.nuggets} nuggets`));
-    out.append(p);
-    out.append(el('p', 'note', 'Costs your existing CLI seat \u2014 no API key, no separate bill.'));
-    return;
-  }
-
-  if (r.rows) {
-    out.append(el('p', null,
-      `${r.rows.length} transcript(s) \u2014 about ${bytes(r.total_saved)} recoverable.`));
-    const t = el('table');
-    r.rows.slice(0, 8).forEach((row) => {
-      const tr = el('tr');
-      tr.append(el('td', null, row.session.title.slice(0, 34)));
-      tr.append(el('td', 'meta', bytes(row.before)));
-      tr.append(el('td', null, '\u2192 ' + bytes(row.after)));
-      tr.append(el('td', 'good', bytes(row.saved)));
-      t.append(tr);
-    });
-    out.append(t);
-    out.append(el('p', 'note', 'Originals are never modified. Pruned copies are written separately and verified.'));
-  }
-}
-
-// ---- jobs -------------------------------------------------------------------
-
-const tracked = new Set();
-
-function trackJob(id) {
-  tracked.add(id);
-  refreshJobs();
-  pollJob(id, null, true);
-}
-
-async function pollJob(id, onProgress, redraw) {
-  for (;;) {
-    const j = await get('/api/job-status?id=' + encodeURIComponent(id))
-      .catch(() => get('/api/jobs?id=' + encodeURIComponent(id)));
-    if (onProgress) onProgress(j);
-    if (redraw) refreshJobs();
-    if (j.status === 'done' || j.status === 'failed') {
-      if (redraw) {
-        toast(j.status === 'done' ? 'Finished' : 'Failed: ' + j.error,
-              j.status === 'done' ? 'good' : 'bad');
-      }
-      return j;
-    }
-    await new Promise((r) => setTimeout(r, 1200));
-  }
-}
-
-async function refreshJobs() {
-  let jobs = [];
-  try { jobs = await get('/api/jobs'); } catch { return; }
-
-  const panel = $('#job-panel');
-  const list = $('#job-list');
-  const active = jobs.filter((j) => j.status === 'running' || j.status === 'queued' || tracked.has(j.id));
-  if (!active.length) { panel.hidden = true; return; }
-
-  panel.hidden = false;
-  list.replaceChildren();
-  active.slice(0, 8).forEach((j) => {
-    const d = el('div', 'job ' + j.status);
-    const top = el('div', 'top');
-    top.append(el('span', 'pill', j.op));
-    top.append(el('span', 'title', j.scope));
-    top.append(el('span', 'meta', j.status));
-    d.append(top);
-    if (j.progress) d.append(el('div', 'meta', j.progress));
-    if (j.error) d.append(el('div', 'bad', j.error));
-
-    if (j.cost && j.cost.usage) {
-      const u = j.cost.usage;
-      const charge = u.aiu ? u.aiu.toFixed(1) + ' AIU'
-                   : u.usd ? '$' + u.usd.toFixed(2)
-                   : tok(u.input_tokens + u.output_tokens + u.cache_read_tokens + u.cache_write_tokens) + ' tok';
-      d.append(el('div', 'cost-line',
-        `cost ${charge} \u00b7 ${j.cost.items} item(s) \u00b7 ${Math.round((u.duration_ms || 0) / 1000)}s`));
-    }
-    if (j.result && j.result.count) d.append(el('div', 'good', `${j.result.count} nugget(s) stored`));
-    if (j.result && j.result.written) d.append(el('div', 'good', `${j.result.written} artifact(s) written`));
-    if (j.result && j.result.total_saved) d.append(el('div', 'good', `${bytes(j.result.total_saved)} recovered`));
-    list.append(d);
-  });
-}
-
-setInterval(() => { if ($('#do').classList.contains('active')) refreshJobs(); }, 2500);
-
-// ---- drawer: session detail + resume composer -------------------------------
-
-$('#drawer-close').addEventListener('click', () => { $('#drawer').hidden = true; });
-
-async function openSession(id) {
-  const drawer = $('#drawer');
-  const body = $('#drawer-body');
-  body.replaceChildren(el('p', 'note', 'loading...'));
-  drawer.hidden = false;
-
-  try {
-    const d = await get('/api/session?id=' + encodeURIComponent(id));
-    const s = d.session;
-    body.replaceChildren();
-
-    body.append(el('h2', null, s.title));
-    const meta = el('p', 'meta');
-    meta.append(el('span', 'tool ' + s.tool, s.tool), document.createTextNode('  ' + s.id));
-    body.append(meta);
-    body.append(el('p', 'meta', s.dir));
-
-    const facts = el('table');
-    const addRow = (k, v) => {
-      const tr = el('tr');
-      tr.append(el('td', 'meta', k), el('td', null, v));
-      facts.append(tr);
-    };
-    addRow('last touched', s.age + ' ago');
-    if (s.span_days >= 1) addRow('span', s.span_days + ' days');
-    if (s.turns) addRow('turns', String(s.turns));
-    if (s.bytes) addRow('transcript', bytes(s.bytes) + ' (' + s.risk + ')');
-    if (s.live) addRow('status', 'open right now \u2014 do not resume');
-    if (!s.dir_exists) addRow('workspace', 'MISSING');
-    body.append(facts);
-
-    // Resume composer: set an instruction, get a one-liner, copy it.
-    body.append(el('h2', null, 'Resume'));
-    const instr = el('textarea');
-    instr.placeholder = 'optional instruction to deliver on resume, e.g. "re-run the audit, writing incrementally"';
-    instr.rows = 2;
-    body.append(instr);
-
-    const cmdBox = el('pre', 'mono');
-    cmdBox.textContent = s.resume;
-    body.append(cmdBox);
-
-    const bar = el('div', 'row-actions');
-    const build = el('button', 'btn', 'Build command');
-    build.addEventListener('click', async () => {
-      try {
-        const r = await get('/api/resume?id=' + encodeURIComponent(s.id) +
-          '&instruction=' + encodeURIComponent(instr.value));
-        cmdBox.textContent = r.command;
-        warnBox.replaceChildren();
-        (r.warnings || []).forEach((w) => warnBox.append(el('div', 'bad', w)));
-        copyWrap.replaceChildren(copyBtn(r.command, 'copy command'));
-      } catch (e) { toast(e.message, 'bad'); }
-    });
-    const copyWrap = el('span');
-    copyWrap.append(copyBtn(s.resume, 'copy command'));
-    bar.append(build, copyWrap);
-    body.append(bar);
-
-    const warnBox = el('div');
-    body.append(warnBox);
-    if (s.live) warnBox.append(el('div', 'bad', 'This session is open right now \u2014 switch to that terminal instead.'));
-    if (s.risk === 'critical') warnBox.append(el('div', 'bad', 'Past the resume cliff \u2014 prefer a handoff brief.'));
-
-    // Per-session actions.
-    const acts = el('div', 'row-actions');
-
-    // Depth is explicit because the three levels have three different prices,
-    // and a single "summarise" button would hide that.
-    const sum = el('button', 'btn', 'Summarise');
-    sum.addEventListener('click', () => {
-      $('#drawer').hidden = true;
-      openModal((bx) => summarizeForm(bx, s));
-    });
-    acts.append(sum);
-
-    const mine = el('button', 'btn primary', 'Mine this session');
-    mine.addEventListener('click', () => {
-      $('#drawer').hidden = true;
-      openModal((bx) => sessionActionForm(bx, s, 'reclaim'));
-    });
-    acts.append(mine);
-
-    if (s.bytes > 20 * 1024 * 1024) {
-      const pr = el('button', 'btn', 'Preview prune');
-      pr.addEventListener('click', () => {
-        $('#drawer').hidden = true;
-        openModal((bx) => sessionActionForm(bx, s, 'prune'));
-      });
-      acts.append(pr);
-    }
-    body.append(acts);
-
-    if (d.harvest) {
-      const h = d.harvest;
-      if (h.goal) {
-        body.append(el('h2', null, 'Original goal'));
-        body.append(el('pre', null, h.goal.text));
-      }
-      if (h.recent && h.recent.length) {
-        body.append(el('h2', null, 'Recent exchanges'));
-        h.recent.forEach((t) => {
-          const d2 = el('div', 'turn ' + (t.role === 'user' ? 'user' : ''));
-          d2.append(el('div', 'who', t.role));
-          d2.append(el('div', null, (t.text || '').slice(0, 1400)));
-          body.append(d2);
-        });
-      }
-    }
-  } catch (e) {
-    body.replaceChildren(el('p', 'bad', 'failed: ' + e.message));
-  }
-}
-
-// summarizeForm lets the operator pick how hard to look, with the price of
-// each depth stated before the choice is made.
-function summarizeForm(box, s) {
-  const DEPTHS = [
-    { name: 'shallow', label: 'Shallow', spends: false,
-      desc: 'The original ask and where it left off, quoted directly. No model call.' },
-    { name: 'deep', label: 'Deep', spends: true,
-      desc: 'Synthesised across the whole session: what was decided, what was tried, where it ended.' },
-    { name: 'xray', label: 'X-ray', spends: true,
-      desc: 'Read against the workspace it changed — claims checked against git rather than repeated.' },
-  ];
-
-  box.append(el('h2', null, 'Summarise'));
-  box.append(el('p', 'note', s.title));
-
-  let chosen = 'shallow';
-  const picker = el('div', 'depths');
-  DEPTHS.forEach((d) => {
-    const row = el('label', 'depth' + (d.name === 'shallow' ? ' on' : ''));
-    const radio = el('input');
-    radio.type = 'radio';
-    radio.name = 'depth';
-    radio.checked = d.name === 'shallow';
-    radio.addEventListener('change', () => {
-      chosen = d.name;
-      picker.querySelectorAll('.depth').forEach((x) => x.classList.remove('on'));
-      row.classList.add('on');
-      out.replaceChildren();
-      run.textContent = d.spends ? 'Run' : 'Show';
-      run.disabled = d.spends;
-      estimate.disabled = !d.spends;
-    });
-    row.append(radio);
-    const txt = el('div');
-    const head = el('div', 'head');
-    head.append(el('strong', null, d.label));
-    head.append(el('span', 'pill' + (d.spends ? ' warn' : ''), d.spends ? 'SPENDS' : 'FREE'));
-    txt.append(head);
-    txt.append(el('div', 'meta', d.desc));
-    row.append(txt);
-    picker.append(row);
-  });
-  box.append(picker);
-
-  const out = el('div', 'result');
-  box.append(out);
-
-  const bar = el('div', 'modal-foot');
-  const estimate = el('button', 'btn', 'Estimate cost');
-  estimate.disabled = true;
-  const run = el('button', 'btn primary', 'Show');
-  bar.append(estimate, run);
-  box.append(bar);
-
-  estimate.addEventListener('click', async () => {
-    out.replaceChildren(el('p', 'note', 'gathering evidence...'));
-    try {
-      const job = await post('/api/action',
-        { op: 'summarize', session_id: s.id, depth: chosen, apply: false });
-      const done = await pollJob(job.id, (j) =>
-        out.replaceChildren(el('p', 'note', j.progress || 'working...')));
-      const r = done.result || {};
-      out.replaceChildren();
-      const p = el('div', 'estimate reveal');
-      p.append(el('div', 'k', 'Estimated cost'));
-      p.append(el('div', 'v', r.estimate_text || '—'));
-      p.append(el('div', 'meta', r.describe || ''));
-      out.append(p);
-      out.append(el('p', 'note', 'Shallow is free and often enough — try it first.'));
-      run.disabled = false;
-    } catch (e) { out.replaceChildren(el('p', 'bad', e.message)); }
-  });
-
-  run.addEventListener('click', async () => {
-    run.disabled = true;
-    out.replaceChildren(el('p', 'note', 'working...'));
-    try {
-      const job = await post('/api/action',
-        { op: 'summarize', session_id: s.id, depth: chosen, apply: true });
-      const done = await pollJob(job.id, (j) =>
-        out.replaceChildren(el('p', 'note', j.progress || 'working...')));
-      out.replaceChildren();
-      if (done.status === 'failed') { out.append(el('p', 'bad', done.error)); return; }
-
-      const r = done.result || {};
-      const card = el('div', 'answer reveal');
-      card.append(markdown(r.body || ''));
-      if (done.cost && done.cost.usage) card.append(costLine(done.cost));
-      else if (r.free) card.append(el('div', 'meta', 'free — no model was called'));
-      card.append(copyBtn(r.body || '', 'copy markdown'));
-      out.append(card);
-    } catch (e) {
-      out.replaceChildren(el('p', 'bad', e.message));
-    } finally { run.disabled = false; }
-  });
-}
-
-function sessionActionForm(box, s, op) {
-  const action = ACTIONS.find((a) => a.op === op);
-  box.append(el('h2', null, action.title));
-  box.append(el('p', 'note', s.title));
-
-  const out = el('div', 'result');
-  box.append(out);
-
-  const bar = el('div', 'modal-foot');
-  const preview = el('button', 'btn', op === 'reclaim' ? 'Estimate cost' : 'Preview');
-  const run = el('button', 'btn primary', 'Run');
-  run.disabled = true;
-  bar.append(preview, run);
-  box.append(bar);
-
-  const req = { op, session_id: s.id };
-
-  preview.addEventListener('click', async () => {
-    out.replaceChildren(el('p', 'note', 'checking...'));
-    try {
-      const job = await post('/api/action', { ...req, apply: false });
-      renderPreview(out, await pollJob(job.id), action);
-      run.disabled = false;
-    } catch (e) { out.replaceChildren(el('p', 'bad', e.message)); }
-  });
-
-  run.addEventListener('click', async () => {
-    run.disabled = true;
-    try {
-      const job = await post('/api/action', { ...req, apply: true, confirm: true });
-      closeModal();
-      show('do');
-      trackJob(job.id);
-      toast('Started');
-    } catch (e) { out.replaceChildren(el('p', 'bad', e.message)); run.disabled = false; }
-  });
-}
-
-// ---- overview ---------------------------------------------------------------
-
-loaders.overview = async () => {
-  const cards = $('#stat-cards');
-  cards.replaceChildren();
-
-  let h;
-  try { h = await get('/api/health'); }
-  catch (e) { cards.append(el('p', 'bad', 'failed: ' + e.message)); return; }
-
-  const card = (k, v, n) => {
-    const c = el('div', 'card');
-    c.append(el('div', 'k', k), el('div', 'v', v));
-    if (n) c.append(el('div', 'n', n));
-    return c;
-  };
-  const tools = Object.entries(h.by_tool || {}).map(([t, n]) => `${t} ${n}`).join(' \u00b7 ');
-  const nugTotal = Object.values(h.nuggets || {}).reduce((a, b) => a + b, 0);
-
-  cards.append(
-    card('on disk', h.footprint_pending ? 'measuring…' : bytes(h.footprint), tools),
-    card('sessions', h.sessions, [
-      (h.dead_workspaces || 0) + ' dead workspaces',
-      indexAge(h.indexed_at),
-    ].filter(Boolean).join(' \u00b7 ')),
-    card('open now', h.live, 'live terminals'),
-    card('at risk', (h.at_risk || []).length, 'may fail to resume'),
-    card('nuggets', nugTotal, 'reclaimed')
-  );
-
-  const riskPanel = $('#risk-panel');
-  const riskList = $('#risk-list');
-  riskList.replaceChildren();
-  if ((h.at_risk || []).length) {
-    riskPanel.hidden = false;
-    h.at_risk.forEach((s) => riskList.append(sessionRow(s)));
-  } else { riskPanel.hidden = true; }
-
-  const bars = $('#assay-bars');
-  try {
-    const a = await get('/api/assay');
-    if (!a.assayed) return;
-    bars.replaceChildren();
-    const total = a.bytes || 1;
-    const bar = el('div', 'bar');
-    ['signal', 'exhaust', 'artifact', 'bookkeeping'].forEach((k) => {
-      const sp = el('span', k);
-      sp.style.width = (100 * (a[k] || 0) / total) + '%';
-      bar.append(sp);
-    });
-    bars.append(bar);
-
-    const legend = el('div', 'legend');
-    [['signal', '#6ee7b7'], ['exhaust', '#48536b'], ['artifact', '#58c4dd'], ['bookkeeping', '#333c4d']]
-      .forEach(([k, c]) => {
-        const item = el('span');
-        const i = el('i');
-        i.style.background = c;
-        item.append(i, document.createTextNode(
-          `${k} ${bytes(a[k] || 0)} (${(100 * (a[k] || 0) / total).toFixed(1)}%)`));
-        legend.append(item);
-      });
-    bars.append(legend);
-    bars.append(el('p', 'note',
-      `${bytes(a.reclaimable)} reclaimable \u00b7 ${a.compression}x compression \u00b7 ` +
-      `${a.images} images in ${a.image_clusters} clusters \u00b7 ${a.assayed} of ${a.sessions} assayed`));
-  } catch { /* index not built */ }
-};
-
-// ---- sessions ---------------------------------------------------------------
-
-function sessionRow(s) {
-  const row = el('div', 'row');
-  row.addEventListener('click', () => openSession(s.id));
-
-  const top = el('div', 'top');
-  top.append(el('span', 'tool ' + s.tool, s.tool));
-  top.append(el('span', 'title', s.title));
-  if (s.risk && s.risk !== 'ok') {
-    top.append(el('span', 'pill ' + (s.risk === 'critical' ? 'crit' : 'warn'), s.risk));
-  }
-  if (s.live) top.append(el('span', 'pill live', 'open'));
-  if (!s.dir_exists) top.append(el('span', 'pill crit', 'dir missing'));
-  if (s.span_days >= 2) top.append(el('span', 'pill', s.span_days.toFixed(0) + 'd span'));
-  top.append(el('span', 'meta', s.age + ' ago'));
-  top.append(el('span', 'meta', s.bytes ? bytes(s.bytes) : (s.turns ? s.turns + ' turns' : '')));
-  row.append(top);
-  row.append(el('div', 'dir', s.dir));
-
-  const cmd = el('div', 'cmd mono');
-  cmd.append(el('span', null, s.resume));
-  cmd.append(copyBtn(s.resume));
-  row.append(cmd);
-  return row;
-}
-
-let allSessions = [];
-let sessionStats = null;
-let sessionLimit = 400;
-
-async function loadSessions(attempt = 0) {
-  const list = $('#session-list');
-  const summary = $('#session-summary');
-  list.replaceChildren(el('p', 'note', 'loading...'));
-  summary.textContent = '';
-
-  const p = new URLSearchParams();
-  if ($('#f-tool').value) p.set('tool', $('#f-tool').value);
-  if ($('#f-days').value) p.set('days', $('#f-days').value);
-  if ($('#f-all').checked) p.set('all', '1');
-  if (sessionLimit > 0) p.set('limit', String(sessionLimit));
-
-  try {
-    const query = p.toString();
-    const [sessionResponse, statsResponse] = await Promise.all([
-      getWithSnapshot('/api/sessions?' + query),
-      getWithSnapshot('/api/session-stats?' + query),
-    ]);
-    if (sessionResponse.snapshot !== statsResponse.snapshot) {
-      // A refresh invalidated the cache between the two requests. Retry once
-      // against the new generation; persistent churn is surfaced instead of
-      // recursively fetching forever.
-      if (attempt === 0) return loadSessions(1);
-      throw new Error('data changed while loading; retry');
-    }
-    allSessions = sessionResponse.data;
-    sessionStats = statsResponse.data;
-    renderSessions();
-  } catch (e) {
-    sessionStats = null;
-    list.replaceChildren(el('p', 'bad', 'failed: ' + e.message));
-  }
-}
-
-function groupKey(s, mode) {
-  if (mode === 'tool') return s.tool;
-  if (mode === 'workspace') return s.dir || '(none)';
-  if (mode === 'drive') {
-    const m = /^([A-Za-z]:)/.exec(s.dir || '');
-    return m ? m[1] : (s.dir || '').split('/')[1] || '(root)';
-  }
-  return '';
-}
-
-function renderSessions() {
-  const list = $('#session-list');
-  const summary = $('#session-summary');
-  const q = $('#f-search').value.toLowerCase();
-  const mode = $('#f-group').value;
-  const rows = allSessions.filter((s) => !q || (s.title + ' ' + s.dir).toLowerCase().includes(q));
-
-  list.replaceChildren();
-  renderSessionSummary(summary, rows.length, q);
-  if (!rows.length) { list.append(el('p', 'empty', 'no sessions match')); return; }
-
-  if (!mode) { rows.forEach((s) => list.append(sessionRow(s))); return; }
-
-  const groups = new Map();
-  rows.forEach((s) => {
-    const k = groupKey(s, mode);
-    if (!groups.has(k)) groups.set(k, []);
-    groups.get(k).push(s);
-  });
-
-  [...groups.entries()]
-    .sort((a, b) => b[1].length - a[1].length)
-    .forEach(([k, items]) => {
-      const totalBytes = items.reduce((n, s) => n + (s.bytes || 0), 0);
-      const h = el('div', 'group-head');
-      h.append(el('span', 'title', k));
-      h.append(el('span', 'meta', `${items.length} session(s) \u00b7 ${bytes(totalBytes)}`));
-      list.append(h);
-      items.forEach((s) => list.append(sessionRow(s)));
-    });
-}
-
-loaders.sessions = loadSessions;
-['#f-tool', '#f-days', '#f-all'].forEach((s) => $(s).addEventListener('change', () => {
-  sessionLimit = 400;
-  loadSessions();
-}));
-$('#f-group').addEventListener('change', renderSessions);
-$('#f-search').addEventListener('input', renderSessions);
-
-function renderSessionSummary(summary, shown, search) {
-  if (!sessionStats) return;
-
-  const stats = sessionStats;
-  const parts = [];
-  parts.push(search ? `${shown} shown after text filter` : `${shown} shown`);
-  parts.push(`${stats.matching} in this range`);
-  if (!$('#f-all').checked && stats.hidden_noise > 0) {
-    parts.push(`${stats.hidden_noise} automated hidden`);
-  }
-  if (stats.truncated) {
-    parts.push(`${stats.target - stats.returned} not loaded`);
-  }
-  parts.push(`${stats.total} indexed total`);
-  const age = indexAge(stats.indexed_at);
-  if (age) parts.push(age);
-  summary.replaceChildren(document.createTextNode(parts.join(' · ')));
-
-  if (stats.truncated && sessionLimit > 0) {
-    const loadAll = el('button', 'btn', `Load all ${stats.target}`);
-    loadAll.addEventListener('click', () => {
-      sessionLimit = 0;
-      loadSessions();
-    });
-    summary.append(document.createTextNode(' '), loadAll);
-  }
-}
-
-// ---- nuggets ----------------------------------------------------------------
-
-async function loadNuggets() {
-  const list = $('#nugget-list');
-  list.replaceChildren(el('p', 'note', 'loading...'));
-  const p = new URLSearchParams();
-  if ($('#n-kind').value) p.set('kind', $('#n-kind').value);
-  if ($('#n-search').value) p.set('search', $('#n-search').value);
-
-  try {
-    const ns = await get('/api/nuggets?' + p.toString());
-    list.replaceChildren();
-    if (!ns || !ns.length) {
-      const e = el('p', 'empty', 'No nuggets yet. ');
-      const b = el('button', 'btn primary', 'Mine some sessions');
-      b.addEventListener('click', () => show('do'));
-      e.append(b);
-      list.append(e);
-      return;
-    }
-    ns.forEach((n) => {
-      const d = el('div', 'nugget');
-      d.append(el('h3', null, n.title));
-      d.append(el('p', null, n.body));
-      const m = el('div', 'meta');
-      m.append(el('span', 'pill', n.kind));
-      m.append(document.createTextNode(
-        ` ${Math.round((n.confidence || 0) * 100)}% \u00b7 ${(n.session_id || '').slice(0, 8)} \u00b7 ${n.workspace || ''} \u00b7 ${n.model || ''}`));
-      if (n.redacted) m.append(el('span', 'pill warn', 'redacted'));
-      m.append(copyBtn(n.title + '\n\n' + n.body, 'copy'));
-      d.append(m);
-      list.append(d);
-    });
-  } catch (e) {
-    list.replaceChildren(el('p', 'bad', 'failed: ' + e.message));
-  }
-}
-
-loaders.nuggets = loadNuggets;
-$('#n-kind').addEventListener('change', loadNuggets);
-$('#n-search').addEventListener('input', () => {
-  clearTimeout(window.__nt);
-  window.__nt = setTimeout(loadNuggets, 220);
-});
-
-// ---- artifacts --------------------------------------------------------------
-
-loaders.artifacts = async () => {
-  const list = $('#artifact-list');
-  list.replaceChildren(el('p', 'note', 'loading...'));
-  try {
-    const as = await get('/api/artifacts');
-    list.replaceChildren();
-    if (!as || !as.length) {
-      const e = el('p', 'empty', 'Nothing written yet. ');
-      const b = el('button', 'btn primary', 'Write something');
-      b.addEventListener('click', () => show('do'));
-      e.append(b);
-      list.append(e);
-      return;
-    }
-    as.forEach((a) => {
-      const d = el('div', 'row');
-      const top = el('div', 'top');
-      top.append(el('span', 'pill', a.kind));
-      top.append(el('span', 'title', a.title));
-      top.append(el('span', 'meta', new Date(a.created_at).toLocaleString()));
-      d.append(top);
-      const p = el('div', 'cmd mono');
-      p.append(el('span', null, a.path));
-      p.append(copyBtn(a.path, 'copy path'));
-      d.append(p);
-      const meta = el('div', 'meta',
-        `${(a.nugget_ids || []).length} nuggets \u00b7 ${a.model || ''}`);
-      d.append(meta);
-
-      // A path is not the document. Reading back what midden wrote used to
-      // mean leaving the tool and opening a file.
-      const read = el('button', 'btn', 'Read');
-      read.addEventListener('click', () => openModal((box) => artifactReader(box, a)));
-      d.append(read);
-
-      list.append(d);
-    });
-  } catch (e) {
-    list.replaceChildren(el('p', 'bad', 'failed: ' + e.message));
-  }
-};
-
-// ---- integrations -----------------------------------------------------------
-
-const integrationStates = {
-  not_set_up: 'Not set up',
-  ready_to_test: 'Ready to test',
-  connected: 'Connected',
-  needs_attention: 'Needs attention',
-  turned_off: 'Turned off',
-  legacy: 'Advanced setup found',
-};
-
-function integrationStateClass(state) {
-  if (state === 'connected') return 'live';
-  if (state === 'needs_attention') return 'crit';
-  if (state === 'not_set_up' || state === 'ready_to_test' || state === 'legacy') return 'warn';
-  return '';
-}
-
-function externalLink(label, href) {
-  const link = el('a', 'btn', label);
-  link.href = href;
-  link.target = '_blank';
-  link.rel = 'noopener noreferrer';
-  return link;
-}
-
-function integrationLastVerified(item) {
-  if (!item.last_verified) return '';
-  const when = new Date(item.last_verified);
-  if (isNaN(when.getTime())) return '';
-  return `Last verified ${when.toLocaleString()}`;
-}
-
-async function loadIntegrations() {
-  const list = $('#integration-list');
-  list.replaceChildren(el('p', 'note', 'loading optional tools...'));
-  try {
-    const integrations = await get('/api/integrations');
-    list.replaceChildren();
-    if (!integrations.length) {
-      list.append(el('p', 'empty', 'No optional tools are available in this build.'));
-      return;
-    }
-    integrations.forEach((item) => list.append(integrationCard(item)));
-  } catch (e) {
-    list.replaceChildren(el('p', 'bad', 'failed: ' + e.message));
-  }
-}
-
-loaders.integrations = () => loadIntegrations(false);
-
-function advancedPluginRow(plugin) {
-  const row = el('div', 'row');
-  const top = el('div', 'top');
-  top.append(el('span', 'pill', plugin.kind || 'unknown'));
-  top.append(el('span', 'title', plugin.name || '(unnamed manifest)'));
-  top.append(el('span', 'pill' + (plugin.cost === 'spends' ? ' warn' : ''), (plugin.cost || '?').toUpperCase()));
-  const statusClass = plugin.status === 'available' ? 'live' :
-    (plugin.status === 'disabled' || plugin.status === 'not_checked' ? '' : 'crit');
-  const status = plugin.status === 'not_checked' ? 'not checked' : (plugin.status || 'invalid');
-  top.append(el('span', 'pill ' + statusClass, status));
-  row.append(top);
-  row.append(el('p', 'note', plugin.detail || 'no status detail'));
-  return row;
-}
-
-async function loadAdvancedPlugins(probe = false) {
-  const list = $('#advanced-plugin-list');
-  const button = $('#probe-advanced-plugins');
-  if (button) {
-    button.disabled = probe;
-    button.textContent = probe ? 'Checking...' : 'Check advanced configurations';
-  }
-  list.replaceChildren(el('p', 'note', probe ? 'checking advanced configurations...' : 'loading advanced configurations...'));
-  try {
-    const plugins = probe
-      ? await post('/api/plugins/probe', {})
-      : await get('/api/plugins');
-    list.replaceChildren();
-    if (!plugins.length) {
-      list.append(el('p', 'note', 'No advanced manifests are configured.'));
-      return;
-    }
-    plugins.forEach((plugin) => list.append(advancedPluginRow(plugin)));
-  } catch (e) {
-    list.replaceChildren(el('p', 'bad', 'failed: ' + e.message));
-  } finally {
-    if (button) {
-      button.disabled = false;
-      button.textContent = 'Check advanced configurations';
-    }
-  }
-}
-
-$('.advanced-config').addEventListener('toggle', (event) => {
-  if (event.currentTarget.open && !$('#advanced-plugin-list').children.length) {
-    loadAdvancedPlugins(false);
-  }
-});
-$('#probe-advanced-plugins').addEventListener('click', () => loadAdvancedPlugins(true));
-
-function integrationCard(item) {
-  const card = el('article', 'integration-card');
-  const top = el('div', 'integration-top');
-  const identity = el('div');
-  const eyebrow = el('div', 'eyebrow', item.kind === 'service' ? 'LOCAL SERVICE' : 'LOCAL CAPABILITY');
-  identity.append(eyebrow, el('h3', null, item.name));
-  top.append(identity);
-  const badges = el('div', 'integration-badges');
-  badges.append(
-    el('span', 'pill' + (item.cost === 'spends' ? ' warn' : ''), (item.cost || '?').toUpperCase()),
-    el('span', 'pill ' + integrationStateClass(item.state), integrationStates[item.state] || 'Unknown')
-  );
-  top.append(badges);
-  card.append(top);
-  card.append(el('p', 'integration-description', item.description || 'Optional local integration.'));
-  if (item.state_detail) card.append(el('p', 'note', item.state_detail));
-  const verified = integrationLastVerified(item);
-  if (verified) card.append(el('p', 'meta', verified));
-  if (item.detail) {
-    const technical = el('details', 'integration-detail');
-    technical.append(el('summary', null, 'Technical detail'));
-    technical.append(el('p', 'meta', item.detail));
-    card.append(technical);
-  }
-
-  const actions = el('div', 'integration-actions');
-  if (item.github_url) actions.append(externalLink('Official setup', item.github_url));
-  if (item.migration_pending) {
-    const finish = el('button', 'btn primary', 'Finish migration');
-    finish.addEventListener('click', () => finishIntegrationMigration(item));
-    actions.append(finish);
-  } else if (item.configuration_conflict) {
-    const remove = el('button', 'btn', 'Remove Settings and return to advanced setup');
-    remove.addEventListener('click', () => removeIntegration(item));
-    actions.append(remove);
-  } else if (item.legacy) {
-    const adopt = el('button', 'btn primary', 'Adopt into settings');
-    adopt.addEventListener('click', () => adoptIntegration(item));
-    const replace = el('button', 'btn', 'Set up in Settings');
-    replace.addEventListener('click', () => openModal((box) => configureIntegration(box, item)));
-    const test = el('button', 'btn', 'Test existing setup');
-    test.addEventListener('click', () => testIntegration(item));
-    actions.append(adopt, replace, test);
-    if (item.id === 'open-notebook' && item.state === 'connected') {
-      const send = el('button', 'btn primary', 'Send nuggets');
-      send.addEventListener('click', () => openModal((box) => openNotebookForm(box, item)));
-      actions.append(send);
-    }
-  } else if (item.state === 'not_set_up') {
-    const setup = el('button', 'btn primary', 'Set up');
-    setup.addEventListener('click', () => openModal((box) => configureIntegration(box, item)));
-    actions.append(setup);
-  } else {
-    const edit = el('button', 'btn', 'Edit setup');
-    edit.addEventListener('click', () => openModal((box) => configureIntegration(box, item)));
-    actions.append(edit);
-    if (item.state !== 'turned_off') {
-      const test = el('button', 'btn primary', 'Test connection');
-      test.addEventListener('click', () => testIntegration(item));
-      actions.append(test);
-    }
-    if (item.id === 'open-notebook' && item.state === 'connected') {
-      const send = el('button', 'btn primary', 'Send nuggets');
-      send.addEventListener('click', () => openModal((box) => openNotebookForm(box, item)));
-      actions.append(send);
-    }
-    const remove = el('button', 'btn', 'Remove setup');
-    remove.addEventListener('click', () => removeIntegration(item));
-    actions.append(remove);
-  }
-  card.append(actions);
-  return card;
-}
-
-async function adoptIntegration(item) {
-  if (!confirm(`Adopt the existing ${item.name} configuration? Midden will preserve a backup and use its settings screen from then on.`)) return;
-  try {
-    await post('/api/integrations/adopt', { id: item.id });
-    toast(`${item.name} is now managed in Settings`, 'good');
-    await loadIntegrations();
-  } catch (e) {
-    toast(e.message, 'bad');
-  }
-}
-
-async function removeIntegration(item) {
-  if (!confirm(`Remove Midden's saved ${item.name} setup? This does not uninstall the upstream tool.`)) return;
-  try {
-    await post('/api/integrations/remove', { id: item.id });
-    toast(`${item.name} setup removed`, 'good');
-    await loadIntegrations();
-  } catch (e) {
-    toast(e.message, 'bad');
-  }
-}
-
-async function finishIntegrationMigration(item) {
-  try {
-    await post('/api/integrations/finish-migration', { id: item.id });
-    toast(`${item.name} migration finished`, 'good');
-    await loadIntegrations();
-  } catch (e) {
-    toast(e.message, 'bad');
-    await loadIntegrations();
-  }
-}
-
-async function testIntegration(item) {
-  try {
-    await post('/api/integrations/test', { id: item.id });
-    await loadIntegrations();
-  } catch (e) {
-    toast(`Test failed: ${e.message}`, 'bad');
-    await loadIntegrations();
-  }
-}
-
-async function saveIntegration(settings, testAfterSave) {
-  await post('/api/integrations/configure', settings);
-  if (testAfterSave) await post('/api/integrations/test', { id: settings.id });
-  await loadIntegrations();
-}
-
-function setupFooter(box, save, saveAndTest, replaceLegacy) {
-  const bar = el('div', 'modal-foot');
-  bar.append(el('span', 'foot-note',
-    replaceLegacy
-      ? 'Saving preserves the advanced file as a backup, then uses these local Settings. It does not install, start, or contact anything.'
-      : 'Saving keeps local Midden settings only. It does not install, start, or contact anything.'));
-  const saveButton = el('button', 'btn', replaceLegacy ? 'Save and preserve backup' : 'Save setup');
-  saveButton.addEventListener('click', save);
-  const testButton = el('button', 'btn primary', 'Save and test');
-  testButton.addEventListener('click', saveAndTest);
-  bar.append(saveButton, testButton);
-  box.append(bar);
-}
-
-function configureIntegration(box, item) {
-  if (item.id === 'open-notebook') return configureOpenNotebook(box, item);
-  if (item.id === 'openmontage') return configureOpenMontage(box, item);
-  box.append(el('p', 'bad', 'This integration does not yet have a settings form.'));
-}
-
-function configureOpenNotebook(box, item) {
-  box.append(costHeading({ costly: false, title: 'Set up Open Notebook' }));
-  box.append(el('p', 'note',
-    'Open Notebook owns its own notebooks and models. Midden only sends selected, redacted nuggets after you ask it to.'));
-  if (item.install_summary) box.append(el('p', 'note', item.install_summary));
-  if (item.github_url) box.append(externalLink('Open official Open Notebook setup', item.github_url));
-
-  const settings = item.settings || {};
-  const api = el('input');
-  api.type = 'text';
-  api.value = settings.api_url || 'http://127.0.0.1:5055';
-  const ui = el('input');
-  ui.type = 'text';
-  ui.value = settings.ui_url || 'http://127.0.0.1:8502';
-  const enabled = el('input');
-  enabled.type = 'checkbox';
-  enabled.checked = item.state === 'not_set_up' ? true : item.enabled;
-  const password = el('input');
-  password.type = 'checkbox';
-  password.checked = !!settings.password_required;
-  box.append(field('Local API address', api));
-  box.append(field('Open Notebook web address', ui));
-  const enabledLabel = el('label', 'check');
-  enabledLabel.append(enabled, document.createTextNode(' Enable this integration'));
-  const passwordLabel = el('label', 'check');
-  passwordLabel.append(password, document.createTextNode(' This instance requires a password'));
-  box.append(enabledLabel, passwordLabel);
-  box.append(el('p', 'note',
-    'Midden never stores an Open Notebook password. If needed, it is requested only when you send a source.'));
-
-  const out = el('div', 'result');
-  box.append(out);
-  const request = () => ({
-    id: item.id,
-    enabled: enabled.checked,
-    api_url: api.value.trim(),
-    ui_url: ui.value.trim(),
-    password_required: password.checked,
-    replace_legacy: item.legacy,
-  });
-  const save = async (testAfterSave) => {
-    out.replaceChildren(el('p', 'note', testAfterSave ? 'saving and testing...' : 'saving...'));
-    try {
-      await saveIntegration(request(), testAfterSave);
-      closeModal();
-      toast(testAfterSave ? 'Saved and tested' : 'Open Notebook setup saved', 'good');
-    } catch (e) {
-      out.replaceChildren(el('p', 'bad', e.message));
-    }
-  };
-  setupFooter(box, () => save(false), () => save(true), item.legacy);
-}
-
-function configureOpenMontage(box, item) {
-  box.append(costHeading({ costly: true, title: 'Set up OpenMontage' }));
-  box.append(el('p', 'note',
-    'OpenMontage runs from its own local repository through an agentic CLI. Its runs can spend through that CLI; setting it up is free.'));
-  if (item.install_summary) box.append(el('p', 'note', item.install_summary));
-  if (item.github_url) box.append(externalLink('Open official OpenMontage setup', item.github_url));
-
-  const settings = item.settings || {};
-  const home = el('input');
-  home.type = 'text';
-  home.placeholder = 'C:\\path\\to\\OpenMontage';
-  home.value = settings.home || '';
-  const backend = el('select');
-  [['copilot', 'Copilot CLI'], ['claude', 'Claude Code'], ['opencode', 'OpenCode']]
-    .forEach(([value, label]) => {
-      const option = el('option', null, label);
-      option.value = value;
-      backend.append(option);
-    });
-  backend.value = settings.backend || 'copilot';
-  const enabled = el('input');
-  enabled.type = 'checkbox';
-  enabled.checked = item.state === 'not_set_up' ? true : item.enabled;
-  box.append(field('OpenMontage installation folder', home));
-  box.append(field('Agent CLI', backend));
-  const enabledLabel = el('label', 'check');
-  enabledLabel.append(enabled, document.createTextNode(' Enable this integration'));
-  box.append(enabledLabel);
-  box.append(el('p', 'note',
-    'Testing reads the selected folder only after you explicitly press Save and test. It may touch a network-mounted folder.'));
-
-  const out = el('div', 'result');
-  box.append(out);
-  const request = () => ({
-    id: item.id,
-    enabled: enabled.checked,
-    home: home.value.trim(),
-    backend: backend.value,
-    replace_legacy: item.legacy,
-  });
-  const save = async (testAfterSave) => {
-    out.replaceChildren(el('p', 'note', testAfterSave ? 'saving and testing...' : 'saving...'));
-    try {
-      await saveIntegration(request(), testAfterSave);
-      closeModal();
-      toast(testAfterSave ? 'Saved and tested' : 'OpenMontage setup saved', 'good');
-    } catch (e) {
-      out.replaceChildren(el('p', 'bad', e.message));
-    }
-  };
-  setupFooter(box, () => save(false), () => save(true), item.legacy);
-}
-
-function openNotebookForm(box, integration) {
-  box.append(costHeading({ costly: false, title: 'Send nuggets to Open Notebook' }));
-  box.append(el('p', 'note',
-    'Midden sends stored, redacted nuggets only. This does not spend your Midden CLI budget; Open Notebook may use its own configured models.'));
-
-  const notebook = el('input');
-  notebook.type = 'text';
-  notebook.placeholder = 'notebook:abc123';
-  const workspace = el('input');
-  workspace.type = 'text';
-  workspace.placeholder = 'workspace filter';
-  const allWorkspaces = el('input');
-  allWorkspaces.type = 'checkbox';
-  const allLabel = el('label', 'check');
-  allLabel.append(allWorkspaces, document.createTextNode(' Include nuggets from all workspaces'));
-  box.append(field('Open Notebook ID', notebook));
-  box.append(field('Workspace', workspace));
-  box.append(allLabel);
-  const passwordRequired = !!(integration.settings && integration.settings.password_required);
-  const password = el('input');
-  password.type = 'password';
-  password.autocomplete = 'current-password';
-  if (passwordRequired) {
-    box.append(field('Open Notebook password', password));
-    box.append(el('p', 'note', 'Used for this send only; Midden does not save it.'));
-  }
-
-  const out = el('div', 'result');
-  box.append(out);
-  const bar = el('div', 'modal-foot');
-  const send = el('button', 'btn primary', 'Send');
-  send.disabled = true;
-  bar.append(el('span', 'foot-note', 'One source contains at most 100 newest matching nuggets. The destination link appears after Open Notebook accepts it.'), send);
-  box.append(bar);
-
-  const updateSend = () => {
-    workspace.disabled = allWorkspaces.checked;
-    send.disabled = !notebook.value.trim() ||
-      (!workspace.value.trim() && !allWorkspaces.checked) ||
-      (passwordRequired && !password.value);
-  };
-  notebook.addEventListener('input', updateSend);
-  workspace.addEventListener('input', updateSend);
-  password.addEventListener('input', updateSend);
-  allWorkspaces.addEventListener('change', () => {
-    if (allWorkspaces.checked) workspace.value = '';
-    updateSend();
-  });
-  send.addEventListener('click', async () => {
-    send.disabled = true;
-    out.replaceChildren(el('p', 'note', 'preparing source...'));
-    let actionPassword = password.value;
-    password.value = '';
-    try {
-      const job = await post('/api/action', {
-        op: 'open_notebook_push',
-        plugin: integration.id,
-        notebook_id: notebook.value.trim(),
-        workspace: workspace.value.trim(),
-        all_workspaces: allWorkspaces.checked,
-        open_notebook_password: actionPassword,
-      });
-      actionPassword = '';
-      const done = await pollJob(job.id, (j) => {
-        out.replaceChildren(el('p', 'note', j.progress || 'working...'));
-      });
-      if (done.status === 'failed') throw new Error(done.error || 'Open Notebook push failed');
-      const r = done.result || {};
-      out.replaceChildren();
-      out.append(el('p', 'note', `${r.nuggets || 0} nugget(s) submitted · source ${r.source_id || 'created'}`));
-      if (r.note) out.append(el('p', 'note', r.note));
-      if (r.notebook_url) {
-        const link = el('a', 'btn primary', 'Open notebook');
-        link.href = r.notebook_url;
-        link.target = '_blank';
-        link.rel = 'noopener noreferrer';
-        out.append(link);
-      }
-    } catch (e) {
-      out.replaceChildren(el('p', 'bad', e.message));
-      send.disabled = false;
-    } finally {
-      actionPassword = '';
-    }
-  });
-}
-
-// artifactReader shows a generated document without leaving the page.
-function artifactReader(box, a) {
-  box.append(costHeading({ costly: false, title: a.title || a.kind }));
-  box.append(el('p', 'note', a.path));
-
-  const out = el('div', 'result');
-  out.append(el('p', 'note', 'reading...'));
-  box.append(out);
-
-  get('/api/artifact?path=' + encodeURIComponent(a.path))
-    .then((r) => {
-      out.replaceChildren();
-      const pre = el('pre', 'brief-body mono');
-      pre.textContent = r.body;
-      out.append(pre);
-
-      const bar = el('div', 'modal-foot');
-      bar.append(el('span', 'foot-note', r.name));
-      const copy = el('button', 'btn primary', 'Copy');
-      copy.addEventListener('click', async () => {
-        await navigator.clipboard.writeText(r.body);
-        toast('Copied');
-      });
-      bar.append(copy);
-      out.append(bar);
-    })
-    .catch((e) => out.replaceChildren(el('p', 'bad', e.message)));
-}
-
-// ---- ask -------------------------------------------------------------------
-
-loaders.ask = async () => {
-  const box = $('#ask-suggestions');
-  box.replaceChildren();
-  try {
-    const d = await get('/api/ask-suggestions');
-    if (!(d.suggestions || []).length) return;
-    box.append(el('p', 'note', 'Questions this evidence can answer:'));
-    d.suggestions.forEach((q) => {
-      const b = el('button', 'chip', q);
-      b.addEventListener('click', () => {
-        $('#ask-input').value = q;
-        $('#ask-run').disabled = true;
-        $('#ask-estimate-out').replaceChildren();
-      });
-      box.append(b);
-    });
-  } catch { /* no evidence yet */ }
-};
-
-$('#ask-estimate').addEventListener('click', async () => {
-  const q = $('#ask-input').value.trim();
-  const out = $('#ask-estimate-out');
-  if (!q) { out.replaceChildren(el('p', 'bad', 'Type a question first.')); return; }
-
-  out.replaceChildren(el('p', 'note', 'assembling evidence...'));
-  try {
-    const job = await post('/api/action', { op: 'ask', question: q, apply: false });
-    const done = await pollJob(job.id);
-    const r = done.result || {};
-    out.replaceChildren();
-    const p = el('div', 'estimate reveal');
-    p.append(el('div', 'k', 'Estimated cost'));
-    p.append(el('div', 'v', r.estimate_text || '—'));
-    p.append(el('div', 'meta', `${r.nuggets || 0} nugget(s) and ${r.findings || 0} finding(s) as evidence`));
-    out.append(p);
-    $('#ask-run').disabled = false;
-  } catch (e) {
-    out.replaceChildren(el('p', 'bad', e.message));
-  }
-});
-
-$('#ask-run').addEventListener('click', async () => {
-  const q = $('#ask-input').value.trim();
-  if (!q) return;
-  const ans = $('#ask-answer');
-  $('#ask-run').disabled = true;
-  ans.replaceChildren(el('p', 'note', 'thinking...'));
-
-  try {
-    const job = await post('/api/action', { op: 'ask', question: q, apply: true });
-    const done = await pollJob(job.id, (j) => {
-      ans.replaceChildren(el('p', 'note', j.progress || 'working...'));
-    });
-    ans.replaceChildren();
-    if (done.status === 'failed') {
-      ans.append(el('p', 'bad', done.error));
-      return;
-    }
-    const card = el('div', 'answer reveal');
-    card.append(el('div', 'q', q));
-    card.append(markdown((done.result || {}).answer || ''));
-    if (done.cost && done.cost.usage) card.append(costLine(done.cost));
-    ans.append(card);
-  } catch (e) {
-    ans.replaceChildren(el('p', 'bad', e.message));
-  } finally {
-    $('#ask-run').disabled = false;
-  }
-});
-
-function costLine(run) {
-  const u = run.usage || {};
-  const charge = u.aiu ? u.aiu.toFixed(1) + ' AIU'
-               : u.usd ? '$' + u.usd.toFixed(2)
-               : tok((u.input_tokens || 0) + (u.output_tokens || 0)) + ' tok';
-  return el('div', 'cost-line',
-    `cost ${charge} · ${Math.round((u.duration_ms || 0) / 1000)}s`);
-}
-
-// markdown renders the small subset models actually emit here. Deliberately
-// minimal and text-only — never innerHTML, so a model response can never
-// inject markup.
-function markdown(src) {
-  const wrap = el('div', 'md');
-  let list = null;
-
-  src.split('\n').forEach((line) => {
-    const h = /^(#{1,4})\s+(.*)$/.exec(line);
-    const li = /^\s*[-*]\s+(.*)$/.exec(line);
-
-    if (h) {
-      list = null;
-      wrap.append(el('h' + Math.min(4, h[1].length + 1), null, h[2]));
-      return;
-    }
-    if (li) {
-      if (!list) { list = el('ul'); wrap.append(list); }
-      list.append(el('li', null, stripEmphasis(li[1])));
-      return;
-    }
-    if (/^\s*```/.test(line)) { list = null; return; }
-    if (!line.trim()) { list = null; return; }
-
-    list = null;
-    const p = el('p', null, stripEmphasis(line));
-    wrap.append(p);
-  });
+function field(label, control) {
+  const wrap = el('label', 'field');
+  append(wrap, el('span', null, label), control);
   return wrap;
 }
 
-function stripEmphasis(s) {
-  return s.replace(/\*\*(.+?)\*\*/g, '$1').replace(/`(.+?)`/g, '$1');
+function textInput(value = '', placeholder = '') {
+  const input = el('input');
+  input.type = 'text';
+  input.value = value || '';
+  input.placeholder = placeholder;
+  return input;
 }
 
-// ---- cost -------------------------------------------------------------------
+function selectInput(options, value = '') {
+  const select = el('select');
+  options.forEach((option) => {
+    const node = el('option', null, option.label);
+    node.value = option.value;
+    node.selected = option.value === value;
+    select.append(node);
+  });
+  return select;
+}
 
-loaders.cost = async () => {
-  const cards = $('#cost-cards');
-  cards.replaceChildren(el('p', 'note', 'loading...'));
-  let d;
-  try { d = await get('/api/cost'); }
-  catch (e) { cards.replaceChildren(el('p', 'bad', e.message)); return; }
+function textarea(value = '', placeholder = '') {
+  const node = el('textarea');
+  node.value = value || '';
+  node.placeholder = placeholder;
+  return node;
+}
 
-  const t = d.totals || {};
-  const card = (k, v, n) => {
-    const c = el('div', 'card');
-    c.append(el('div', 'k', k), el('div', 'v', v));
-    if (n) c.append(el('div', 'n', n));
-    return c;
-  };
-  const charge = t.aiu ? t.aiu.toFixed(1) + ' AIU' : t.usd ? '$' + t.usd.toFixed(2) : '\u2014';
-
-  cards.replaceChildren(
-    card('total charged', charge, 'on your existing seat'),
-    card('tokens', tok(t.tokens || 0), `${t.runs || 0} run(s)`),
-    card('items produced', t.items || 0, 'nuggets + artifacts'),
-    card('free commands', 'everything else', 'ls, doctor, assay, prune, advise\u2026')
-  );
-
-  const cal = $('#calibration');
-  cal.replaceChildren();
-  const entries = Object.entries(d.calibration || {});
-  if (!entries.length) {
-    cal.append(el('p', 'note', 'No calibration yet \u2014 run something that uses a model.'));
-  } else {
-    entries.forEach(([op, c]) => {
-      const row = el('div', 'calib');
-      row.append(el('span', 'pill', op));
-      row.append(document.createTextNode(
-        ` actual is ${c.mean_factor}\u00d7 the raw prompt estimate ` +
-        `(range ${c.min_factor}\u2013${c.max_factor}\u00d7 over ${c.samples} run(s))`));
-      cal.append(row);
-    });
+function pageHead(kicker, title, copy, actions = []) {
+  const head = el('header', 'page-head');
+  const text = el('div', 'page-copy');
+  append(text, el('div', 'eyebrow', kicker), el('h1', null, title), el('p', null, copy));
+  append(head, text);
+  if (actions.length) {
+    const actionWrap = el('div', 'page-actions');
+    actions.forEach((action) => actionWrap.append(action));
+    head.append(actionWrap);
   }
+  return head;
+}
 
-  const runs = $('#run-list');
-  runs.replaceChildren();
-  if (!(d.runs || []).length) {
-    runs.append(el('p', 'note', 'No runs recorded.'));
+function sectionHead(kicker, title, copy, actions = []) {
+  const head = el('div', 'panel-head');
+  const text = el('div');
+  append(text, el('div', 'eyebrow', kicker), el('h2', 'section-title', title));
+  if (copy) text.append(el('p', 'section-copy', copy));
+  head.append(text);
+  if (actions.length) {
+    const wrap = el('div', 'row-actions');
+    actions.forEach((action) => wrap.append(action));
+    head.append(wrap);
+  }
+  return head;
+}
+
+function emptyState(title, copy, action) {
+  const wrap = el('div', 'empty');
+  append(wrap, el('strong', null, title), el('span', null, copy));
+  if (action) {
+    const actions = el('div', 'row-actions');
+    actions.style.justifyContent = 'center';
+    actions.style.marginTop = '14px';
+    actions.append(action);
+    wrap.append(actions);
+  }
+  return wrap;
+}
+
+function formatBytes(value) {
+  let n = Number(value || 0);
+  const units = ['B', 'KiB', 'MiB', 'GiB', 'TiB'];
+  let index = 0;
+  while (n >= 1024 && index < units.length - 1) {
+    n /= 1024;
+    index += 1;
+  }
+  return `${n.toFixed(index ? 1 : 0)} ${units[index]}`;
+}
+
+function formatCount(value) {
+  const n = Number(value || 0);
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 1_000) return `${Math.round(n / 1_000)}k`;
+  return String(n);
+}
+
+function formatDate(value) {
+  if (!value) return 'not yet';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+  return new Intl.DateTimeFormat(undefined, {
+    month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit',
+  }).format(date);
+}
+
+function truncateText(value, limit) {
+  const text = String(value || '').trim();
+  if (text.length <= limit) return text;
+  return `${text.slice(0, limit).trimEnd()}…`;
+}
+
+function relativeAge(value) {
+  if (!value) return 'not yet scanned';
+  const timestamp = new Date(value).getTime();
+  if (!Number.isFinite(timestamp)) return '';
+  const minutes = Math.max(0, Math.round((Date.now() - timestamp) / 60000));
+  if (minutes < 2) return 'just now';
+  if (minutes < 60) return `${minutes}m ago`;
+  if (minutes < 1440) return `${Math.round(minutes / 60)}h ago`;
+  return `${Math.round(minutes / 1440)}d ago`;
+}
+
+function statusKind(status) {
+  const value = String(status || '').toLowerCase();
+  if (['ready', 'connected', 'done', 'reviewed', 'exported', 'pass', 'complete'].includes(value)) return 'ready';
+  if (['running', 'progress', 'queued', 'waiting'].includes(value)) return 'running';
+  if (['failed', 'rejected', 'review', 'needs_attention', 'locked'].includes(value)) return 'danger';
+  if (['approved'].includes(value)) return 'blue';
+  if (['draft', 'evidence_review', 'guided', 'lab', 'ready_to_test', 'legacy'].includes(value)) return 'lab';
+  return '';
+}
+
+function humanStatus(status) {
+  return String(status || 'unknown').replaceAll('_', ' ');
+}
+
+async function get(path) {
+  const response = await fetch(path);
+  if (!response.ok) throw new Error((await response.text()) || response.statusText);
+  return response.json();
+}
+
+async function post(path, body) {
+  const response = await fetch(path, {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json', 'X-Midden-Request': '1'},
+    body: JSON.stringify(body),
+  });
+  if (!response.ok) throw new Error((await response.text()) || response.statusText);
+  return response.json();
+}
+
+function storedConductorMessages() {
+  try {
+    const value = JSON.parse(localStorage.getItem('midden.conductor.messages') || '[]');
+    return Array.isArray(value) ? value.slice(-40) : [];
+  } catch {
+    return [];
+  }
+}
+
+const state = {
+  overview: null,
+  activeView: 'home',
+  selectedRecipe: '',
+  recipeDetail: null,
+  conductorMode: 'auto',
+  conductorMessages: storedConductorMessages(),
+  conductorDraft: '',
+  operationsTab: 'sessions',
+  connections: null,
+  integrations: null,
+  plugins: null,
+};
+
+const viewMeta = {
+  home: ['Evidence refinery', 'Home'],
+  mine: ['Source to yield', 'Mine'],
+  studio: ['Recipes and review', 'Studio'],
+  knowledge: ['Retain the learning', 'Knowledge'],
+  'agent-forge': ['Evidence to behavior', 'Agent forge'],
+  personalization: ['Private data readiness', 'Personalization'],
+  connections: ['Capabilities in context', 'Connections'],
+  conductor: ['Conversational control', 'Conductor'],
+  operations: ['Sources, cost, and audit', 'Operations'],
+};
+
+let toastTimer;
+function toast(message, kind = '') {
+  const node = $('#toast');
+  node.textContent = message;
+  node.className = `toast ${kind}`.trim();
+  node.hidden = false;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { node.hidden = true; }, 2200);
+}
+
+function notice(message, kind = 'bad', actions = []) {
+  clearTimeout(toastTimer);
+  $('#toast').hidden = true;
+  const region = clear($('#notice-region'));
+  region.className = `notice-region ${kind}`.trim();
+  const copy = el('div');
+  append(copy, el('strong', null, kind === 'bad' ? 'Action needs attention' : 'Done'),
+    el('span', null, message));
+  region.append(copy);
+  if (actions.length) {
+    const wrap = el('div', 'row-actions');
+    actions.forEach((action) => wrap.append(action));
+    region.append(wrap);
+  }
+  region.hidden = false;
+  region.scrollIntoView({block: 'nearest'});
+}
+
+function clearNotice() {
+  const region = $('#notice-region');
+  region.hidden = true;
+  clear(region);
+}
+
+function announce(message) {
+  $('#live-region').textContent = message;
+}
+
+let modalReturnFocus = null;
+let drawerReturnFocus = null;
+
+function openModal(title, copy) {
+  const modal = $('#modal');
+  modalReturnFocus = document.activeElement;
+  const body = clear($('#modal-body'));
+  const heading = el('h2', null, title);
+  heading.id = 'modal-title';
+  append(body, heading);
+  if (copy) body.append(el('p', 'note', copy));
+  modal.hidden = false;
+  requestAnimationFrame(() => $('#modal-close').focus());
+  return body;
+}
+
+function closeModal() {
+  if ($('#modal').hidden) return;
+  $('#modal').hidden = true;
+  clear($('#modal-body'));
+  if (modalReturnFocus?.isConnected) modalReturnFocus.focus();
+  modalReturnFocus = null;
+}
+
+function openDrawer(title) {
+  const drawer = $('#drawer');
+  drawerReturnFocus = document.activeElement;
+  const body = clear($('#drawer-body'));
+  body.append(el('h2', null, title));
+  drawer.hidden = false;
+  requestAnimationFrame(() => $('#drawer-close').focus());
+  return body;
+}
+
+function closeDrawer() {
+  if ($('#drawer').hidden) return;
+  $('#drawer').hidden = true;
+  clear($('#drawer-body'));
+  if (drawerReturnFocus?.isConnected) drawerReturnFocus.focus();
+  drawerReturnFocus = null;
+}
+
+$('#modal-close').addEventListener('click', closeModal);
+$('[data-close-modal]').addEventListener('click', closeModal);
+$('#drawer-close').addEventListener('click', closeDrawer);
+$('[data-close-drawer]').addEventListener('click', closeDrawer);
+$('#nav-backdrop').addEventListener('click', () => {
+  document.body.classList.remove('nav-open');
+  $('#nav-backdrop').hidden = true;
+  $('#nav-toggle').focus();
+});
+$('#nav-close').addEventListener('click', () => {
+  document.body.classList.remove('nav-open');
+  $('#nav-backdrop').hidden = true;
+  $('#nav-toggle').focus();
+});
+
+function trapFocus(container, event) {
+  const focusable = $$('button:not([disabled]), a[href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])', container)
+    .filter((node) => !node.hidden && node.getClientRects().length);
+  if (!focusable.length) return;
+  const first = focusable[0];
+  const last = focusable[focusable.length - 1];
+  if (event.shiftKey && document.activeElement === first) {
+    event.preventDefault();
+    last.focus();
+  } else if (!event.shiftKey && document.activeElement === last) {
+    event.preventDefault();
+    first.focus();
+  }
+}
+
+document.addEventListener('keydown', (event) => {
+  if (event.key === 'Tab' && !$('#modal').hidden) {
+    trapFocus($('#modal'), event);
     return;
   }
-  const table = el('table');
-  const head = el('tr');
-  ['when', 'op', 'scope', 'items', 'tokens', 'charged', 'est err', 'secs'].forEach((h) =>
-    head.append(el('th', null, h)));
-  table.append(head);
-  d.runs.forEach((r) => {
-    const u = r.usage || {};
-    const billable = (u.input_tokens || 0) + (u.output_tokens || 0) +
-                     (u.cache_read_tokens || 0) + (u.cache_write_tokens || 0);
-    const ch = u.aiu ? u.aiu.toFixed(1) + ' AIU' : u.usd ? '$' + u.usd.toFixed(2) : '\u2014';
-    const err = r.est_tokens && billable ? (billable / r.est_tokens).toFixed(0) + '\u00d7' : '\u2014';
-    const tr = el('tr');
-    tr.append(
-      el('td', 'meta', new Date(r.started_at).toLocaleString()),
-      el('td', null, r.op),
-      el('td', 'meta', r.scope || ''),
-      el('td', null, String(r.items || 0)),
-      el('td', null, tok(billable)),
-      el('td', null, ch),
-      el('td', 'meta', err),
-      el('td', 'meta', Math.round((u.duration_ms || 0) / 1000)));
-    table.append(tr);
+  if (event.key === 'Tab' && !$('#drawer').hidden) {
+    trapFocus($('#drawer'), event);
+    return;
+  }
+  if (event.key === 'Escape') {
+    closeModal();
+    closeDrawer();
+    document.body.classList.remove('nav-open');
+    $('#nav-backdrop').hidden = true;
+  }
+});
+
+$('#nav-toggle').addEventListener('click', () => {
+  document.body.classList.toggle('nav-open');
+  $('#nav-backdrop').hidden = !document.body.classList.contains('nav-open');
+});
+
+$$('.nav-item[data-view]').forEach((item) => {
+  item.addEventListener('click', () => activateView(item.dataset.view));
+});
+
+function activateView(view) {
+  clearNotice();
+  state.activeView = view;
+  $$('.nav-item[data-view]').forEach((item) => item.classList.toggle('active', item.dataset.view === view));
+  $$('.view').forEach((section) => section.classList.toggle('active', section.id === view));
+  const meta = viewMeta[view] || ['', view];
+  $('#view-kicker').textContent = meta[0];
+  $('#view-title').textContent = meta[1];
+  document.body.classList.remove('nav-open');
+  $('#nav-backdrop').hidden = true;
+  window.scrollTo({top: 0, behavior: 'instant'});
+  renderActiveView().then(() => {
+    window.scrollTo({top: 0, behavior: 'instant'});
+  }).catch(showError);
+}
+
+function updateGlobalBadges() {
+  const wrap = clear($('#global-badges'));
+  if (!state.overview) return;
+  const stats = state.overview.stats || {};
+  append(wrap,
+    badge(`${formatCount(stats.nuggets)} evidence`, stats.nuggets ? 'free' : ''),
+    badge(`${formatCount(stats.outputs)} outputs`, stats.outputs ? 'blue' : ''),
+  );
+  if (stats.indexed_at) wrap.append(badge(`indexed ${relativeAge(stats.indexed_at)}`));
+}
+
+async function loadOverview(force = false) {
+  if (!state.overview || force) state.overview = await get('/api/refinery');
+  updateGlobalBadges();
+  return state.overview;
+}
+
+async function refreshOverview() {
+  state.overview = null;
+  state.recipeDetail = null;
+  state.connections = null;
+  await loadOverview(true);
+  await renderActiveView();
+}
+
+function showError(error) {
+  console.error(error);
+  notice(friendlyError(error), 'bad');
+}
+
+function friendlyError(error) {
+  const message = error?.message || String(error);
+  if (/failed to fetch|networkerror|internet disconnected/i.test(message)) {
+    return 'The local Midden service did not respond. Confirm the app is still running, then retry.';
+  }
+  if (/scan lock|index refresh is already running|locked a portion/i.test(message)) {
+    return 'Midden is finishing the source refresh. This action will be available as soon as that refresh completes.';
+  }
+  return message;
+}
+
+async function pollJob(id, onProgress) {
+  for (;;) {
+    const job = await get(`/api/job-status?id=${encodeURIComponent(id)}`);
+    if (onProgress) onProgress(job);
+    if (job.status === 'done' || job.status === 'failed') return job;
+    await new Promise((resolve) => setTimeout(resolve, 850));
+  }
+}
+
+async function runJob(request, title, copy) {
+  const job = await post('/api/action', request);
+  const body = openModal(title, copy);
+  const card = el('div', 'estimate-box');
+  const status = el('div', 'eyebrow', 'Queued');
+  const progress = el('strong', null, 'Starting');
+  const estimate = el('p', 'note');
+  append(card, status, progress, estimate);
+  body.append(card);
+
+  const finished = await pollJob(job.id, (current) => {
+    status.textContent = humanStatus(current.status);
+    progress.textContent = current.progress || humanStatus(current.status);
+    if (current.estimate) {
+      const e = current.estimate;
+      estimate.textContent = `${formatCount(e.low)}–${formatCount(e.high)} tokens`
+        + (e.unit_mid ? ` · ~${Number(e.unit_mid).toFixed(1)} ${e.unit}` : '');
+    }
   });
-  runs.append(table);
-};
+  closeModal();
+  if (finished.status === 'failed') throw new Error(finished.error || `${request.op} failed`);
+  return finished;
+}
 
-// ---- log --------------------------------------------------------------------
-
-loaders.ops = async () => {
-  const list = $('#ops-list');
-  list.replaceChildren(el('p', 'note', 'loading...'));
+async function refreshSources() {
+  const buttonNode = $('#refresh-data');
+  const original = buttonNode.textContent;
+  buttonNode.disabled = true;
+  buttonNode.textContent = 'Refreshing…';
   try {
-    const ops = await get('/api/ops');
-    list.replaceChildren();
-    if (!ops || !ops.length) {
-      list.append(el('p', 'empty', 'Nothing has been modified.'));
+    const job = await runJob({op: 'refresh'}, 'Refreshing source index',
+      'Reads the configured session stores, reconciles stale rows, and writes only Midden’s local index.');
+    const result = job.result || {};
+    toast(result.partial ? 'Sources partially refreshed; one store needs attention.' : 'Source index refreshed.',
+      result.partial ? 'bad' : 'good');
+    await refreshOverview();
+  } catch (error) {
+    showError(error);
+  } finally {
+    buttonNode.disabled = false;
+    buttonNode.textContent = original;
+  }
+}
+
+$('#refresh-data').addEventListener('click', refreshSources);
+
+async function runMine() {
+  try {
+    const job = await runJob({op: 'mine', days: 30}, 'Mining the last 30 days',
+      'This pass is deterministic and free: it classifies evidence and calculates yield without calling a model.');
+    const result = job.result || {};
+    await refreshOverview();
+    notice(`Mine complete: ${result.assayed || 0} assayed, ${result.skipped || 0} unchanged, ${result.failed || 0} failed.`, 'good');
+  } catch (error) {
+    showError(error);
+  }
+}
+
+function workspaceOptions(includeAll = true, evidenceOnly = false) {
+  const options = [];
+  if (includeAll) options.push({value: '', label: 'All evidence'});
+  (state.overview?.workspaces || [])
+    .filter((workspace) => !evidenceOnly || workspace.nuggets > 0)
+    .forEach((workspace) => {
+    options.push({
+      value: workspace.id,
+      label: `${workspace.name} · ${workspace.nuggets} evidence · ${workspace.sessions} sessions`,
+    });
+  });
+  return options;
+}
+
+function backendFields() {
+  const backend = selectInput([
+    {value: '', label: 'Auto-detect signed-in CLI'},
+    {value: 'copilot', label: 'Copilot CLI'},
+    {value: 'claude', label: 'Claude Code'},
+    {value: 'opencode', label: 'OpenCode'},
+  ]);
+  const model = textInput('', 'optional model override');
+  return {backend, model};
+}
+
+function openReclaimModal(prefillWorkspace = '') {
+  const body = openModal('Extract reusable evidence',
+    'Midden first estimates the model cost from an ASSAY-filtered slice. Nothing is charged until the second approval.');
+  const workspace = selectInput(workspaceOptions(true), prefillWorkspace);
+  const days = selectInput([
+    {value: '7', label: 'Last 7 days'},
+    {value: '30', label: 'Last 30 days'},
+    {value: '90', label: 'Last 90 days'},
+  ], '30');
+  const depth = selectInput([
+    {value: 'summary', label: 'Summary · cheapest'},
+    {value: 'deep', label: 'Deep · cross-turn synthesis'},
+    {value: 'xray', label: 'X-ray · project context'},
+  ], 'summary');
+  const fields = backendFields();
+  append(body, field('Workspace', workspace), field('Time range', days), field('Depth', depth),
+    field('Model backend', fields.backend), field('Model override', fields.model));
+
+  const actions = el('div', 'modal-actions');
+  actions.append(button('Cancel', 'button ghost', closeModal));
+  actions.append(button('Estimate evidence extraction', 'button', async () => {
+    closeModal();
+    try {
+      const request = {
+        op: 'reclaim', workspace: workspace.value, days: Number(days.value),
+        depth: depth.value, backend: fields.backend.value, model: fields.model.value,
+        apply: false,
+      };
+      const preview = await runJob(request, 'Estimating evidence extraction',
+        'Reads the bounded evidence slice and predicts cost. No model is invoked.');
+      openSpendConfirmation('Extract evidence', preview, async () => {
+        const run = await runJob({...request, apply: true}, 'Extracting evidence',
+          'The selected signed-in CLI is mining redacted evidence. Raw transcripts are not stored as nuggets.');
+        toast(`${run.result?.count || 0} evidence item(s) stored`, 'good');
+        await refreshOverview();
+      });
+    } catch (error) {
+      showError(error);
+    }
+  }));
+  body.append(actions);
+}
+
+function openSpendConfirmation(title, job, onApprove) {
+  const result = job.result || {};
+  const estimate = result.estimate || job.estimate || {};
+  const body = openModal(title, estimate.samples
+    ? 'Review the estimate calibrated from your previous runs.'
+    : 'Review this conservative first-run estimate before spending.');
+  const box = el('div', 'estimate-box');
+  append(box,
+    el('div', 'eyebrow', estimate.samples ? `Calibrated from ${estimate.samples} prior run(s)` : 'First-run conservative estimate'),
+    el('strong', null, result.estimate_text || `${formatCount(estimate.low)}–${formatCount(estimate.high)} tokens`),
+  );
+  const facts = el('div', 'estimate-facts');
+  [
+    ['Scope', `${result.sessions || result.nuggets || 0} source item(s)`],
+    ['Backend', result.backend || 'auto-detect signed-in CLI'],
+    ['Model', result.model || 'backend default'],
+    ['Time', result.estimated_seconds ? `about ${Math.ceil(result.estimated_seconds / 60)} minute(s)` : 'local / immediate'],
+    ['Charge', estimate.unit_mid ? `~${Number(estimate.unit_mid).toFixed(1)} ${estimate.unit}` : 'unknown until the first run is reconciled'],
+    ['External writes', 'none'],
+  ].forEach(([label, value]) => {
+    const item = el('div', 'estimate-fact');
+    append(item, el('span', null, label), el('strong', null, value));
+    facts.append(item);
+  });
+  box.append(facts);
+  body.append(box);
+  if (!estimate.samples && estimate.mid) {
+    body.append(el('div', 'warning',
+      'This range includes CLI system prompts and cache overhead. Run one small scope first; future estimates will calibrate against actual usage.'));
+  }
+  const actions = el('div', 'modal-actions');
+  actions.append(button('Not now', 'button ghost', closeModal));
+  const approve = button('Approve spend and run', 'button good', async () => {
+    approve.disabled = true;
+    closeModal();
+    try {
+      await onApprove();
+    } catch (error) {
+      showError(error);
+    }
+  });
+  actions.append(approve);
+  body.append(actions);
+}
+
+function sourceCards(sources) {
+  const grid = el('div', 'source-grid');
+  sources.forEach((source) => {
+    const card = el('article', 'source-card reveal');
+    append(card,
+      el('div', 'eyebrow', source.tool),
+      el('h3', null, source.name),
+      el('p', null, source.sessions
+        ? `${source.sessions} sessions detected · ${source.nuggets} reclaimed evidence`
+        : 'No local session store detected'),
+    );
+    const foot = el('div', 'source-foot');
+    foot.append(badge(source.ready ? 'ready to mine' : 'not detected', source.ready ? 'free' : ''));
+    if (source.last_updated) foot.append(el('span', 'progress-note', ` updated ${relativeAge(source.last_updated)}`));
+    card.append(foot);
+    grid.append(card);
+  });
+  return grid;
+}
+
+function metricGrid(items) {
+  const grid = el('div', 'metric-grid');
+  items.forEach((item) => {
+    const card = el('article', 'metric-card');
+    append(card, el('div', 'eyebrow', item.label), el('strong', null, item.value), el('span', null, item.copy));
+    grid.append(card);
+  });
+  return grid;
+}
+
+function yieldCards(yieldMap) {
+  const grid = el('div', 'yield-grid');
+  (yieldMap.categories || []).forEach((category) => {
+    const card = el('article', 'yield-card reveal');
+    append(card,
+      el('div', 'eyebrow', category.title),
+      el('div', 'yield-count', `${category.count} ${category.unit}`),
+      el('p', null, (category.details || []).join(' · ')),
+    );
+    const bar = el('div', 'quality-bar');
+    const fill = el('i');
+    fill.style.width = `${Math.max(0, Math.min(100, category.quality || 0))}%`;
+    bar.append(fill);
+    card.append(bar);
+    grid.append(card);
+  });
+  return grid;
+}
+
+function journeySteps(steps) {
+  const journey = el('div', 'journey');
+  steps.forEach((step, index) => {
+    if (index) journey.append(el('span', 'journey-arrow', '→'));
+    const node = el('div', 'journey-step');
+    append(node, el('strong', null, step[0]), el('span', null, step[1]));
+    journey.append(node);
+  });
+  return journey;
+}
+
+async function renderHome() {
+  const overview = await loadOverview();
+  const root = clear($('#home-content'));
+  if (overview.onboarding) {
+    append(root,
+      pageHead('Install and first mine', 'See what your AI sessions can become.',
+        'Midden mines decisions, fixes, commands, screenshots, lessons, and preferences, then turns them into grounded new assets.'),
+      sourceCards(overview.sources),
+    );
+    const hero = el('section', 'hero');
+    const copy = el('div');
+    append(copy,
+      el('div', 'eyebrow', 'First pass · free · local'),
+      el('h2', null, 'Mine the last 30 days and calculate the yield.'),
+      el('p', null, 'Midden classifies the session exhaust locally, preserves provenance, and shows what content, knowledge, and improvement packs the evidence can honestly support.'),
+    );
+    append(hero, copy, button('Mine my AI work', 'button good', runMine));
+    root.append(hero);
+    root.append(journeySteps([
+      ['Detect sources', 'read-only local stores'],
+      ['Explicit mine', 'free classification'],
+      ['See yield', 'opportunities before spend'],
+      ['Extract evidence', 'estimate first'],
+      ['Build drafts', 'review before export'],
+    ]));
+    const promise = el('section', 'grid-3');
+    [
+      ['Create', 'Tutorials, release packs, slides, diagrams, and video briefs.'],
+      ['Teach', 'Handbooks, flashcards, quizzes, and notebook source packs.'],
+      ['Improve', 'Skills, instruction proposals, evals, and private data packs.'],
+    ].forEach(([title, copyText]) => {
+      const card = el('article', 'panel');
+      append(card, el('div', 'eyebrow', title), el('h3', 'section-title', copyText));
+      promise.append(card);
+    });
+    root.append(promise);
+    return;
+  }
+
+  const evidenceReady = Boolean(overview.yield?.ready);
+  const actions = evidenceReady
+    ? [
+      button('Ask the Conductor', 'button', () => activateView('conductor')),
+      button('Mine new work', 'button ghost', runMine),
+    ]
+    : [
+      button('Extract evidence', 'button', () => openReclaimModal()),
+      button('Mine again', 'button ghost', runMine),
+    ];
+  append(root,
+    pageHead(evidenceReady ? 'What changed' : 'Assay complete',
+      evidenceReady ? 'Your refinery has new yield.' : 'Your sessions are measured. Reclaim evidence next.',
+      evidenceReady
+        ? 'Midden compares new evidence against saved recipes, reviewed outputs, agent proposals, and private data packs.'
+        : 'Assay measured session signal without using a model. Extract a small evidence scope before Midden recommends any output.',
+      actions),
+    metricGrid([
+      {label: 'Evidence', value: formatCount(overview.stats.nuggets), copy: 'redacted, provenanced items'},
+      evidenceReady
+        ? {label: 'Grounded yield', value: overview.yield.total, copy: 'evidence-backed opportunities'}
+        : {label: 'Sessions assayed', value: overview.yield.assayed || 0, copy: 'free deterministic measurement'},
+      {label: 'Saved recipes', value: overview.stats.recipes, copy: 'reusable production plans'},
+      {label: 'Draft outputs', value: overview.stats.outputs, copy: 'reviewed individually'},
+    ]),
+  );
+
+  if ((overview.updates || []).length) {
+    const panel = el('section', 'panel');
+    panel.append(sectionHead('Retention and compounding', 'Useful changes, not dashboard vanity',
+      'Only new evidence and its impact are surfaced.'));
+    const grid = el('div', 'update-grid');
+    overview.updates.slice(0, 6).forEach((update) => {
+      const card = el('article', 'update-card');
+      append(card, el('div', 'eyebrow', humanStatus(update.kind)), el('h3', null, update.title), el('p', null, update.detail));
+      if (update.recipe_id) card.append(button('Review update', 'button ghost compact', () => openRecipe(update.recipe_id)));
+      grid.append(card);
+    });
+    panel.append(grid);
+    root.append(panel);
+  }
+
+  const recommended = overview.yield.recommended || {};
+  if (evidenceReady && recommended.workspace) {
+    const hero = el('section', 'hero');
+    const copy = el('div');
+    append(copy,
+      el('div', 'eyebrow', `Best first bundle · ${workspaceName(recommended.workspace)}`),
+      el('h2', null, recommended.title),
+      el('p', null, `${recommended.why} One evidence review feeds ${(recommended.outputs || []).length} deliverables.`),
+    );
+    append(hero, copy, button('Build this bundle', 'button', () => {
+      openDesignModal({
+        workspace: recommended.workspace,
+        prompt: 'Turn the strongest recent work into a deep tutorial, a 12-slide deck, an architecture diagram, a 60-second video brief, and an evaluated agent skill proposal.',
+        kinds: recommended.outputs,
+      });
+    }));
+    root.append(hero);
+  }
+
+  const yieldPanel = el('section', 'panel');
+  if (evidenceReady) {
+    yieldPanel.append(sectionHead('Grounded yield', `${overview.yield.total} useful opportunities`,
+      'Every opportunity is derived from reclaimed evidence. Nothing is generated until you approve a recipe and its evidence.'));
+    yieldPanel.append(yieldCards(overview.yield));
+  } else {
+    yieldPanel.append(sectionHead('Next step', 'Extract a small evidence scope',
+      overview.yield.message || 'Reclaimed evidence is required before any production can be recommended.'));
+    const summary = el('div', 'assay-summary');
+    append(summary,
+      badge('FREE ASSAY COMPLETE', 'free'),
+      el('strong', null, `${overview.yield.assayed || 0} session(s) measured`),
+      el('p', 'note', `${formatBytes(overview.yield.signal_bytes || 0)} of signal identified. Start with one workspace; you will see the estimate before any model call.`),
+    );
+    yieldPanel.append(summary);
+  }
+  root.append(yieldPanel);
+
+  const recipes = (overview.recipes || []).filter((recipe) => recipe.status !== 'archived').slice(0, 6);
+  const recent = el('section', 'panel');
+  recent.append(sectionHead('Saved productions', recipes.length ? 'Continue where you left off' : 'No saved recipes yet',
+    'Recipes preserve the output mix and evidence scope for future incremental runs.',
+    recipes.length ? [button('Open Studio', 'button ghost compact', () => activateView('studio'))] : []));
+  recent.append(recipes.length ? recipeGrid(recipes) :
+    evidenceReady
+      ? emptyState('Design the first production', 'Ask for an outcome; Conductor will clarify it and preview the plan.',
+        button('Ask Conductor', 'button', () => activateView('conductor')))
+      : emptyState('No evidence-backed production yet', 'Use the primary Extract evidence action above before creating a recipe.'));
+  root.append(recent);
+}
+
+function workspaceName(id) {
+  const match = (state.overview?.workspaces || []).find((workspace) => workspace.id === id);
+  return match?.name || id || 'all evidence';
+}
+
+function recipeGrid(recipes) {
+  const grid = el('div', 'recipe-grid');
+  recipes.forEach((recipe) => {
+    const card = el('article', 'recipe-card reveal');
+    append(card,
+      el('div', 'eyebrow', workspaceName(recipe.workspace)),
+      el('h3', null, recipe.title),
+      el('p', null, recipe.request || 'Saved refinery production plan.'),
+    );
+    const meta = el('div', 'recipe-meta');
+    append(meta, badge(humanStatus(recipe.status), statusKind(recipe.status)),
+      badge(`${recipe.outputs?.length || 0} outputs`),
+      badge(`${recipe.evidence_ids?.length || 0} evidence`, 'free'));
+    card.append(meta);
+    const actions = el('div', 'card-actions');
+    actions.append(button('Open production', 'button', () => openRecipe(recipe.uid)));
+    card.append(actions);
+    grid.append(card);
+  });
+  return grid;
+}
+
+async function renderMine() {
+  const overview = await loadOverview();
+  const root = clear($('#mine-content'));
+  const assayReady = Number(overview.yield.assayed || 0) > 0;
+  const extractAction = button('Extract evidence', 'button', () => openReclaimModal());
+  extractAction.disabled = !assayReady;
+  if (!assayReady) extractAction.title = 'Run the free mine first.';
+  append(root,
+    pageHead('Source to yield', 'Mine once. Reuse the evidence everywhere.',
+      'The free pass classifies source sessions and calculates yield. Evidence extraction is separately estimated before it spends.',
+      [
+        button('Scan and calculate yield', 'button good', runMine),
+        extractAction,
+      ]),
+    sourceCards(overview.sources),
+  );
+
+  const yieldPanel = el('section', 'panel');
+  if (overview.yield.ready) {
+    yieldPanel.append(sectionHead('Yield map',
+      `${overview.yield.total} grounded opportunities`,
+      'Every count is supported by reclaimed evidence, not session volume alone.'));
+    yieldPanel.append(yieldCards(overview.yield));
+  } else {
+    yieldPanel.append(sectionHead('Assay result', 'No output is recommended yet',
+      overview.yield.message || 'Extract evidence before designing a production.'));
+    const summary = el('div', 'assay-summary');
+    append(summary,
+      badge(assayReady ? 'ASSAY COMPLETE · NOT YET RECLAIMED' : 'MINE REQUIRED', assayReady ? 'free' : ''),
+      el('strong', null, assayReady ? `${overview.yield.assayed} session(s) assayed` : 'No sessions assayed yet'),
+      el('p', 'note', assayReady
+        ? `${formatBytes(overview.yield.signal_bytes || 0)} of signal is available for a bounded evidence extraction.`
+        : 'Use the primary Scan and calculate yield action before choosing a model-backed evidence scope.'),
+    );
+    yieldPanel.append(summary);
+  }
+  root.append(yieldPanel);
+
+  if (overview.yield.ready && overview.yield.recommended?.workspace) {
+    const recommended = overview.yield.recommended;
+    const hero = el('section', 'hero');
+    const copy = el('div');
+    append(copy,
+      el('div', 'eyebrow', `Recommended · ${workspaceName(recommended.workspace)}`),
+      el('h2', null, recommended.title),
+      el('p', null, recommended.why),
+    );
+    append(hero, copy, button('Design recommended bundle', 'button', () => openDesignModal({
+      workspace: recommended.workspace,
+      kinds: recommended.outputs,
+      prompt: 'Create the strongest multi-output bundle this evidence supports and stop at reviewed drafts.',
+    })));
+    root.append(hero);
+  }
+
+  const evidencePanel = el('section', 'panel');
+  evidencePanel.append(sectionHead('Evidence library', 'Reclaimed claims with provenance',
+    'Recipes select from this redacted index; raw transcripts never enter the production chat.'));
+  try {
+    const nuggets = (await get('/api/nuggets?limit=60')) || [];
+    if (!nuggets.length) {
+      evidencePanel.append(emptyState('No evidence extracted yet',
+        assayReady
+          ? 'Use the primary Extract evidence action above to choose a small workspace and review the estimate.'
+          : 'Use the primary Scan and calculate yield action above before extraction.'));
+    } else {
+      const list = el('div', 'evidence-list');
+      nuggets.forEach((nugget) => list.append(evidenceRow(nugget, false)));
+      evidencePanel.append(list);
+    }
+  } catch (error) {
+    evidencePanel.append(emptyState('Evidence could not be loaded', error.message));
+  }
+  root.append(evidencePanel);
+
+  root.append(journeySteps([
+    ['Choose scope', 'workspace and time'],
+    ['Assay', 'free classification'],
+    ['Extract', 'bounded model slice'],
+    ['Review evidence', 'claims and conflicts'],
+    ['Reuse', 'one graph, many assets'],
+  ]));
+}
+
+function evidenceRow(nugget, selectable, checked = false) {
+  const row = el('div', `evidence-row ${nugget.confidence < .75 ? 'needs-review' : ''}`.trim());
+  if (selectable) {
+    const input = el('input');
+    input.type = 'checkbox';
+    input.value = nugget.uid;
+    input.checked = checked;
+    input.dataset.evidence = nugget.uid;
+    row.append(input);
+  } else {
+    row.append(badge(nugget.kind));
+  }
+  const copy = el('div');
+  const heading = el('div', 'evidence-title');
+  append(heading, el('h4', null, nugget.title || humanStatus(nugget.kind)),
+    nugget.confidence < .75 ? badge('needs review', 'spend') : null);
+  append(copy, heading,
+    el('p', null, truncateText(nugget.body || 'No preview available.', selectable ? 420 : 250)));
+  row.append(copy);
+  row.append(el('div', 'evidence-source',
+    `${String(nugget.tool || '').toUpperCase()} · ${Math.round((nugget.confidence || 0) * 100)}%`));
+  return row;
+}
+
+function openDesignModal(options) {
+  if (!state.overview?.yield?.ready && !(options.evidenceIds || []).length) {
+    const body = openModal('Evidence required',
+      'Midden will not create an unsupported recipe. Mine your sessions, then extract a small evidence scope first.');
+    const actions = el('div', 'modal-actions');
+    actions.append(button('Close', 'button ghost', closeModal));
+    actions.append(button('Extract evidence', 'button', () => {
+      closeModal();
+      openReclaimModal(options.workspace || '');
+    }));
+    body.append(actions);
+    return;
+  }
+  const body = openModal(options.title || 'Design a production',
+    'Describe the finished outcome. The Conductor assembles a recipe; it does not run or spend yet.');
+  const workspace = selectInput(workspaceOptions(true, true), options.workspace || '');
+  const prompt = textarea(options.prompt || '',
+    'e.g. Turn the last three weeks of work into a tutorial, slide deck, architecture diagram, video brief, and evaluated skill proposal.');
+  const title = textInput('', 'optional production name');
+  append(body, field('Evidence scope', workspace), field('Finished outcome', prompt), field('Production name', title));
+
+  const outputBox = el('div');
+  outputBox.append(el('div', 'field-label', 'Deliverables · optional, leave empty to infer from the request'));
+  const checks = el('div', 'checkbox-list');
+  const selected = new Set(options.kinds || []);
+  const templates = refineryTemplateFallback();
+  templates.forEach((template) => {
+    const label = el('label', 'check-card');
+    const input = el('input');
+    input.type = 'checkbox';
+    input.value = template.kind;
+    input.checked = selected.has(template.kind);
+    const text = el('span');
+    append(text, el('strong', null, template.title),
+      el('small', null, `${template.maker} · ${template.cost_class === 'free' ? 'free' : 'spends'}`));
+    append(label, input, text);
+    checks.append(label);
+  });
+  outputBox.append(checks);
+
+  const actions = el('div', 'modal-actions');
+  actions.classList.add('modal-actions-top');
+  actions.append(button('Cancel', 'button ghost', closeModal));
+  const create = button('Prepare production plan', 'button', async () => {
+    create.disabled = true;
+    try {
+      const outputKinds = $$('input[type=checkbox]:checked', checks).map((node) => node.value);
+      const result = await post('/api/refinery/action', {
+        action: 'design', workspace: workspace.value, prompt: prompt.value,
+        title: title.value, output_kinds: outputKinds,
+        evidence_ids: options.evidenceIds || [],
+      });
+      closeModal();
+      state.overview = null;
+      state.selectedRecipe = result.recipe.uid;
+      state.recipeDetail = null;
+      activateView('studio');
+      toast('Production plan prepared · nothing has run yet', 'good');
+    } catch (error) {
+      create.disabled = false;
+      showError(error);
+    }
+  });
+  actions.append(create);
+  body.append(actions, outputBox);
+}
+
+function refineryTemplateFallback() {
+  return [
+    {kind: 'tutorial', title: 'Deep technical tutorial', maker: 'Midden + Pandoc', cost_class: 'spends'},
+    {kind: 'adr', title: 'Architecture decision record', maker: 'Midden', cost_class: 'spends'},
+    {kind: 'release_pack', title: 'Release and launch pack', maker: 'Midden', cost_class: 'spends'},
+    {kind: 'slides', title: 'Presentation deck', maker: 'Marp', cost_class: 'spends'},
+    {kind: 'diagram', title: 'Architecture diagram', maker: 'D2', cost_class: 'spends'},
+    {kind: 'video_brief', title: 'Video production brief', maker: 'Midden / OpenMontage', cost_class: 'spends'},
+    {kind: 'handbook', title: 'Project field guide', maker: 'Quarto / Pandoc', cost_class: 'spends'},
+    {kind: 'flashcards', title: 'Spaced-repetition deck', maker: 'Anki export', cost_class: 'spends'},
+    {kind: 'quiz', title: 'Scenario quiz', maker: 'Midden / H5P', cost_class: 'spends'},
+    {kind: 'notebook_pack', title: 'Notebook source pack', maker: 'Open Notebook', cost_class: 'free'},
+    {kind: 'skill', title: 'Agent skill proposal', maker: 'Agent Skills', cost_class: 'spends'},
+    {kind: 'instruction_patch', title: 'Instruction patch proposal', maker: 'Midden', cost_class: 'spends'},
+    {kind: 'agent_profile', title: 'Specialist agent proposal', maker: 'Midden', cost_class: 'spends'},
+    {kind: 'eval_pack', title: 'Evaluation pack', maker: 'Promptfoo', cost_class: 'free'},
+    {kind: 'retrieval_pack', title: 'Retrieval memory pack', maker: 'Midden', cost_class: 'free'},
+    {kind: 'sft_pack', title: 'Supervised examples pack', maker: 'Midden', cost_class: 'free'},
+    {kind: 'preference_pack', title: 'Preference-pair pack', maker: 'Midden', cost_class: 'free'},
+    {kind: 'privacy_manifest', title: 'Privacy manifest', maker: 'Midden', cost_class: 'free'},
+    {kind: 'provenance_manifest', title: 'Provenance manifest', maker: 'Midden', cost_class: 'free'},
+  ];
+}
+
+async function openRecipe(id) {
+  state.selectedRecipe = id;
+  state.recipeDetail = null;
+  activateView('studio');
+}
+
+async function loadRecipeDetail(force = false) {
+  if (!state.selectedRecipe) return null;
+  if (!state.recipeDetail || force || state.recipeDetail.recipe.uid !== state.selectedRecipe) {
+    state.recipeDetail = await get(`/api/refinery/recipe?id=${encodeURIComponent(state.selectedRecipe)}`);
+  }
+  return state.recipeDetail;
+}
+
+async function renderStudio() {
+  const overview = await loadOverview();
+  const root = clear($('#studio-content'));
+  if (!state.selectedRecipe) {
+    append(root,
+      pageHead('Recipes and review', 'Create many assets from one approved evidence set.',
+        'Every plan shows outputs, makers, cost, egress, review gates, and destinations before it runs.',
+        [button('Design a production', 'button', () => openDesignModal({}))]),
+    );
+    const recipes = (overview.recipes || []).filter((recipe) => recipe.status !== 'archived');
+    if (recipes.length) root.append(recipeGrid(recipes));
+    else root.append(emptyState('No productions yet',
+      'Describe an outcome in Conductor, review its interpretation, then create the plan.',
+      button('Open Conductor', 'button ghost', () => activateView('conductor'))));
+    return;
+  }
+
+  let detail;
+  try {
+    detail = await loadRecipeDetail();
+  } catch (error) {
+    state.selectedRecipe = '';
+    state.recipeDetail = null;
+    throw error;
+  }
+  const recipe = detail.recipe;
+  const deterministicOnly = recipe.outputs.every((output) => !output.requires_model);
+  append(root,
+    pageHead('Production plan', recipe.title,
+      recipe.request || 'A saved multi-output refinery production.',
+      [
+        button('Back to productions', 'button ghost', () => {
+          state.selectedRecipe = '';
+          state.recipeDetail = null;
+          renderStudio().catch(showError);
+        }),
+        button('Clone recipe', 'button ghost', () => cloneRecipe(recipe.uid)),
+      ]),
+  );
+
+  const summary = el('div', 'metric-grid');
+  [
+    ['Status', humanStatus(recipe.status), 'explicit workflow state'],
+    ['Evidence', recipe.evidence_ids.length, `${detail.evidence_report.quality || 0}% quality`],
+    ['Outputs', recipe.outputs.length, 'reviewed independently'],
+    ['Estimate', deterministicOnly ? 'FREE' : detail.estimate?.unit_mid ? `~${Number(detail.estimate.unit_mid).toFixed(1)} ${detail.estimate.unit}` : formatCount(detail.estimate?.mid),
+      deterministicOnly ? 'no model invocation' : detail.estimate?.samples ? 'grounded by prior runs' : 'uncalibrated'],
+  ].forEach(([label, value, copy]) => {
+    const card = el('article', 'metric-card');
+    append(card, el('div', 'eyebrow', label), el('strong', null, value), el('span', null, copy));
+    summary.append(card);
+  });
+  root.append(summary);
+
+  root.append(renderRecipePlan(detail));
+  if (['draft', 'evidence_review', 'approved', 'failed'].includes(recipe.status)) {
+    root.append(renderEvidenceWorkbench(detail));
+  }
+  if (['approved', 'failed'].includes(recipe.status)) {
+    root.append(renderRunCommitment(detail));
+  }
+  if ((detail.runs || []).length) root.append(renderRunTimeline(detail.runs[0]));
+  if ((detail.outputs || []).length) root.append(renderReviewStudio(detail));
+}
+
+function renderRecipePlan(detail) {
+  const recipe = detail.recipe;
+  const panel = el('section', 'panel');
+  panel.append(sectionHead('Recipe bundle', `${recipe.outputs.length} deliverables from one context`,
+    'Outputs share a claim graph but retain separate review and export gates.',
+    ['draft', 'evidence_review'].includes(recipe.status)
+      ? [button('Edit deliverables', 'button ghost compact', () => editRecipeOutputs(detail))]
+      : []));
+  const grid = el('div', 'recipe-grid');
+  recipe.outputs.forEach((output) => {
+    const card = el('article', 'recipe-card');
+    append(card,
+      el('div', 'eyebrow', output.format),
+      el('h3', null, output.title),
+      el('p', null, `${output.maker}. Audience: ${output.audience}.`),
+    );
+    const meta = el('div', 'recipe-meta');
+    append(meta, badge(output.requires_model ? 'spends' : 'free', output.requires_model ? 'spend' : 'free'),
+      badge(output.maker));
+    card.append(meta);
+    grid.append(card);
+  });
+  panel.append(grid);
+  return panel;
+}
+
+function editRecipeOutputs(detail) {
+  const body = openModal('Edit deliverables',
+    'Changing the output mix returns the recipe to evidence review.');
+  const selected = new Set(detail.recipe.outputs.map((output) => output.kind));
+  const checks = el('div', 'checkbox-list');
+  (detail.templates || refineryTemplateFallback()).forEach((template) => {
+    const label = el('label', 'check-card');
+    const input = el('input');
+    input.type = 'checkbox';
+    input.value = template.kind;
+    input.checked = selected.has(template.kind);
+    const copy = el('span');
+    append(copy, el('strong', null, template.title),
+      el('small', null, `${template.maker} · ${template.requires_model ? 'spends' : 'free'}`));
+    append(label, input, copy);
+    checks.append(label);
+  });
+  body.append(checks);
+  const actions = el('div', 'modal-actions');
+  actions.append(button('Cancel', 'button ghost', closeModal));
+  actions.append(button('Save deliverables', 'button', async () => {
+    const kinds = $$('input:checked', checks).map((input) => input.value);
+    if (!kinds.length) {
+      toast('Choose at least one deliverable', 'bad');
       return;
     }
-    const t = el('table');
-    const head = el('tr');
-    ['when', 'op', 'tool', 'session', 'before', 'after', 'ok'].forEach((h) => head.append(el('th', null, h)));
-    t.append(head);
-    ops.forEach((o) => {
-      const tr = el('tr');
-      tr.append(
-        el('td', 'meta', new Date(o.created_at).toLocaleString()),
-        el('td', null, o.op),
-        el('td', 'tool ' + o.tool, o.tool),
-        el('td', 'mono', (o.session_id || '').slice(0, 8)),
-        el('td', null, bytes(o.before)),
-        el('td', null, bytes(o.after)),
-        el('td', o.ok ? 'good' : 'bad', o.ok ? 'ok' : 'FAILED'));
-      t.append(tr);
-    });
-    list.append(t);
-  } catch (e) {
-    list.replaceChildren(el('p', 'bad', 'failed: ' + e.message));
-  }
-};
+    try {
+      await post('/api/refinery/action', {
+        action: 'update_recipe', recipe_id: detail.recipe.uid, output_kinds: kinds,
+      });
+      closeModal();
+      state.recipeDetail = null;
+      state.overview = null;
+      await renderStudio();
+      toast('Deliverables updated; review the evidence again.', 'good');
+    } catch (error) {
+      showError(error);
+    }
+  }));
+  body.append(actions);
+}
 
-loaders.do();
+function renderEvidenceWorkbench(detail) {
+  const recipe = detail.recipe;
+  const report = detail.evidence_report || {};
+  const selected = new Set(recipe.evidence_ids || []);
+  const panel = el('section', 'panel');
+  panel.append(sectionHead('Evidence workbench', 'Control what every output is allowed to claim',
+    'Changes here propagate to the tutorial, slides, visuals, knowledge packs, and agent proposals.'));
+  const layout = el('div', 'evidence-layout');
+  const left = el('div');
+  const filters = el('div', 'filter-row evidence-filters');
+  const search = textInput('', 'Search selected evidence');
+  const needsReview = el('input');
+  needsReview.type = 'checkbox';
+  const reviewLabel = el('label', 'check');
+  append(reviewLabel, needsReview, el('span', null, 'Needs review only'));
+  append(filters, search, reviewLabel);
+  const list = el('div', 'evidence-list');
+  const candidatesByID = new Map((detail.candidates || []).map((nugget) => [nugget.uid, nugget]));
+  (detail.evidence || []).forEach((nugget) => candidatesByID.set(nugget.uid, nugget));
+  const allCandidates = Array.from(candidatesByID.values());
+  const selectedCandidates = allCandidates.filter((nugget) => selected.has(nugget.uid));
+  const unselectedCandidates = allCandidates.filter((nugget) => !selected.has(nugget.uid));
+  const displayedCandidates = selectedCandidates.concat(
+    unselectedCandidates.slice(0, Math.max(0, 180 - selectedCandidates.length)),
+  );
+  const renderCandidates = () => {
+    clear(list);
+    const query = search.value.trim().toLowerCase();
+    displayedCandidates
+      .filter((nugget) => !needsReview.checked || nugget.confidence < .75)
+      .filter((nugget) => !query ||
+        String(nugget.title || '').toLowerCase().includes(query) ||
+        String(nugget.body || '').toLowerCase().includes(query) ||
+        String(nugget.kind || '').toLowerCase().includes(query))
+      .forEach((nugget) => {
+        list.append(evidenceRow(nugget, true, selected.has(nugget.uid)));
+      });
+    if (!list.children.length) {
+      list.append(emptyState('No evidence matches', 'Clear the search or review-only filter.'));
+    }
+  };
+  search.addEventListener('input', renderCandidates);
+  needsReview.addEventListener('change', renderCandidates);
+  renderCandidates();
+  left.append(filters, list);
+  const right = el('div', 'rail');
+  const quality = el('div', 'rail-card');
+  append(quality,
+    el('div', 'eyebrow', 'Evidence quality'),
+    el('h3', null, `${report.quality || 0}% bundle quality`),
+    el('p', null, `${report.selected || 0} selected · ${report.coverage || 0}% claim-type coverage`),
+  );
+  const bar = el('div', 'quality-bar');
+  const fill = el('i');
+  fill.style.width = `${report.quality || 0}%`;
+  bar.append(fill);
+  quality.append(bar);
+  right.append(quality);
+  (report.warnings || []).forEach((warning) => right.append(el('div', 'warning', warning)));
+  if (!(report.warnings || []).length) right.append(el('div', 'success', 'The evidence set is ready for an explicit approval.'));
+
+  const controls = el('div', 'rail-card');
+  append(controls, el('h3', null, 'Evidence gate'),
+    el('p', null, 'Save selections freely. Approval is a separate state transition before any run.'));
+  const save = button('Save selection', 'button ghost', () => saveEvidenceSelection(detail, false));
+  const approve = button('Approve evidence set', 'button good', () => saveEvidenceSelection(detail, true));
+  append(controls, el('div', 'row-actions'), save, approve);
+  const actionWrap = $('.row-actions', controls);
+  actionWrap.append(save, approve);
+  right.append(controls);
+  append(layout, left, right);
+  panel.append(layout);
+  return panel;
+}
+
+async function saveEvidenceSelection(detail, approve) {
+  const root = $('#studio-content');
+  const inputs = $$('input[data-evidence]', root);
+  const visibleIDs = new Set(inputs.map((input) => input.value));
+  const ids = new Set((detail.recipe.evidence_ids || []).filter((id) => !visibleIDs.has(id)));
+  inputs.filter((input) => input.checked).forEach((input) => ids.add(input.value));
+  try {
+    await post('/api/refinery/action', {
+      action: approve ? 'approve_evidence' : 'save_evidence',
+      recipe_id: detail.recipe.uid,
+      evidence_ids: Array.from(ids),
+    });
+    state.recipeDetail = null;
+    state.overview = null;
+    await renderStudio();
+    toast(approve ? 'Evidence approved. The recipe can now run.' : 'Evidence selection saved.', 'good');
+  } catch (error) {
+    showError(error);
+  }
+}
+
+function renderRunCommitment(detail) {
+  const panel = el('section', 'hero');
+  const copy = el('div');
+  const modelOutputs = detail.recipe.outputs.filter((output) => output.requires_model).length;
+  append(copy,
+    el('div', 'eyebrow', 'Commitment'),
+    el('h2', null, 'Generate drafts only.'),
+    el('p', null, `${modelOutputs} output(s) use one warm model context. Deterministic packs stay local and free. The run writes only to Midden’s artifact workspace and stops before publishing, installation, upload, or training.`),
+  );
+  append(panel, copy, button('Preview cost and run', 'button good', () => previewProduction(detail.recipe.uid)));
+  return panel;
+}
+
+async function previewProduction(recipeID) {
+  try {
+    const preview = await runJob({op: 'production', recipe_id: recipeID, apply: false},
+      'Previewing production', 'Calculates the full bundle estimate from the approved evidence and output mix.');
+    const result = preview.result || {};
+    const modelOutputs = (result.recipe?.outputs || []).filter((output) => output.requires_model).length;
+    const body = openModal('Approve production run',
+      'This approval creates drafts only. No destination receives anything.');
+    const estimate = result.estimate || preview.estimate || {};
+    const box = el('div', 'estimate-box');
+    append(box,
+      el('div', 'eyebrow', modelOutputs === 0 ? 'Free local production' : estimate.samples ? `${estimate.samples} calibrated prior run(s)` : 'Uncalibrated estimate'),
+      el('strong', null, result.estimate_text || (modelOutputs === 0 ? '0 model calls' : `${formatCount(estimate.low)}–${formatCount(estimate.high)} tokens`)),
+    );
+    const facts = el('div', 'estimate-facts');
+    [
+      ['Outputs', String(result.recipe?.outputs?.length || 0)],
+      ['Evidence', `${result.evidence_report?.selected || 0} item(s)`],
+      ['Backend', result.backend || 'auto-detect signed-in CLI'],
+      ['Model', result.model || 'backend default'],
+      ['Time', modelOutputs === 0 ? 'immediate' : `about ${Math.max(1, Math.ceil((result.estimated_seconds || 60) / 60))} minute(s)`],
+      ['External writes', 'none'],
+    ].forEach(([label, value]) => {
+      const item = el('div', 'estimate-fact');
+      append(item, el('span', null, label), el('strong', null, value));
+      facts.append(item);
+    });
+    box.append(facts);
+    body.append(box);
+    if (modelOutputs > 0 && !estimate.samples) {
+      body.append(el('div', 'warning',
+        'This is a conservative first-run token range. Complete one small run to calibrate future credit and time estimates.'));
+    }
+    const fields = modelOutputs > 0 ? backendFields() : {backend: {value: ''}, model: {value: ''}};
+    if (modelOutputs > 0) {
+      append(body, field('Model backend', fields.backend), field('Model override', fields.model));
+    }
+    const actions = el('div', 'modal-actions');
+    actions.append(button('Not now', 'button ghost', closeModal));
+    const run = button('Approve and run', 'button good', async () => {
+      run.disabled = true;
+      closeModal();
+      try {
+        const finished = await runJob({
+          op: 'production', recipe_id: recipeID, apply: true,
+          backend: fields.backend.value, model: fields.model.value,
+        }, 'Running production', 'Every stage writes a durable timeline and pauses at the review studio.');
+        toast(`${finished.result?.outputs?.length || 0} draft(s) ready for review`, 'good');
+        state.recipeDetail = null;
+        state.overview = null;
+        await renderStudio();
+      } catch (error) {
+        showError(error);
+        state.recipeDetail = null;
+        state.overview = null;
+        await renderStudio().catch(showError);
+      }
+    });
+    actions.append(run);
+    body.append(actions);
+  } catch (error) {
+    showError(error);
+  }
+}
+
+function renderRunTimeline(run) {
+  const panel = el('section', 'run-card');
+  panel.append(sectionHead('Run timeline', `Production ${humanStatus(run.status)}`,
+    'Every transformation and checkpoint remains visible after the browser closes.'));
+  (run.stages || []).forEach((stage) => {
+    const row = el('div', 'run-line');
+    const time = el('time', null, stage.started_at ? formatDate(stage.started_at) : '--');
+    const dot = el('span', `status-dot ${stage.status || ''}`.trim());
+    const copy = el('div');
+    append(copy, el('strong', null, stage.label), el('small', null, stage.detail || 'Waiting'));
+    append(row, time, dot, copy, badge(humanStatus(stage.status), statusKind(stage.status)));
+    panel.append(row);
+  });
+  if (run.error) panel.append(el('div', 'warning', run.error));
+  return panel;
+}
+
+function renderReviewStudio(detail) {
+  const panel = el('section', 'panel');
+  panel.append(sectionHead('Review studio', 'Inspect every draft before export',
+    'Edit the source, trace provenance, approve or reject it, then choose a destination.'));
+  const grid = el('div', 'output-grid');
+  detail.outputs.forEach((output) => {
+    const card = el('article', 'output-card');
+    const preview = `${String(output.kind).toUpperCase()}\n${output.format} · ${output.maker}`;
+    append(card, el('div', 'output-preview', preview), el('h3', null, output.title),
+      el('p', null, `${output.evidence_ids.length} evidence item(s) · ${output.quality}% quality`));
+    const meta = el('div', 'output-meta');
+    append(meta, badge(humanStatus(output.status), statusKind(output.status)), badge(output.format));
+    card.append(meta);
+    const actions = el('div', 'card-actions');
+    actions.append(button(output.status === 'draft' ? 'Review' : 'Open', 'button', () => reviewOutput(output.uid)));
+    if (['reviewed', 'exported'].includes(output.status)) {
+      actions.append(button(output.status === 'exported' ? 'Exported' : 'Export local', 'button ghost',
+        () => exportOutput(output.uid)));
+    }
+    card.append(actions);
+    grid.append(card);
+  });
+  panel.append(grid);
+  return panel;
+}
+
+async function reviewOutput(outputID) {
+  try {
+    const detail = await get(`/api/refinery/output?id=${encodeURIComponent(outputID)}`);
+    const output = detail.output;
+    const body = openDrawer(output.title);
+    body.classList.add('review-workbench');
+    const meta = el('div', 'row-actions');
+    append(meta, badge(humanStatus(output.status), statusKind(output.status)),
+      badge(output.format), badge(`${output.evidence_ids.length} evidence`, 'free'));
+    body.append(meta);
+    const tabs = el('div', 'tabs review-tabs');
+    const previewTab = button('Review', 'tab-button active');
+    const rawTab = button('Raw source', 'tab-button');
+    const provenanceTab = button('Provenance', 'tab-button');
+    append(tabs, previewTab, rawTab, provenanceTab);
+    body.append(tabs);
+
+    const reviewPanel = el('div', 'structured-review');
+    const rawPanel = el('div', 'raw-review');
+    rawPanel.hidden = true;
+    const provenancePanel = el('div', 'provenance-review');
+    provenancePanel.hidden = true;
+    const editor = textarea(detail.body || '');
+    editor.className = 'document-editor';
+    rawPanel.append(field('Editable source', editor));
+    const structured = structuredOutput(detail.body || '', output.format);
+    renderStructuredOutput(reviewPanel, structured, output);
+    renderProvenance(provenancePanel, detail.provenance);
+    append(body, reviewPanel, rawPanel, provenancePanel);
+
+    let active = 'review';
+    let rawDirty = false;
+    editor.addEventListener('input', () => { rawDirty = true; });
+    const activate = (name) => {
+      active = name;
+      previewTab.classList.toggle('active', name === 'review');
+      rawTab.classList.toggle('active', name === 'raw');
+      provenanceTab.classList.toggle('active', name === 'provenance');
+      reviewPanel.hidden = name !== 'review';
+      rawPanel.hidden = name !== 'raw';
+      provenancePanel.hidden = name !== 'provenance';
+    };
+    previewTab.addEventListener('click', () => activate('review'));
+    rawTab.addEventListener('click', () => activate('raw'));
+    provenanceTab.addEventListener('click', () => activate('provenance'));
+
+    const currentBody = () => {
+      if (rawDirty || active === 'raw' || structured.kind !== 'jsonl') return editor.value;
+      return structured.records
+        .filter((record) => record.selected)
+        .map((record) => JSON.stringify(record.value))
+        .join('\n') + '\n';
+    };
+    const currentEvidenceIDs = () => structured.kind === 'jsonl'
+      ? (rawDirty || active === 'raw' ? null : Array.from(new Set(structured.records
+        .filter((record) => record.selected)
+        .flatMap((record) => recordEvidenceIDs(record.value)))))
+      : null;
+    const actions = el('div', 'modal-actions');
+    actions.append(button('Reject', 'button danger', () => saveOutputReview(output, currentBody(), 'rejected', currentEvidenceIDs())));
+    actions.append(button('Save draft', 'button ghost', () => saveOutputReview(output, currentBody(), 'draft', currentEvidenceIDs())));
+    actions.append(button('Approve output', 'button good', () => saveOutputReview(output, currentBody(), 'reviewed', currentEvidenceIDs())));
+    body.append(actions);
+  } catch (error) {
+    showError(error);
+  }
+}
+
+function recordEvidenceIDs(value) {
+  return [
+    value?.id,
+    value?.evidence_id,
+    value?.metadata?.evidence_id,
+    value?.provenance?.evidence_id,
+    value?.provenance?.chosen_evidence_id,
+    value?.provenance?.rejected_evidence_id,
+  ].filter(Boolean);
+}
+
+function structuredOutput(body, format) {
+  if (format === 'jsonl') {
+    const records = [];
+    for (const [index, line] of body.split(/\r?\n/).entries()) {
+      if (!line.trim()) continue;
+      try {
+        records.push({index, value: JSON.parse(line), selected: true});
+      } catch {
+        return {kind: 'text', body, error: `Line ${index + 1} is not valid JSON.`};
+      }
+    }
+    return {kind: 'jsonl', records};
+  }
+  if (format === 'json') {
+    try {
+      return {kind: 'json', value: JSON.parse(body)};
+    } catch {
+      return {kind: 'text', body, error: 'This file is not valid JSON.'};
+    }
+  }
+  return {kind: 'text', body};
+}
+
+function recordTitle(value, index) {
+  return value?.metadata?.title || value?.description || value?.instruction ||
+    value?.prompt || value?.title || `Record ${index + 1}`;
+}
+
+function recordBody(value) {
+  return value?.text || value?.response || value?.expected || value?.chosen ||
+    value?.content || JSON.stringify(value, null, 2);
+}
+
+function renderStructuredOutput(panel, structured, output) {
+  clear(panel);
+  if (structured.error) panel.append(el('div', 'warning', structured.error));
+  if (structured.kind === 'jsonl') {
+    const toolbar = el('div', 'review-toolbar');
+    const count = el('strong', null, `${structured.records.length} record(s)`);
+    const selectAll = button('Select all', 'button ghost compact', () => {
+      structured.records.forEach((record) => { record.selected = true; });
+      $$('input[data-record-index]', panel).forEach((input) => { input.checked = true; });
+      updateCount();
+    });
+    const selectNone = button('Select none', 'button ghost compact', () => {
+      structured.records.forEach((record) => { record.selected = false; });
+      $$('input[data-record-index]', panel).forEach((input) => { input.checked = false; });
+      updateCount();
+    });
+    const updateCount = () => {
+      count.textContent = `${structured.records.filter((record) => record.selected).length} of ${structured.records.length} included`;
+    };
+    append(toolbar, count, el('div', 'row-actions'));
+    $('.row-actions', toolbar).append(selectAll, selectNone);
+    panel.append(toolbar);
+    const list = el('div', 'record-review-list');
+    structured.records.forEach((record, index) => {
+      const card = el('article', 'record-review-card');
+      const check = el('input');
+      check.type = 'checkbox';
+      check.checked = true;
+      check.dataset.recordIndex = String(index);
+      check.addEventListener('change', () => {
+        record.selected = check.checked;
+        card.classList.toggle('excluded', !check.checked);
+        updateCount();
+      });
+      const copy = el('div');
+      const title = el('h3', null, recordTitle(record.value, index));
+      const metadata = el('div', 'record-meta');
+      const kind = record.value?.metadata?.kind || record.value?.kind || output.kind;
+      const confidence = record.value?.metadata?.confidence ?? record.value?.confidence;
+      append(metadata, badge(kind || 'record'),
+        confidence !== undefined ? badge(`${Math.round(Number(confidence) * 100)}% confidence`, Number(confidence) < .75 ? 'spend' : 'free') : null,
+        record.value?.metadata?.tool ? badge(record.value.metadata.tool) : null);
+      const text = el('p', null, recordBody(record.value));
+      append(copy, title, metadata, text);
+      append(card, check, copy);
+      list.append(card);
+    });
+    panel.append(list);
+    updateCount();
+    return;
+  }
+  if (structured.kind === 'json') {
+    const summary = el('div', 'json-summary');
+    Object.entries(structured.value || {}).slice(0, 12).forEach(([key, value]) => {
+      const row = el('div', 'json-summary-row');
+      append(row, el('strong', null, humanStatus(key)),
+        el('span', null, typeof value === 'object' ? JSON.stringify(value, null, 2) : String(value)));
+      summary.append(row);
+    });
+    panel.append(summary);
+    return;
+  }
+  panel.append(el('pre', 'document-preview', structured.body || 'This output is empty.'));
+}
+
+function renderProvenance(panel, body) {
+  clear(panel);
+  if (!body) {
+    panel.append(emptyState('No provenance sidecar found', 'This output cannot be approved until provenance is available.'));
+    return;
+  }
+  try {
+    const parsed = JSON.parse(body);
+    append(panel,
+      metricGrid([
+        {label: 'Recipe', value: String(parsed.recipe_id || '').slice(0, 8), copy: parsed.title || 'production'},
+        {label: 'Model', value: parsed.model || 'deterministic', copy: parsed.maker || 'Midden'},
+        {label: 'Evidence', value: parsed.evidence?.length || 0, copy: 'source records'},
+        {label: 'Raw transcripts', value: parsed.raw_transcripts_included ? 'included' : 'excluded', copy: 'privacy boundary'},
+      ]),
+    );
+    const list = el('div', 'provenance-list');
+    (parsed.evidence || []).forEach((item) => {
+      const row = el('article', 'provenance-card');
+      append(row, el('h3', null, item.title || item.evidence_id),
+        el('p', 'note', `${item.tool || 'source'} · ${String(item.session_id || '').slice(0, 8)} · ${Math.round(Number(item.confidence || 0) * 100)}%`));
+      list.append(row);
+    });
+    panel.append(list);
+  } catch {
+    panel.append(el('pre', 'provenance', body));
+  }
+}
+
+async function saveOutputReview(output, body, decision, evidenceIDs = null) {
+  try {
+    await post('/api/refinery/action', {
+      action: 'review_output', output_id: output.uid, decision, body,
+      evidence_ids: evidenceIDs,
+    });
+    closeDrawer();
+    state.recipeDetail = null;
+    state.overview = null;
+    await renderStudio();
+    toast(`Output ${humanStatus(decision)}`, decision === 'rejected' ? '' : 'good');
+  } catch (error) {
+    showError(error);
+  }
+}
+
+async function exportOutput(outputID) {
+  try {
+    const result = await post('/api/refinery/action', {
+      action: 'export_output', output_id: outputID, destination: 'local_vault',
+    });
+    state.recipeDetail = null;
+    state.overview = null;
+    await renderStudio();
+    notice('The reviewed output and provenance were exported locally.', 'good', [
+      button('Copy path', 'button ghost compact', () => copyText(result.path)),
+    ]);
+  } catch (error) {
+    showError(error);
+  }
+}
+
+async function cloneRecipe(recipeID) {
+  try {
+    const result = await post('/api/refinery/action', {action: 'clone_recipe', recipe_id: recipeID});
+    state.overview = null;
+    state.selectedRecipe = result.recipe.uid;
+    state.recipeDetail = null;
+    await renderStudio();
+    toast('Recipe cloned against the current evidence set.', 'good');
+  } catch (error) {
+    showError(error);
+  }
+}
+
+async function renderKnowledge() {
+  const overview = await loadOverview();
+  const root = clear($('#knowledge-content'));
+  append(root,
+    pageHead('Knowledge and learning', 'Turn lessons into a system you can revisit.',
+      'The same approved evidence becomes durable reference material, retrieval context, and spaced repetition.'),
+  );
+  const grid = el('div', 'recipe-grid');
+  [
+    {
+      kicker: 'Handbook', title: 'Project field guide',
+      copy: 'Architecture, decisions, commands, troubleshooting, and glossary.',
+      kinds: ['handbook', 'provenance_manifest'],
+    },
+    {
+      kicker: 'Learning', title: 'Flashcards and scenario quiz',
+      copy: 'Atomic cards, applied questions, rationales, and source citations.',
+      kinds: ['flashcards', 'quiz', 'provenance_manifest'],
+    },
+    {
+      kicker: 'Research', title: 'Local notebook source pack',
+      copy: 'A reviewed, redacted source pack for a local vault or Open Notebook.',
+      kinds: ['notebook_pack', 'retrieval_pack', 'provenance_manifest'],
+    },
+  ].forEach((item) => {
+    const card = el('article', 'recipe-card');
+    append(card, el('div', 'eyebrow', item.kicker), el('h3', null, item.title), el('p', null, item.copy));
+    const actions = el('div', 'card-actions');
+    actions.append(button('Build this pack', 'button', () => openDesignModal({
+      prompt: `Create ${item.title.toLowerCase()} from the selected project evidence.`,
+      kinds: item.kinds,
+    })));
+    card.append(actions);
+    grid.append(card);
+  });
+  root.append(grid);
+
+  const outputs = (overview.outputs || []).filter((output) =>
+    ['handbook', 'flashcards', 'quiz', 'notebook_pack', 'retrieval_pack'].includes(output.kind));
+  const panel = el('section', 'panel');
+  panel.append(sectionHead('Knowledge library',
+    outputs.length ? `${outputs.length} knowledge output(s)` : 'No knowledge packs yet',
+    'Connections appear only after a reviewed pack needs a destination.'));
+  if (outputs.length) {
+    const outputGrid = el('div', 'output-grid');
+    outputs.forEach((output) => {
+      const card = el('article', 'output-card');
+      append(card, el('div', 'output-preview', `${output.kind.toUpperCase()}\n${output.format}`),
+        el('h3', null, output.title), el('p', null, `${output.quality}% evidence quality`));
+      const actions = el('div', 'card-actions');
+      actions.append(button('Open production', 'button', () => openRecipe(output.recipe_id)));
+      card.append(actions);
+      outputGrid.append(card);
+    });
+    panel.append(outputGrid);
+  } else {
+    panel.append(emptyState('Keep the learning',
+      'Choose a workspace and build a handbook, flashcards, quiz, or notebook pack.',
+      button('Build knowledge pack', 'button', () => openDesignModal({
+        kinds: ['handbook', 'flashcards', 'quiz', 'notebook_pack', 'provenance_manifest'],
+      }))));
+  }
+  root.append(panel);
+  root.append(journeySteps([
+    ['Choose lessons', 'workspace evidence'],
+    ['Build pack', 'handbook and learning'],
+    ['Review truth', 'citations and gaps'],
+    ['Connect destination', 'only when needed'],
+    ['Return', 'new evidence and cadence'],
+  ]));
+}
+
+async function renderAgentForge() {
+  const overview = await loadOverview();
+  const root = clear($('#agent-content'));
+  append(root,
+    pageHead('Agent improvement', 'Turn repeated mistakes into measurable proposals.',
+      'Midden proposes skills, instructions, and specialists from repeated evidence, creates regression cases, and installs nothing automatically.'),
+  );
+  const proposals = overview.agent_proposals || [];
+  if (proposals.length) {
+    const grid = el('div', 'proposal-grid');
+    proposals.forEach((proposal) => {
+      const card = el('article', 'proposal-card');
+      append(card,
+        el('div', 'eyebrow', humanStatus(proposal.kind)),
+        el('h3', null, proposal.title),
+        el('p', null, proposal.summary),
+      );
+      const meta = el('div', 'recipe-meta');
+      append(meta, badge(`${proposal.support} observations`, 'free'),
+        badge(`${proposal.eval_cases} evals`), badge('proposal only', 'danger'));
+      card.append(meta);
+      const actions = el('div', 'card-actions');
+      actions.append(button('Prepare proposal + evals', 'button', () => openDesignModal({
+        workspace: proposal.workspace,
+        prompt: `Use the repeated evidence behind "${proposal.title}" to propose a scoped ${humanStatus(proposal.kind)} and an evaluation pack. Do not install anything.`,
+        kinds: [proposal.kind, 'eval_pack', 'provenance_manifest'],
+        evidenceIds: proposal.evidence_ids,
+      })));
+      card.append(actions);
+      grid.append(card);
+    });
+    root.append(grid);
+  } else {
+    root.append(emptyState('No repeated pattern is strong enough yet',
+      'Single observations never become agent rules. Mine more work or review the evidence library.',
+      button('Mine new work', 'button', runMine)));
+  }
+
+  const gate = el('section', 'panel');
+  gate.append(sectionHead('Evaluation before installation', 'Evidence → proposal → eval → approval',
+    'A plausible instruction is not enough. The proposed behavior must beat the current behavior on held-out cases.'));
+  const list = el('div', 'step-list');
+  [
+    ['A', 'Generate evidence-derived cases', 'Successes, failures, edge cases, and adversarial variants.', 'FREE'],
+    ['B', 'Run current vs proposed behavior', 'Use Promptfoo or a selected-agent comparison.', 'SPENDS'],
+    ['C', 'Approve one reversible scope', 'Project, user, or selected agent only.', 'HUMAN GATE'],
+    ['D', 'Monitor later sessions', 'Measure whether the original failure repeats.', 'EVIDENCE'],
+  ].forEach(([n, title, copy, status]) => {
+    const row = el('div', 'step-row');
+    const text = el('div');
+    append(text, el('strong', null, title), el('small', null, copy));
+    append(row, el('span', 'step-number', n), text, badge(status, status === 'SPENDS' ? 'spend' : status === 'HUMAN GATE' ? 'danger' : 'free'));
+    list.append(row);
+  });
+  gate.append(list);
+  root.append(gate);
+
+  const outputs = (overview.outputs || []).filter((output) =>
+    ['skill', 'instruction_patch', 'agent_profile', 'eval_pack'].includes(output.kind));
+  if (outputs.length) {
+    const panel = el('section', 'panel');
+    panel.append(sectionHead('Proposal history', `${outputs.length} draft or reviewed improvement output(s)`,
+      'Open the parent production to inspect evidence, evals, and review state.'));
+    const grid = el('div', 'output-grid');
+    outputs.forEach((output) => {
+      const card = el('article', 'output-card');
+      append(card, el('div', 'output-preview', `${output.kind.toUpperCase()}\nPROPOSAL · NOT INSTALLED`),
+        el('h3', null, output.title), el('p', null, `${output.evidence_ids.length} evidence item(s)`));
+      const actions = el('div', 'card-actions');
+      actions.append(button('Open production', 'button', () => openRecipe(output.recipe_id)));
+      card.append(actions);
+      grid.append(card);
+    });
+    panel.append(grid);
+    root.append(panel);
+  }
+}
+
+async function renderPersonalization() {
+  const overview = await loadOverview();
+  const report = overview.personalization || {};
+  const root = clear($('#personalization-content'));
+  append(root,
+    pageHead('Personalization lab', report.training_ready
+      ? 'Your evidence passes the conservative data-volume gates.'
+      : 'Your history can support useful packs before a reliable fine-tune.',
+    'Midden separates retrieval memory, supervised examples, preference pairs, and held-out evals instead of dumping transcripts into training.'),
+    metricGrid([
+      {label: 'Retrieval memories', value: formatCount(report.retrieval), copy: 'useful immediately after review'},
+      {label: 'SFT candidates', value: formatCount(report.sft), copy: 'high-confidence examples'},
+      {label: 'Preference pairs', value: formatCount(report.preference_pairs), copy: 'accepted versus rejected'},
+      {label: 'Eval cases', value: formatCount(report.evals), copy: 'held-out expected behavior'},
+    ]),
+  );
+
+  const layout = el('div', 'grid-2');
+  const gates = el('section', 'panel');
+  gates.append(sectionHead('Quality and privacy gates', 'Training stays locked until every gate passes',
+    'Retrieval and eval exports remain valuable even when training is not ready.'));
+  const list = el('div', 'step-list');
+  (report.gates || []).forEach((gate, index) => {
+    const row = el('div', 'step-row');
+    const copy = el('div');
+    append(copy, el('strong', null, gate.label),
+      el('small', null, `${gate.detail} Current: ${gate.current}${gate.target ? ` / ${gate.target}` : ''}.`));
+    append(row, el('span', 'step-number', index + 1), copy,
+      badge(humanStatus(gate.status), statusKind(gate.status)));
+    list.append(row);
+  });
+  gates.append(list);
+
+  const recommendation = el('section', 'panel');
+  recommendation.append(el('div', report.training_ready ? 'success' : 'warning', report.recommendation));
+  const actions = el('div', 'row-actions');
+  actions.append(button('Prepare safe data pack', 'button', () => openDesignModal({
+    prompt: 'Prepare a local, privacy-reviewed retrieval, SFT, preference, and evaluation data pack. Include provenance and privacy manifests. Do not train or upload anything.',
+    kinds: ['retrieval_pack', 'sft_pack', 'preference_pack', 'eval_pack', 'privacy_manifest', 'provenance_manifest'],
+  })));
+  actions.append(button('Inspect evidence', 'button ghost', () => activateView('mine')));
+  recommendation.append(actions);
+  append(layout, gates, recommendation);
+  root.append(layout);
+
+  const outputs = (overview.outputs || []).filter((output) =>
+    ['retrieval_pack', 'sft_pack', 'preference_pack', 'eval_pack', 'privacy_manifest'].includes(output.kind));
+  if (outputs.length) {
+    const panel = el('section', 'panel');
+    panel.append(sectionHead('Private data packs', `${outputs.length} generated output(s)`,
+      'Every pack remains local and review-gated.'));
+    const grid = el('div', 'output-grid');
+    outputs.forEach((output) => {
+      const card = el('article', 'output-card');
+      append(card, el('div', 'output-preview', `${output.kind.toUpperCase()}\nLOCAL · PROVENANCED`),
+        el('h3', null, output.title), el('p', null, humanStatus(output.status)));
+      const actions = el('div', 'card-actions');
+      actions.append(button('Open production', 'button', () => openRecipe(output.recipe_id)));
+      card.append(actions);
+      grid.append(card);
+    });
+    panel.append(grid);
+    root.append(panel);
+  }
+}
+
+async function loadConnections(force = false) {
+  if (!state.connections || force) {
+    const [connections, integrations] = await Promise.all([
+      get('/api/refinery/connections'),
+      get('/api/integrations'),
+    ]);
+    state.connections = connections;
+    state.integrations = integrations;
+  }
+  return {connections: state.connections, integrations: state.integrations};
+}
+
+async function renderConnections() {
+  const root = clear($('#connections-content'));
+  append(root, pageHead('Capabilities in context', 'Connect tools when a recipe needs them.',
+    'Midden groups capabilities by the outcome they unlock. Opening this page performs local detection only; service tests remain explicit.'));
+  let data;
+  try {
+    data = await loadConnections();
+  } catch (error) {
+    root.append(emptyState('Connections could not be loaded', error.message));
+    return;
+  }
+  const integrationByID = new Map((data.integrations || []).map((item) => [item.id, item]));
+  const groups = new Map();
+  data.connections.forEach((connection) => {
+    if (!groups.has(connection.category)) groups.set(connection.category, []);
+    groups.get(connection.category).push(connection);
+  });
+  let groupIndex = 0;
+  groups.forEach((connections, category) => {
+    const section = el('details', 'connection-group');
+    section.open = groupIndex < 2 || connections.some((connection) => connection.managed || connection.status === 'ready');
+    const summary = el('summary', 'connection-group-summary');
+    const readyCount = connections.filter((connection) => connection.status === 'ready').length;
+    append(summary, el('h2', null, category),
+      badge(readyCount ? `${readyCount} ready` : `${connections.length} capability`, readyCount ? 'ready' : ''));
+    section.append(summary);
+    const grid = el('div', 'connection-grid');
+    connections.forEach((connection) => {
+      const card = el('article', 'connection-card');
+      append(card, el('div', 'eyebrow', connection.outcome), el('h3', null, connection.name),
+        el('p', null, connection.description));
+      const meta = el('div', 'connection-meta');
+      append(meta, badge(humanStatus(connection.status), statusKind(connection.status)),
+        badge(connection.cost, connection.cost === 'spends' ? 'spend' : connection.cost === 'lab' ? 'lab' : 'free'));
+      card.append(meta);
+      card.append(el('div', 'connection-outcome', connection.detail));
+      const actions = el('div', 'card-actions');
+      const managed = integrationByID.get(connection.id);
+      if (managed) {
+        actions.append(button(managed.state === 'not_set_up' ? 'Set up' : 'Edit setup', 'button ghost',
+          () => configureIntegration(managed)));
+        if (!['not_set_up', 'turned_off'].includes(managed.state)) {
+          actions.append(button('Test explicitly', 'button', () => testIntegration(managed.id)));
+        }
+      } else if (connection.id === 'training') {
+        actions.append(button('View readiness', 'button ghost', () => activateView('personalization')));
+      } else if (connection.id === 'anki') {
+        actions.append(button('Build learning pack', 'button ghost', () => activateView('knowledge')));
+      } else if (connection.status === 'ready') {
+        actions.append(badge('available now', 'ready'));
+      } else {
+        actions.append(button(connection.action, 'button ghost', () => {
+          toast(connection.detail);
+        }));
+      }
+      card.append(actions);
+      grid.append(card);
+    });
+    section.append(grid);
+    root.append(section);
+    groupIndex += 1;
+  });
+
+  const advanced = el('section', 'panel');
+  advanced.append(sectionHead('Advanced configuration', 'Declarative manifests remain available',
+    'Midden never probes an advanced target until you explicitly request it.',
+    [button('Check advanced manifests', 'button ghost compact', probeAdvancedPlugins)]));
+  const list = el('div');
+  advanced.append(list);
+  try {
+    const plugins = state.plugins || await get('/api/plugins');
+    state.plugins = plugins;
+    renderPluginList(list, plugins);
+  } catch (error) {
+    list.append(el('p', 'note', error.message));
+  }
+  root.append(advanced);
+}
+
+function configureIntegration(item) {
+  if (item.id === 'open-notebook') return configureOpenNotebook(item);
+  if (item.id === 'openmontage') return configureOpenMontage(item);
+}
+
+function configureOpenNotebook(item) {
+  const body = openModal('Set up Open Notebook',
+    'Midden saves local URLs and whether a password is required. Password values remain action-scoped and are never stored.');
+  const api = textInput(item.settings?.api_url || 'http://127.0.0.1:5055/api');
+  const ui = textInput(item.settings?.ui_url || 'http://127.0.0.1:8502');
+  const password = el('input');
+  password.type = 'checkbox';
+  password.checked = Boolean(item.settings?.password_required);
+  const passwordLabel = el('label', 'check-card');
+  const copy = el('span');
+  append(copy, el('strong', null, 'Password required'),
+    el('small', null, 'The password is requested only when testing or sending.'));
+  append(passwordLabel, password, copy);
+  append(body, field('API URL', api), field('UI URL', ui), passwordLabel);
+  if (item.github_url) {
+    const link = el('a', null, 'Open official setup guide');
+    link.href = item.github_url;
+    link.target = '_blank';
+    link.rel = 'noopener noreferrer';
+    body.append(link);
+  }
+  const actions = el('div', 'modal-actions');
+  actions.append(button('Cancel', 'button ghost', closeModal));
+  actions.append(button('Save setup', 'button', async () => {
+    try {
+      await post('/api/integrations/configure', {
+        id: item.id, enabled: true, api_url: api.value, ui_url: ui.value,
+        password_required: password.checked, replace_legacy: item.legacy,
+      });
+      closeModal();
+      state.connections = null;
+      state.integrations = null;
+      await renderConnections();
+      toast('Open Notebook setup saved. Test it explicitly when ready.', 'good');
+    } catch (error) {
+      showError(error);
+    }
+  }));
+  body.append(actions);
+}
+
+function configureOpenMontage(item) {
+  const body = openModal('Set up OpenMontage',
+    'Midden records the checked-out repository path and the signed-in CLI OpenMontage should use. It does not install dependencies.');
+  const home = textInput(item.settings?.home || '', 'absolute path to OpenMontage');
+  const backend = selectInput([
+    {value: 'copilot', label: 'Copilot CLI'},
+    {value: 'claude', label: 'Claude Code'},
+    {value: 'opencode', label: 'OpenCode'},
+  ], item.settings?.backend || 'copilot');
+  append(body, field('OpenMontage home', home), field('Model backend', backend));
+  if (item.github_url) {
+    const link = el('a', null, 'Open official setup guide');
+    link.href = item.github_url;
+    link.target = '_blank';
+    link.rel = 'noopener noreferrer';
+    body.append(link);
+  }
+  const actions = el('div', 'modal-actions');
+  actions.append(button('Cancel', 'button ghost', closeModal));
+  actions.append(button('Save setup', 'button', async () => {
+    try {
+      await post('/api/integrations/configure', {
+        id: item.id, enabled: true, home: home.value, backend: backend.value,
+        replace_legacy: item.legacy,
+      });
+      closeModal();
+      state.connections = null;
+      state.integrations = null;
+      await renderConnections();
+      toast('OpenMontage setup saved. Test prerequisites explicitly.', 'good');
+    } catch (error) {
+      showError(error);
+    }
+  }));
+  body.append(actions);
+}
+
+async function testIntegration(id) {
+  try {
+    await post('/api/integrations/test', {id});
+    state.connections = null;
+    state.integrations = null;
+    await renderConnections();
+    toast('Integration test complete.', 'good');
+  } catch (error) {
+    showError(error);
+  }
+}
+
+function renderPluginList(root, plugins) {
+  clear(root);
+  if (!plugins.length) {
+    root.append(el('p', 'note', 'No advanced manifests are installed.'));
+    return;
+  }
+  const tableWrap = el('div', 'table-wrap');
+  const table = el('table');
+  const head = el('thead');
+  const row = el('tr');
+  ['Name', 'Kind', 'Cost', 'Status', 'Detail'].forEach((label) => row.append(el('th', null, label)));
+  head.append(row);
+  const body = el('tbody');
+  plugins.forEach((plugin) => {
+    const item = el('tr');
+    append(item, el('td', null, plugin.name), el('td', null, plugin.kind), el('td', null, plugin.cost),
+      el('td', null, humanStatus(plugin.status)), el('td', null, plugin.detail));
+    body.append(item);
+  });
+  append(table, head, body);
+  tableWrap.append(table);
+  root.append(tableWrap);
+}
+
+async function probeAdvancedPlugins() {
+  try {
+    state.plugins = await post('/api/plugins/probe', {});
+    await renderConnections();
+    toast('Advanced manifests checked explicitly.', 'good');
+  } catch (error) {
+    showError(error);
+  }
+}
+
+function saveConductorMessages() {
+  try {
+    localStorage.setItem('midden.conductor.messages', JSON.stringify(state.conductorMessages.slice(-40)));
+  } catch {}
+}
+
+function addConductorMessage(role, text, extra = {}) {
+  state.conductorMessages.push({role, text, at: new Date().toISOString(), ...extra});
+  saveConductorMessages();
+}
+
+function clearConductorError() {
+  const error = $('#conductor-error');
+  if (error) {
+    error.hidden = true;
+    error.textContent = '';
+  }
+}
+
+function setConductorError(message) {
+  const error = $('#conductor-error');
+  if (!error) return;
+  error.textContent = message;
+  error.hidden = false;
+}
+
+function classifyConductorInput(value) {
+  const text = value.trim().toLowerCase();
+  if (/^(hi|hello|hey|yo|good (morning|afternoon|evening))[!.?]*$/.test(text)) return 'greeting';
+  if (/^(help|what can you do|how does this work|show me what you can do)[!.?]*$/.test(text)) return 'help';
+  if (/^(what|which|why|how|where|when|who|show|tell|find|list|summarize|search)\b/.test(text) || text.endsWith('?')) return 'question';
+  if (/\b(create|turn|build|prepare|write|make|generate|export|propose|draft|produce)\b/.test(text) ||
+      /\b(tutorial|article|adr|release|slides?|deck|diagram|video|handbook|flashcards?|quiz|notebook|skill|eval|retrieval|sft|preference|manifest)\b/.test(text)) {
+    return 'design';
+  }
+  return 'ambiguous';
+}
+
+function simpleConductorAnswer(value, overview) {
+  const text = value.toLowerCase();
+  if (/what can|what.*create|show.*opportunit|what.*yield/.test(text)) {
+    if (!overview.yield?.ready) {
+      return 'I can see your session sources, but I do not have reclaimed evidence yet. Run the free Mine pass, then extract a small evidence scope before I recommend outputs.';
+    }
+    const recommended = overview.yield.recommended;
+    const category = (overview.yield.categories || [])
+      .filter((item) => item.count > 0)
+      .map((item) => `${item.count} ${item.title.toLowerCase()}`)
+      .join(', ');
+    return `You have ${overview.stats.nuggets} reclaimed evidence items supporting ${category || `${overview.yield.total} opportunities`}. The strongest current scope is ${workspaceName(recommended.workspace)} with ${recommended.evidence} evidence items.`;
+  }
+  if (/how much evidence|how many evidence|what evidence/.test(text)) {
+    return `Midden currently has ${overview.stats.nuggets} reclaimed evidence items across ${(overview.workspaces || []).filter((workspace) => workspace.nuggets > 0).length} evidenced workspace(s).`;
+  }
+  return '';
+}
+
+function renderConductorMessage(message, composer) {
+  const node = el('div', `message ${message.role}`);
+  node.append(el('p', null, message.text));
+  if (message.plan?.recipe) {
+    const recipe = message.plan.recipe;
+    const plan = el('div', 'conductor-plan');
+    append(plan,
+      el('div', 'eyebrow', 'Proposed plan'),
+      el('h3', null, recipe.title),
+      el('p', 'note', `${recipe.evidence_ids.length} evidence items · ${recipe.outputs.length} outputs · ${message.plan.estimated_seconds ? `about ${Math.ceil(message.plan.estimated_seconds / 60)} minute(s) · ` : ''}${message.plan.estimate_text}`),
+    );
+    if (message.plan.estimate?.mid && !message.plan.estimate?.samples) {
+      plan.append(badge('first-run conservative estimate', 'spend'));
+    }
+    const outputs = el('div', 'conductor-plan-outputs');
+    recipe.outputs.forEach((output) => outputs.append(badge(output.title, output.requires_model ? 'spend' : 'free')));
+    plan.append(outputs);
+    const actions = el('div', 'row-actions');
+    if (message.plan_status === 'created') {
+      actions.append(badge('plan created', 'ready'));
+    } else {
+      actions.append(button('Create this plan', 'button good compact', () => confirmConductorPlan(message)));
+      actions.append(button('Adjust request', 'button ghost compact', () => {
+        composer.value = recipe.request;
+        composer.focus();
+        composer.setSelectionRange(composer.value.length, composer.value.length);
+      }));
+    }
+    plan.append(actions);
+    node.append(plan);
+  }
+  return node;
+}
+
+async function confirmConductorPlan(message) {
+  const recipe = message.plan?.recipe;
+  if (!recipe || message.plan_status === 'created') return;
+  try {
+    const result = await post('/api/refinery/action', {
+      action: 'design',
+      workspace: recipe.workspace,
+      prompt: recipe.request,
+      title: recipe.title,
+      output_kinds: recipe.outputs.map((output) => output.kind),
+      evidence_ids: recipe.evidence_ids,
+    });
+    message.plan_status = 'created';
+    saveConductorMessages();
+    addConductorMessage('agent',
+      `Created “${result.recipe.title}”. Nothing has run or spent. Review the evidence before approving it.`);
+    state.overview = null;
+    state.selectedRecipe = result.recipe.uid;
+    state.recipeDetail = null;
+    activateView('studio');
+  } catch (error) {
+    setConductorError(error.message);
+  }
+}
+
+async function renderConductor() {
+  const overview = await loadOverview();
+  const root = clear($('#conductor-content'));
+  append(root, pageHead('Conversational control', 'Ask, create, and run—one step at a time.',
+    'Conductor clarifies your intent first, previews a plan second, and creates or runs only after your confirmation.'));
+  const layout = el('div', 'chat-layout');
+  const chat = el('section', 'chat-shell');
+  const head = el('div', 'chat-head');
+  append(head, el('strong', null, 'Conductor'));
+  const modes = el('div', 'mode-switch');
+  ['auto', 'ask', 'design', 'run'].forEach((mode) => {
+    const node = button(mode.toUpperCase(), `mode-button ${state.conductorMode === mode ? 'active' : ''}`.trim(), () => {
+      state.conductorMode = mode;
+      renderConductor().catch(showError);
+    });
+    modes.append(node);
+  });
+  modes.append(button('CLEAR', 'mode-button', () => {
+    state.conductorMessages = [];
+    state.conductorDraft = '';
+    saveConductorMessages();
+    renderConductor().catch(showError);
+  }));
+  head.append(modes);
+  chat.append(head);
+  const composer = textarea(state.conductorDraft, conductorPlaceholder());
+  composer.id = 'conductor-input';
+  composer.rows = 3;
+  composer.addEventListener('input', () => {
+    state.conductorDraft = composer.value;
+    clearConductorError();
+  });
+  composer.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter' && !event.shiftKey) {
+      event.preventDefault();
+      handleConductor(composer.value);
+    }
+  });
+  const messages = el('div', 'messages');
+  if (!state.conductorMessages.length) {
+    messages.append(renderConductorMessage({
+      role: 'agent',
+      text: 'Hi. I can search your reclaimed evidence, explain what it supports, design a reviewed production, or run an approved plan. What are you trying to accomplish?',
+    }, composer));
+  }
+  state.conductorMessages.forEach((message) => {
+    messages.append(renderConductorMessage(message, composer));
+  });
+  const suggestions = el('div', 'conductor-suggestions');
+  [
+    'What can I create from my evidence?',
+    'Create a tutorial and diagram from Orvantix evidence.',
+    'Show my approved plans.',
+  ].forEach((label) => suggestions.append(button(label, 'chip', () => {
+    composer.value = label;
+    state.conductorDraft = label;
+    composer.focus();
+  })));
+  messages.append(suggestions);
+  chat.append(messages);
+  const composerWrap = el('div', 'composer');
+  composerWrap.append(composer);
+  const inlineError = el('div', 'inline-error');
+  inlineError.id = 'conductor-error';
+  inlineError.hidden = true;
+  composerWrap.append(inlineError);
+  const composerActions = el('div', 'row-actions');
+  const safety = el('span', 'progress-note', conductorSafety());
+  const send = button(conductorButtonLabel(), 'button', () => handleConductor(composer.value));
+  append(composerActions, safety, send);
+  composerWrap.append(composerActions);
+  chat.append(composerWrap);
+
+  const rail = el('div', 'rail');
+  const scope = el('div', 'rail-card');
+  const evidencedWorkspaces = (overview.workspaces || []).filter((workspace) => workspace.nuggets > 0).length;
+  append(scope, el('h3', null, 'Current evidence'),
+    el('p', null, `${overview.stats.nuggets} evidence item(s) · ${evidencedWorkspaces} evidenced workspace(s) · ${overview.stats.outputs} generated output(s)`));
+  rail.append(scope);
+  const safetyCard = el('div', 'rail-card');
+  append(safetyCard, el('h3', null, 'Safety boundary'),
+    el('p', null, 'The Conductor sees the mined index and selected evidence slices, never raw session stores. Publishing, install, upload, training, and shell each remain separate approvals.'));
+  rail.append(safetyCard);
+  const recipes = (overview.recipes || []).filter((recipe) => recipe.status === 'approved');
+  const ready = el('div', 'rail-card');
+  append(ready, el('h3', null, 'Approved recipes'),
+    el('p', null, recipes.length ? `${recipes.length} production(s) are ready for a cost preview.` : 'No recipe is approved yet.'));
+  rail.append(ready);
+  const shell = el('div', 'rail-card');
+  append(shell, el('h3', null, 'Shell boundary'),
+    el('p', null, 'Shell is disabled. Enabling it later will require exact command, working directory, and a separate approval.'));
+  rail.append(shell);
+  append(layout, chat, rail);
+  root.append(layout);
+  messages.scrollTop = messages.scrollHeight;
+}
+
+function conductorPlaceholder() {
+  switch (state.conductorMode) {
+  case 'auto': return 'Say hi, ask a question, or describe the outcome you want.';
+  case 'ask': return 'What repeated failures are costing me the most time?';
+  case 'run': return 'Which approved plan should I run?';
+  default: return 'Create a tutorial, diagram, and evaluated skill from Orvantix evidence.';
+  }
+}
+
+function conductorSafety() {
+  switch (state.conductorMode) {
+  case 'auto': return 'CLARIFY FIRST · NO ACTION';
+  case 'ask': return 'ESTIMATE BEFORE MODEL';
+  case 'run': return 'APPROVED RECIPES ONLY';
+  default: return 'PREVIEW PLAN · NO ACTION';
+  }
+}
+
+function conductorButtonLabel() {
+  switch (state.conductorMode) {
+  case 'run': return 'Choose plan';
+  default: return 'Send';
+  }
+}
+
+async function handleConductor(prompt) {
+  const value = String(prompt || '').trim();
+  clearConductorError();
+  if (state.conductorMode !== 'run' && !value) {
+    setConductorError('Tell me what you want to learn, create, or run.');
+    return;
+  }
+  if (state.conductorMode === 'run') {
+    const approved = (state.overview?.recipes || []).filter((recipe) => recipe.status === 'approved');
+    if (!approved.length) {
+      addConductorMessage('agent', 'There is no approved plan to run yet. Create a plan, review its evidence, and approve it first.');
+      state.conductorDraft = '';
+      await renderConductor();
+      return;
+    }
+    const body = openModal('Choose an approved production',
+      'Run mode previews cost before starting and never publishes automatically.');
+    const list = el('div', 'step-list');
+    approved.forEach((recipe) => {
+      const row = el('div', 'step-row');
+      const copy = el('div');
+      append(copy, el('strong', null, recipe.title),
+        el('small', null, `${recipe.outputs.length} outputs · ${recipe.evidence_ids.length} evidence items`));
+      append(row, el('span', 'step-number', 'R'), copy,
+        button('Preview run', 'button compact', () => {
+          closeModal();
+          previewProduction(recipe.uid);
+        }));
+      list.append(row);
+    });
+    body.append(list);
+    return;
+  }
+
+  addConductorMessage('user', value);
+  state.conductorDraft = '';
+  const intent = state.conductorMode === 'auto' ? classifyConductorInput(value) : state.conductorMode;
+  if (intent === 'greeting') {
+    addConductorMessage('agent',
+      'Hi. I can search your evidence, explain what it supports, design a production, or run an approved plan. What would you like to do?');
+    await renderConductor();
+    return;
+  }
+  if (intent === 'help') {
+    addConductorMessage('agent',
+      'Try “What can I create?”, “Find repeated webhook failures,” or “Create a tutorial and diagram from Orvantix evidence.” I will clarify anything ambiguous before creating a plan.');
+    await renderConductor();
+    return;
+  }
+  if (state.overview.stats.nuggets === 0) {
+    addConductorMessage('agent',
+      'I can see your session sources, but no reclaimed evidence is ready yet. Run the free Mine pass, then extract a small evidence scope. I will not create an unsupported plan.');
+    await renderConductor();
+    return;
+  }
+  if (intent === 'question' || intent === 'ask') {
+    const localAnswer = simpleConductorAnswer(value, state.overview);
+    if (localAnswer) {
+      addConductorMessage('agent', localAnswer);
+      await renderConductor();
+      return;
+    }
+    addConductorMessage('agent',
+      `I can answer that from ${state.overview.stats.nuggets} reclaimed evidence items. I will show the model estimate before making the call.`);
+    await renderConductor();
+    try {
+      const preview = await runJob({op: 'ask', question: value, apply: false},
+        'Estimating answer', 'The estimate uses Midden’s compressed evidence, not raw transcripts.');
+      openSpendConfirmation('Answer from the evidence', preview, async () => {
+        const run = await runJob({op: 'ask', question: value, apply: true},
+          'Answering from your evidence', 'The selected CLI receives a bounded redacted brief.');
+        addConductorMessage('agent', run.result?.answer || 'The model returned no answer.');
+        await renderConductor();
+      });
+    } catch (error) {
+      setConductorError(error.message);
+    }
+    return;
+  }
+
+  if (intent === 'design') {
+    const lowered = value.toLowerCase();
+    const matchedWorkspace = (state.overview?.workspaces || []).find((workspace) => {
+      const name = String(workspace.name || '').toLowerCase();
+      const id = String(workspace.id || '').toLowerCase();
+      return workspace.nuggets > 0 && ((name.length > 2 && lowered.includes(name)) ||
+        (id.length > 3 && lowered.includes(id)));
+    });
+    await renderConductor();
+    try {
+      const result = await post('/api/refinery/action', {
+        action: 'preview_design', prompt: value, workspace: matchedWorkspace?.id || '',
+      });
+      addConductorMessage('agent',
+        `I interpreted that as “${result.recipe.title}”. Review the outputs and evidence scope below; I will create nothing until you confirm.`,
+        {plan: result, plan_status: 'preview'});
+      await renderConductor();
+    } catch (error) {
+      setConductorError(error.message);
+    }
+    return;
+  }
+  addConductorMessage('agent',
+    'I need a little more direction. Are you trying to search your evidence, create something from it, or run an approved plan?');
+  await renderConductor();
+}
+
+async function renderOperations() {
+  const root = clear($('#operations-content'));
+  append(root, pageHead('Sources, cost, and audit', 'Operate the proven mining core.',
+    'Session rescue, deterministic cleanup previews, cost accounting, jobs, and the append-only operation log remain available inside the refinery.'));
+  const tabs = el('div', 'tabs');
+  [
+    ['sessions', 'Sessions'],
+    ['cost', 'Cost'],
+    ['jobs', 'Jobs'],
+    ['log', 'Audit log'],
+  ].forEach(([id, label]) => {
+    tabs.append(button(label, `tab-button ${state.operationsTab === id ? 'active' : ''}`.trim(), () => {
+      state.operationsTab = id;
+      renderOperations().catch(showError);
+    }));
+  });
+  root.append(tabs);
+  const panel = el('section', 'panel');
+  root.append(panel);
+  if (state.operationsTab === 'sessions') await renderSessionsOperation(panel);
+  if (state.operationsTab === 'cost') await renderCostOperation(panel);
+  if (state.operationsTab === 'jobs') await renderJobsOperation(panel);
+  if (state.operationsTab === 'log') await renderLogOperation(panel);
+}
+
+async function renderSessionsOperation(panel) {
+  panel.append(sectionHead('Indexed sessions', 'Find, resume, rescue, mine, or clean one session',
+    'Consequence-first ordering surfaces resume risk and large transcripts before routine history.'));
+  const filters = el('div', 'filter-row');
+  const tool = selectInput([
+    {value: '', label: 'All tools'},
+    {value: 'copilot', label: 'Copilot'},
+    {value: 'claude', label: 'Claude'},
+    {value: 'opencode', label: 'OpenCode'},
+  ]);
+  const days = selectInput([
+    {value: '7', label: 'Last 7 days'},
+    {value: '30', label: 'Last 30 days'},
+    {value: '', label: 'Any time'},
+  ], '7');
+  const search = textInput('', 'filter title or workspace');
+  append(filters, tool, days, search);
+  panel.append(filters);
+  const summary = el('p', 'note session-page-summary');
+  const list = el('div');
+  const pager = el('div', 'session-pager');
+  panel.append(summary, list, pager);
+  let page = 0;
+  const pageSize = 20;
+  let searchTimer;
+
+  const load = async () => {
+    const params = new URLSearchParams({
+      limit: String(pageSize),
+      offset: String(page * pageSize),
+      sort: 'consequence',
+    });
+    if (tool.value) params.set('tool', tool.value);
+    if (days.value) params.set('days', days.value);
+    if (search.value.trim()) params.set('search', search.value.trim());
+    const [sessions, stats] = await Promise.all([
+      get(`/api/sessions?${params}`),
+      get(`/api/session-stats?${params}`),
+    ]);
+    clear(list);
+    sessions.forEach((session) => {
+        const row = el('button', 'session-row');
+        row.type = 'button';
+        row.setAttribute('aria-label', `Open session: ${session.title || session.short}`);
+        const head = el('div', 'panel-head');
+        const copy = el('div');
+        append(copy, el('h3', null, session.title || session.short),
+          el('p', null, `${session.tool} · ${session.short} · ${session.dir}`));
+        const badges = el('div', 'row-actions');
+        append(badges, badge(formatBytes(session.bytes)),
+          session.live ? badge('open now', 'free') : null,
+          session.risk !== 'ok' ? badge(session.risk, session.risk === 'critical' ? 'danger' : 'spend') : null);
+        append(head, copy, badges);
+        row.append(head);
+        row.addEventListener('click', () => openSessionDrawer(session));
+        list.append(row);
+      });
+    if (!list.children.length) list.append(emptyState('No sessions match', 'Change the filters or refresh the source index.'));
+    const first = stats.target ? page * pageSize + 1 : 0;
+    const last = Math.min(stats.target, page * pageSize + sessions.length);
+    summary.textContent = `${first}–${last} of ${stats.target} matching session(s)` +
+      (stats.hidden_noise ? ` · ${stats.hidden_noise} automated hidden` : '') +
+      (stats.indexed_at ? ` · ${indexAgeLabel(stats.indexed_at)}` : '');
+    clear(pager);
+    const previous = button('Previous', 'button ghost compact', () => {
+      page = Math.max(0, page - 1);
+      load().catch(showError);
+    });
+    previous.disabled = page === 0;
+    const next = button('Next', 'button ghost compact', () => {
+      page += 1;
+      load().catch(showError);
+    });
+    next.disabled = last >= stats.target;
+    append(pager, previous, el('span', null, `Page ${page + 1} of ${Math.max(1, Math.ceil(stats.target / pageSize))}`), next);
+  };
+  const resetAndLoad = () => {
+    page = 0;
+    load().catch(showError);
+  };
+  tool.addEventListener('change', resetAndLoad);
+  days.addEventListener('change', resetAndLoad);
+  search.addEventListener('input', () => {
+    clearTimeout(searchTimer);
+    searchTimer = setTimeout(resetAndLoad, 220);
+  });
+  await load();
+}
+
+function indexAgeLabel(value) {
+  return `indexed ${relativeAge(value)}`;
+}
+
+async function openSessionDrawer(session) {
+  const body = openDrawer(session.title || session.short);
+  body.append(el('p', 'note', `${session.tool} · ${session.id} · ${session.dir}`));
+  const meta = metricGrid([
+    {label: 'Transcript', value: formatBytes(session.bytes), copy: session.risk === 'ok' ? 'below resume-risk threshold' : `${session.risk} resume risk`},
+    {label: 'Turns', value: session.turns, copy: `updated ${session.age}`},
+    {label: 'Workspace', value: session.dir_exists ? 'present' : 'missing', copy: session.repo || session.dir},
+    {label: 'State', value: session.live ? 'open' : 'closed', copy: session.live ? 'switch to the existing terminal' : 'safe to inspect'},
+  ]);
+  body.append(meta);
+  const actions = el('div', 'row-actions');
+  actions.append(button('Copy resume command', 'button ghost', () => copyText(session.resume)));
+  actions.append(button('Rescue handoff', 'button good', () => rescueSession(session.id)));
+  actions.append(button('Mine this session', 'button', () => openReclaimModal(session.dir)));
+  actions.append(button('Preview prune', 'button ghost', () => previewSessionAction(session, 'prune')));
+  actions.append(button('Preview archive', 'button ghost', () => previewSessionAction(session, 'archive')));
+  body.append(actions);
+  try {
+    const detail = await get(`/api/session?id=${encodeURIComponent(session.id)}`);
+    if (detail.harvest) {
+      const pre = el('pre', 'provenance', JSON.stringify(detail.harvest, null, 2));
+      const details = el('details');
+      append(details, el('summary', null, 'Inspect bounded session harvest'), pre);
+      body.append(details);
+    }
+  } catch (error) {
+    body.append(el('div', 'warning', error.message));
+  }
+}
+
+async function copyText(value) {
+  try {
+    await navigator.clipboard.writeText(value || '');
+    toast('Copied to clipboard', 'good');
+  } catch {
+    toast('Clipboard access failed', 'bad');
+  }
+}
+
+async function rescueSession(sessionID) {
+  closeDrawer();
+  try {
+    const job = await runJob({op: 'brief', session_id: sessionID, records: 12},
+      'Rescuing session', 'This is deterministic, read-only, and free. The handoff is saved as a local artifact.');
+    const result = job.result || {};
+    const body = openDrawer(`Handoff · ${result.title || result.session}`);
+    body.append(el('p', 'note', result.saved ? `Saved to ${result.saved}` : 'Clipboard-ready handoff'));
+    const pre = el('pre', 'provenance', result.body || '');
+    body.append(pre);
+    body.append(button('Copy handoff', 'button', () => copyText(result.body)));
+  } catch (error) {
+    showError(error);
+  }
+}
+
+async function previewSessionAction(session, op) {
+  closeDrawer();
+  try {
+    const preview = await runJob({op, session_id: session.id, apply: false},
+      `Previewing ${op}`, 'Dry run only. No source transcript is changed.');
+    const result = preview.result || {};
+    const body = openModal(`${humanStatus(op)} preview`, 'Review the exact scope before applying.');
+    const box = el('div', 'estimate-box');
+    append(box, el('strong', null, op === 'prune' ? formatBytes(result.total_saved || 0) : `${result.rows?.length || 0} transcript(s)`),
+      el('p', 'note', op === 'prune' ? 'estimated recoverable bytes' : 'eligible for archive'));
+    body.append(box);
+    const actions = el('div', 'modal-actions');
+    actions.append(button('Cancel', 'button ghost', closeModal));
+    actions.append(button(`Apply ${op}`, 'button danger', async () => {
+      closeModal();
+      try {
+        await runJob({op, session_id: session.id, apply: true, confirm: true},
+          `Applying ${op}`, 'Midden records the operation and verification result in its audit log.');
+        toast(`${humanStatus(op)} complete`, 'good');
+        await refreshOverview();
+      } catch (error) {
+        showError(error);
+      }
+    }));
+    body.append(actions);
+  } catch (error) {
+    showError(error);
+  }
+}
+
+async function renderCostOperation(panel) {
+  const data = await get('/api/cost');
+  panel.append(sectionHead('Cost ledger', 'Prediction and actual usage side by side',
+    'Midden reads real usage back from the signed-in CLI session stores.'));
+  panel.append(metricGrid([
+    {label: 'Runs', value: data.totals.runs, copy: 'recorded model operations'},
+    {label: 'Items', value: data.totals.items, copy: 'evidence or outputs produced'},
+    {label: 'Tokens', value: formatCount(data.totals.tokens), copy: 'input, output, and cache movement'},
+    {label: 'AIU', value: Number(data.totals.aiu || 0).toFixed(1), copy: data.totals.usd ? `$${Number(data.totals.usd).toFixed(2)} also reported` : 'subscription credits where available'},
+  ]));
+  const tableWrap = el('div', 'table-wrap');
+  const table = el('table');
+  const head = el('thead');
+  const hrow = el('tr');
+  ['Operation', 'Scope', 'Items', 'Actual', 'Started', 'Status'].forEach((label) => hrow.append(el('th', null, label)));
+  head.append(hrow);
+  const tbody = el('tbody');
+  (data.runs || []).forEach((run) => {
+    const row = el('tr');
+    const actual = run.usage?.aiu
+      ? `${Number(run.usage.aiu).toFixed(1)} AIU`
+      : run.usage?.usd
+        ? `$${Number(run.usage.usd).toFixed(2)}`
+        : `${formatCount((run.usage?.input_tokens || 0) + (run.usage?.output_tokens || 0) + (run.usage?.cache_read_tokens || 0) + (run.usage?.cache_write_tokens || 0))} tok`;
+    append(row, el('td', null, run.op), el('td', null, run.scope), el('td', null, run.items),
+      el('td', null, actual), el('td', null, formatDate(run.started_at)),
+      el('td', null, run.ok ? 'complete' : 'failed'));
+    tbody.append(row);
+  });
+  append(table, head, tbody);
+  tableWrap.append(table);
+  panel.append(tableWrap);
+}
+
+async function renderJobsOperation(panel) {
+  const jobs = await get('/api/jobs');
+  panel.append(sectionHead('Background jobs', jobs.length ? `${jobs.length} recent operation(s)` : 'No recent jobs',
+    'Long operations remain visible while the browser stays open.'));
+  if (!jobs.length) {
+    panel.append(emptyState('No jobs yet', 'Mine, extract evidence, or run a production to create one.'));
+    return;
+  }
+  jobs.forEach((job) => {
+    const card = el('div', 'run-card');
+    const head = el('div', 'run-head');
+    const copy = el('div');
+    append(copy, el('div', 'eyebrow', job.op), el('h3', 'panel-title', job.scope || 'all'));
+    append(head, copy, badge(humanStatus(job.status), statusKind(job.status)));
+    card.append(head);
+    card.append(el('p', 'note', job.error || job.progress || 'Waiting'));
+    panel.append(card);
+  });
+}
+
+async function renderLogOperation(panel) {
+  const operations = await get('/api/ops');
+  panel.append(sectionHead('Append-only operation log',
+    operations.length ? `${operations.length} recent mutation record(s)` : 'No mutating operations recorded',
+    'Derived writes, cleanup, exports, reviews, and production actions are auditable.'));
+  if (!operations.length) {
+    panel.append(emptyState('The log is empty', 'Read-only browsing does not create audit entries.'));
+    return;
+  }
+  const tableWrap = el('div', 'table-wrap');
+  const table = el('table');
+  const head = el('thead');
+  const hrow = el('tr');
+  ['Time', 'Operation', 'Session', 'Before', 'After', 'Detail', 'Status'].forEach((label) => hrow.append(el('th', null, label)));
+  head.append(hrow);
+  const body = el('tbody');
+  operations.forEach((operation) => {
+    const row = el('tr');
+    append(row, el('td', null, formatDate(operation.created_at)), el('td', null, operation.op),
+      el('td', null, operation.session_id || '—'), el('td', null, formatBytes(operation.before)),
+      el('td', null, formatBytes(operation.after)), el('td', null, operation.detail),
+      el('td', null, operation.ok ? 'ok' : 'failed'));
+    body.append(row);
+  });
+  append(table, head, body);
+  tableWrap.append(table);
+  panel.append(tableWrap);
+}
+
+async function renderActiveView() {
+  await loadOverview();
+  switch (state.activeView) {
+  case 'home': return renderHome();
+  case 'mine': return renderMine();
+  case 'studio': return renderStudio();
+  case 'knowledge': return renderKnowledge();
+  case 'agent-forge': return renderAgentForge();
+  case 'personalization': return renderPersonalization();
+  case 'connections': return renderConnections();
+  case 'conductor': return renderConductor();
+  case 'operations': return renderOperations();
+  }
+}
+
+loadOverview(true)
+  .then(() => renderHome())
+  .catch((error) => {
+    console.error(error);
+    clear($('#home-content')).append(emptyState('Midden could not load', friendlyError(error),
+      button('Retry', 'button', () => location.reload())));
+  });

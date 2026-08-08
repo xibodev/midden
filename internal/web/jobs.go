@@ -139,6 +139,7 @@ type actionRequest struct {
 	NotebookID           string   `json:"notebook_id"`
 	OpenNotebookPassword string   `json:"open_notebook_password"`
 	AllWorkspaces        bool     `json:"all_workspaces"`
+	RecipeID             string   `json:"recipe_id"`
 
 	// Apply must be explicitly true for anything destructive. A missing field
 	// means dry run, so a malformed request can never delete.
@@ -198,7 +199,8 @@ func (s *Server) handleAction(w http.ResponseWriter, r *http.Request) {
 	}
 
 	switch req.Op {
-	case "prune", "archive", "reclaim", "refine", "summarize", "ask", "brief", "refresh", "open_notebook_push":
+	case "prune", "archive", "reclaim", "refine", "summarize", "ask", "brief",
+		"refresh", "mine", "production", "open_notebook_push":
 	default:
 		http.Error(w, "unknown op: "+req.Op, http.StatusBadRequest)
 		return
@@ -250,6 +252,10 @@ func (s *Server) runJob(id string, req actionRequest) {
 		result, err = s.doAsk(id, req)
 	case "refresh":
 		result, err = s.doRefresh(id)
+	case "mine":
+		result, err = s.doMine(id, req)
+	case "production":
+		result, err = s.doProduction(id, req)
 	case "open_notebook_push":
 		result, err = s.doOpenNotebookPush(id, req)
 	}
@@ -626,9 +632,19 @@ func (s *Server) doReclaim(id string, req actionRequest) (any, error) {
 
 	// A preview stops here: the operator sees the predicted cost first.
 	if !req.Apply {
+		backend := req.Backend
+		if backend == "" {
+			backend = "auto-detect signed-in CLI"
+		}
+		model := req.Model
+		if model == "" {
+			model = "backend default"
+		}
 		return map[string]any{
 			"preview": true, "sessions": len(jobs),
 			"estimate": est, "estimate_text": est.String(),
+			"backend": backend, "model": model,
+			"estimated_seconds": maxInt(30, len(jobs)*75),
 		}, nil
 	}
 
@@ -991,6 +1007,13 @@ func truncate(s string, n int) string {
 		return s
 	}
 	return string(r[:n]) + "..."
+}
+
+func maxInt(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
 }
 
 // doBrief harvests a session into a paste-able handoff.

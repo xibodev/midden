@@ -46,8 +46,9 @@ func (e Estimate) String() string {
 // turn to read. These are deliberately pessimistic — an overestimate that
 // stops a run is recoverable; an underestimate that empties a quota is not.
 var defaultFactors = map[string]float64{
-	"reclaim": 60,
-	"refine":  90,
+	"reclaim":  60,
+	"refine":   90,
+	"refinery": 90,
 }
 
 const fallbackFactor = 50

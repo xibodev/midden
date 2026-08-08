@@ -149,7 +149,7 @@ func (d *DB) Nuggets(q NuggetQuery) ([]Nugget, error) {
 	}
 	defer rows.Close()
 
-	var out []Nugget
+	out := make([]Nugget, 0)
 	for rows.Next() {
 		var n Nugget
 		var tags string
@@ -246,7 +246,7 @@ func (d *DB) Artifacts(limit int) ([]Artifact, error) {
 	}
 	defer rows.Close()
 
-	var out []Artifact
+	out := make([]Artifact, 0)
 	for rows.Next() {
 		var a Artifact
 		var ids string
@@ -289,7 +289,7 @@ func (d *DB) Operations(limit int) ([]Operation, error) {
 	}
 	defer rows.Close()
 
-	var out []Operation
+	out := make([]Operation, 0)
 	for rows.Next() {
 		var o Operation
 		var ok int

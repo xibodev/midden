@@ -1,81 +1,155 @@
-# Integrations
+# Optional integrations
 
-## Set up a built-in integration
+Midden is complete without integrations. Connections add local makers or
+destinations after the core scan, evidence, recipe, review, and export workflow
+is working.
 
-Open **Integrations** in `midden ui`. Midden always shows the built-in options,
-even before anything is installed:
+The normal setup path is **Connections** in `midden ui`. Advanced YAML
+manifests are an escape hatch, not a prerequisite.
 
-1. Read what the tool does, its cost class, and its upstream requirements.
-2. Open the upstream GitHub setup guide or connect a tool you already installed.
-3. Save its local address or folder in Midden's settings.
-4. Explicitly test it when you are ready.
+## Managed settings
 
-The settings screen writes `~/.midden/integrations.json`, a bounded,
-credential-free file owned by Midden. You do **not** need to edit a source
-file or YAML manifest to configure Open Notebook or OpenMontage. Saving or
-enabling a setup never contacts it; only **Test connection** does.
+Open **Connections** to:
 
-Midden records when a test last succeeded or failed. **Connected** therefore
-means "last verified", not a hidden background health check.
+1. Read what an integration does and whether later actions can spend.
+2. Open the upstream installation guide.
+3. Install and configure the upstream project yourself.
+4. Save a local URL, path, or backend in Midden.
+5. Select **Test connection** when the upstream tool is running.
 
-### Open Notebook
+Managed settings are written to:
 
-Open Notebook is an optional local knowledge workspace. Its upstream project is
-[lfnovo/open-notebook](https://github.com/lfnovo/open-notebook) (MIT) and its
-official quick start uses Docker Desktop and Docker Compose.
+```text
+<MIDDEN_HOME>\integrations.json
+```
 
-Before first use, follow its upstream guidance to change its encryption key.
-The upstream Compose defaults expose the web UI and API beyond loopback, so
-review and restrict those bindings on a shared or networked machine. Then use
-Midden's setup form to enter the local API and web addresses. Midden accepts
-only loopback targets.
+Saving or enabling a connection is passive. It does not contact the target.
+**Connected** means the last explicit test succeeded; Midden does not run a
+hidden health-check loop.
 
-If the Open Notebook instance uses a password, enable that setting. Midden
-asks for the password only for a source-send action, keeps it in memory for
-that action, and never writes it to its settings, index, manifests, or job
-history.
+The settings file is bounded and credential-free.
 
-### OpenMontage
+## Detected local makers
 
-OpenMontage is an optional local video-production capability. Its upstream
-project is [calesthio/OpenMontage](https://github.com/calesthio/OpenMontage).
-It is a host-side project, not a service Compose stack: its documented setup
-needs a local repository, Python 3.10+, Node 18+, FFmpeg, and an agentic CLI.
+Connections can report locally installed tools such as:
 
-Use the setup form to select the installed repository and CLI. A test reads
-that folder only after you explicitly request it; this matters if the folder
-is on a network mount. Its runs can spend through the selected CLI, so setup
-is free but eventual production actions retain Midden's cost gates.
+- Pandoc
+- Quarto
+- Marp
+- D2
+- Typst
+- Promptfoo
+- GitHub CLI
 
-OpenMontage is licensed upstream under AGPLv3. Review its upstream licence
-before redistributing or bundling it.
+Midden does not install them. Their availability affects optional output
+rendering or handoff, not core evidence extraction and review.
+
+## Open Notebook
+
+[Open Notebook](https://github.com/lfnovo/open-notebook) is an optional local
+knowledge workspace.
+
+### Upstream preparation
+
+Follow the upstream Docker Desktop and Docker Compose instructions. Before
+first use:
+
+- change the upstream encryption key;
+- review its UI and API bind addresses;
+- restrict them appropriately on shared or networked machines;
+- start the service before testing it from Midden.
+
+Midden does not install or start Open Notebook.
+
+### Midden setup
+
+In **Connections → Open Notebook**, configure:
+
+- API URL, normally `http://127.0.0.1:5055/api`;
+- UI URL, normally `http://127.0.0.1:8502`;
+- whether the instance requires a password.
+
+Only loopback URLs are accepted.
+
+If a password is required, Midden requests it for the explicit send action,
+keeps it in memory for that request, and does not write it to settings, the
+index, a manifest, rendered UI, or job history.
+
+`OPEN_NOTEBOOK_PASSWORD` is an optional current-process fallback for advanced
+setups. Do not commit it.
+
+### Send behavior
+
+**Send nuggets**:
+
+- requires an existing notebook ID;
+- sends stored nuggets, not raw transcripts;
+- applies a second redaction pass;
+- chooses one workspace unless all workspaces are explicitly selected;
+- limits the source to the 100 newest matching nuggets;
+- creates one multipart text source;
+- returns the notebook link after the source is accepted;
+- does not create a notebook or wait for downstream processing to finish.
+
+The verified upstream wire contract uses:
+
+- `POST /api/sources`;
+- `multipart/form-data`;
+- string values for `embed` and `async_processing`;
+- a JSON string for the `notebooks` field;
+- URL encoding for the colon in notebook IDs.
+
+Export requests ignore environment-configured HTTP proxies.
+
+## OpenMontage
+
+[OpenMontage](https://github.com/calesthio/OpenMontage) is an optional
+agent-driven local video-production project.
+
+Its upstream setup requires:
+
+- a local OpenMontage repository;
+- Python 3.10 or newer;
+- Node 18 or newer;
+- FFmpeg;
+- an authenticated agentic CLI.
+
+In **Connections → OpenMontage**, configure:
+
+- the absolute path to the checked-out repository;
+- `copilot`, `claude`, or `opencode` as its backend.
+
+Midden saves the path and backend only. It does not install dependencies.
+Testing the connection reads the configured folder only after an explicit
+request.
+
+OpenMontage actions can spend through the selected CLI, so eventual production
+retains Midden's preview and approval gates.
+
+OpenMontage is licensed upstream under AGPLv3. Review that license before
+redistributing or bundling it.
 
 ## Advanced manifests
 
-Midden integrations can also be declared in manifests under
-`~/.midden/plugins/`. This is an advanced escape hatch for custom integrations,
-not the normal setup path. Existing `open-notebook.yaml` or
-`openmontage.yaml` files remain usable; the UI can explicitly adopt a
-supported legacy setup into Settings and retains a backup rather than
-silently overwriting it.
+Custom integration manifests live under:
 
-If a migration is interrupted, Midden marks it as needing attention and shows
-**Finish migration**. It will not use either configuration until that explicit
-recovery step completes.
-
-Advanced manifest discovery is deliberately **passive**: listing manifests
-does not contact a service.
-
-```powershell
-midden plugins list                 # parse + validate; no network
-midden plugins probe                # check loopback targets
-midden plugins verify               # check declared service operations against OpenAPI
-midden plugins probe --allow-network # explicit authorization for non-loopback targets
+```text
+<MIDDEN_HOME>\plugins\
 ```
 
-### Manifest contract
+Commands:
 
-Every manifest requires:
+```powershell
+midden plugins list
+midden plugins probe
+midden plugins verify
+midden plugins probe --allow-network
+```
+
+`list` parses and validates without contacting a target. `probe` and `verify`
+perform explicit checks.
+
+### Required fields
 
 ```yaml
 name: example
@@ -85,77 +159,55 @@ cost: free          # free | spends
 probe: ...
 ```
 
-`cost` is required even when the plugin is unavailable. A plugin that can
-spend through an agentic CLI without declaring its cost class would violate
-Midden's estimate-before-spend contract.
+Unknown YAML keys are rejected. A misspelled safety field must not silently
+change behavior.
 
-Unknown YAML keys are rejected. A typo such as `enable: false` must not quietly
-become an enabled integration.
+`cost` is mandatory even for unavailable integrations. A plugin that can spend
+through an agentic CLI must declare that fact before it becomes actionable.
 
 ### Probe policy
 
-An HTTP probe is bounded, credential-free, redirect-free, and loopback-only by
-default. It never expands process environment variables in its URL, so a
-manifest cannot turn `${AWS_SECRET_ACCESS_KEY}` into an outgoing request.
+HTTP probes are:
 
-Directory probes may use `${NAME}` for paths such as
-`${OPENMONTAGE_HOME}/pipeline_defs`; their status never echoes the expanded
-path value. A directory can be an automount, junction, FUSE/NFS/CIFS mount, or
-mapped drive, and discovering which can itself cause I/O. Therefore **all
-directory probes require `--allow-network`**; a manifest cannot grant itself
-that permission.
+- bounded;
+- credential-free;
+- redirect-free;
+- loopback-only by default.
 
-An unavailable target is normal. Midden renders its reason rather than showing
-a runnable action that will fail later.
+A manifest cannot expand environment variables into an HTTP URL.
 
-### Open Notebook wire contract
+Directory paths may contain environment variables for local installation
+paths, but every directory probe requires `--allow-network` because a path can
+resolve to a mapped drive, automount, junction, or network filesystem.
 
-Open Notebook owns its own UI and data. The explicit **Send nuggets** action
-requires an existing notebook ID, sends only stored nuggets after a second
-redaction pass, creates one multipart text source, then opens Open Notebook's
-own UI. It never sends raw transcripts, creates notebooks, mirrors content, or
-waits long enough to call a destination-side async job failed.
+An unavailable target is a normal visible state, not a runnable action that
+fails later.
 
-Choose one workspace, or explicitly opt in to all workspaces. Each source is
-bounded to the 100 newest matching nuggets.
+## Legacy manifest migration
 
-The source endpoint has an unusual but verified wire contract:
+Existing `open-notebook.yaml` and `openmontage.yaml` manifests remain usable.
+The UI can explicitly adopt a supported advanced setup into managed Settings.
 
-- `POST /api/sources` is `multipart/form-data`, including plain text;
-- `embed` and `async_processing` are **strings** (`"true"`), not JSON booleans;
-- `notebooks` is a JSON string such as `["notebook:abc123"]`;
-- a notebook deep link URL-encodes the colon in its ID.
+Migration:
 
-When password protection is enabled, Midden asks for the password only in the
-explicit export dialog and sends it only in that request's Authorization
-header. `OPEN_NOTEBOOK_PASSWORD` remains an optional non-UI fallback for
-existing advanced setups. Neither path stores the password in the index,
-settings, manifests, rendered UI, or job history, and export requests never
-use an environment-configured HTTP proxy.
-After the source is accepted, the job reports **submitted** and returns the
-notebook link. The manifest verifies the lightweight
-`/sources/{source_id}/status` operation, but Midden does not wait for
-destination-side processing; Open Notebook continues it in its own UI.
+- never silently overwrites the manifest;
+- retains a backup;
+- records interrupted state;
+- requires **Finish migration** if interrupted;
+- refuses to use conflicting managed and advanced configurations.
 
-### OpenMontage execution model
+## Conductor and shell boundary
 
-OpenMontage is a capability integration, not a service client. Its own
-architecture makes the coding agent the orchestration plane; Midden therefore
-uses the same agentic CLI it already uses for `reclaim`, `refine`, and `ask`.
+Conductor can search reclaimed evidence, answer evidence questions, design a
+recipe, and run an approved production. Shell execution is disabled.
 
-It publishes pipeline YAML, JSON Schemas, checkpoints, and
-`estimate -> reserve -> reconcile` cost tracking. A future action view should
-render its form from those schemas and show its checkpoint state, not accept
-arbitrary plugin-supplied HTML or JavaScript.
+Any future shell-capable feature is a separate trust domain. It must reject a
+working directory inside:
 
-## Coordinator safety boundary
+- `~\.copilot`
+- `~\.claude`
+- `~\.local\share\opencode`
+- `~\.midden`
 
-A future coordinator chat is a separate trust domain. Before any shell-capable
-session launches, its working directory must be rejected if it is inside:
-
-- `~/.copilot`
-- `~/.claude`
-- `~/.local/share/opencode`
-- `~/.midden`
-
-This must resolve Windows junctions and symlinks, not compare strings.
+Path checks must resolve Windows junctions and symbolic links rather than
+compare strings.

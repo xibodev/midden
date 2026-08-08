@@ -107,7 +107,7 @@ func (d *DB) Runs(limit int, op string) ([]cost.Run, error) {
 	}
 	defer rows.Close()
 
-	var out []cost.Run
+	out := make([]cost.Run, 0)
 	for rows.Next() {
 		var (
 			r              cost.Run
@@ -145,7 +145,7 @@ func (d *DB) UnreconciledRuns() ([]cost.Run, error) {
 	}
 	defer rows.Close()
 
-	var out []cost.Run
+	out := make([]cost.Run, 0)
 	for rows.Next() {
 		var r cost.Run
 		var sessions string

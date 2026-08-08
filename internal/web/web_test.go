@@ -3,6 +3,7 @@ package web
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -455,5 +456,70 @@ link: http://127.0.0.1:8502/notebooks/{{notebook_id|urlencode}}
 	}
 	if len(status) != 1 || status[0].Status != plugins.Unavailable || !strings.Contains(status[0].Detail, "no source push") {
 		t.Fatalf("status=%#v, want unavailable action contract", status)
+	}
+}
+
+func TestSessionsHandlerPaginatesSearchesAndSortsByConsequence(t *testing.T) {
+	t.Setenv("MIDDEN_HOME", t.TempDir())
+	db, err := index.Open()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	now := time.Now()
+	var sessions []core.Session
+	for i := 0; i < 25; i++ {
+		sessions = append(sessions, core.Session{
+			Tool: core.ToolClaude, ID: fmt.Sprintf("session-%02d", i),
+			Dir: `E:\projects\ordinary`, Title: fmt.Sprintf("Routine work %02d", i),
+			Updated: now.Add(-time.Duration(i) * time.Minute), Bytes: int64(i + 1),
+		})
+	}
+	sessions = append(sessions, core.Session{
+		Tool: core.ToolCopilot, ID: "critical-session", Dir: `E:\projects\payments`,
+		Title: "Payments rescue", Updated: now.Add(-time.Hour), Bytes: core.RiskCriticalBytes,
+	})
+	if err := db.PutSessions(sessions); err != nil {
+		t.Fatal(err)
+	}
+	server := &Server{db: db, cache: newSnapshotCache(), jobs: NewJobs()}
+
+	req := httptest.NewRequest(http.MethodGet,
+		"/api/sessions?limit=5&offset=0&sort=consequence", nil)
+	rec := httptest.NewRecorder()
+	server.handleSessions(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	var page []sessionView
+	if err := json.Unmarshal(rec.Body.Bytes(), &page); err != nil {
+		t.Fatal(err)
+	}
+	if len(page) != 5 || page[0].ID != "critical-session" {
+		t.Fatalf("first page=%#v", page)
+	}
+
+	req = httptest.NewRequest(http.MethodGet,
+		"/api/sessions?limit=5&offset=0&search=payments", nil)
+	rec = httptest.NewRecorder()
+	server.handleSessions(rec, req)
+	if err := json.Unmarshal(rec.Body.Bytes(), &page); err != nil {
+		t.Fatal(err)
+	}
+	if len(page) != 1 || page[0].ID != "critical-session" {
+		t.Fatalf("search page=%#v", page)
+	}
+
+	req = httptest.NewRequest(http.MethodGet,
+		"/api/session-stats?limit=5&offset=0&search=payments", nil)
+	rec = httptest.NewRecorder()
+	server.handleSessionStats(rec, req)
+	var stats map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &stats); err != nil {
+		t.Fatal(err)
+	}
+	if stats["target"].(float64) != 1 {
+		t.Fatalf("stats=%#v", stats)
 	}
 }

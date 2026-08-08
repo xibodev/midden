@@ -1,211 +1,141 @@
-# Status
+# Release status
 
-**All milestones shipped (M0–M12).** Version 1.6.0.
+## Current release
 
-Every measurement below comes from a real workstation running Copilot CLI, Claude Code and
-opencode across 688 sessions and 37 GiB.
+**Midden 2.1.0**
 
----
+Implementation is complete through the clarification-first evidence refinery.
+Automated quality gates pass. The remaining release safeguard is a fresh-clone
+human acceptance run using [docs/ACCEPTANCE_TEST.md](docs/ACCEPTANCE_TEST.md).
 
-## The whole chain, end to end
+## Product state
 
-A session that could not be resumed became publishable documentation:
-
-| Stage | Result |
+| Area | State |
 |---|---|
-| Source | `ac0c39cf` — **681 MiB**, dead, `--resume` times out |
-| **ASSAY** | signal 15.8% · exhaust 26.8% · artifact 56.1% · **6.3x** compression |
-| Salvage slice | **~1,811 tokens** — a **98,613:1** reduction |
-| **RECLAIM** | **9 nuggets** for ~3,069 tokens: decisions, an error→fix with root cause, a dead end |
-| **REFINE** | ADR + troubleshooting guide, one warm session, 128s |
-| **DISPOSE** | 126 MiB recovered, 78,500 records and 157,000 identifiers preserved exactly |
+| Copilot CLI, Claude Code, OpenCode discovery | Complete |
+| Read-only cross-tool index and reconciliation | Complete |
+| Session search, detail, resume, handoff, and risk | Complete |
+| Deterministic assay and yield | Complete |
+| Redacted evidence extraction with provenance | Complete |
+| Catalog and CLI artifact generation | Complete |
+| Persistent recipes, evidence approval, runs, outputs | Complete |
+| Clarification-first Conductor | Complete |
+| Structured review and provenance filtering | Complete |
+| Local reviewed export | Complete |
+| Knowledge, agent, personalization output journeys | Complete |
+| Managed Connections and advanced manifests | Complete |
+| Token-bounded read-only MCP server | Complete |
+| Operations search, pagination, cost, and audit | Complete |
+| Automatic publishing, agent installation, upload, training | Intentionally not provided |
+| Conductor shell execution | Disabled |
 
-The generated ADR cites its source session, records confidence, and states *"Date: not
-recorded in the evidence"* rather than inventing one.
+## Human-facing behavior
 
----
+The v2.1 corrective pass establishes these user-visible rules:
 
-## Milestones
+- A greeting receives a greeting.
+- Ambiguous Conductor input is clarified instead of guessed.
+- A design request is previewed in chat before a recipe is created.
+- No recipe is recommended or created without reclaimed evidence.
+- Assay-only state reports measured signal but does not invent asset counts.
+- Mine waits for an in-flight refresh instead of exposing a scan-lock race.
+- Evidence approval and production approval are separate.
+- Cost approval identifies backend, model, time, calibration confidence, and
+  external writes.
+- Generated content is a draft until reviewed.
+- Structured packs are reviewed as records, not as an unreadable JSONL wall.
+- Filtering structured records also filters stored evidence IDs and the
+  provenance sidecar.
+- Mobile navigation has a scrim and close control.
+- Keyboard navigation includes a skip link, dialog focus trap, and focus
+  restoration.
+- Operations sessions are searched, consequence-sorted, and paginated.
 
-### M0 — See
-`ls` `show` `resume` `doctor`. Read-only mapping across all three CLIs.
+## Safety contract
 
-- opencode is read from its **database**, not `opencode session list` — the CLI is
-  project-scoped and returned 19 of 704 sessions, hiding an entire active project.
-- Copilot keeps **both** SQLite metadata and a per-session `events.jsonl`; size lives in the
-  jsonl.
-- Copilot titles fall back to the first user turn when `summary` is blank — filtering on a
-  blank summary hides exactly the long-running sessions that matter.
-- Claude live tabs detected via `sessions/<pid>.json` plus a PID liveness check.
-- **Span, not age**, surfaces idle-but-open sessions.
+- Source session stores are opened read-only.
+- Midden writes only to its own state directory and explicit derived outputs.
+- Scan and assay are deterministic and model-free.
+- Model-backed work uses an already authenticated local AI CLI.
+- Raw transcripts are not persisted as reclaimed evidence.
+- Redaction occurs before evidence is stored.
+- Preview actions do not perform the paid action.
+- Production writes local drafts and stops before external delivery.
+- Cleanup commands default to preview and do not mutate source transcripts in
+  place.
+- Managed integration settings contain no credentials.
+- The web server binds only to loopback.
 
-### M1 — Protect
-`watch` `brief`. The milestone that stops the data loss.
+## Quality evidence
 
-- Copilot `--resume` fails silently above ~680 MiB. Four sessions (774/740/687/681 MiB) died
-  this way before this existed.
-- `brief` harvests a dead 681 MiB transcript in **2.1s using 19.8 MB RAM** — bounded ring
-  buffer, not O(file size).
-- `watch --once` exits **3** so schedulers and hooks can act on it.
+The completed v2.1 automated and assisted-human pass produced:
 
-### M2 — Speak
-`mcp`. Token-budgeted MCP server so any agent can reason about sessions cheaply.
+- Go formatting, vet, unit, integration, and build success;
+- 18 of 18 cross-browser headless journeys passing;
+- 4 of 4 headed human journeys passing;
+- 24 of 24 vision frames passing;
+- a 97.9 out of 100 mean visual score;
+- zero horizontal overflow at six tested viewports;
+- zero undersized controls at six tested viewports;
+- measured LCP around 204 ms, CLS 0, and INP 48 ms.
 
-| Tool | Actual | Budget |
-|---|---|---|
-| `midden_health` | 158 tok | 400 |
-| `midden_list_sessions` (all 688) | 3,859 tok | 4,000 |
-| `midden_session_brief` (681 MiB) | 283 tok | 1,500 |
+The final evidence bundle is intentionally outside the distributable source
+tree. `.quality-run` is generated test output and is ignored.
 
-Truncation is always announced with the omitted count. See [docs/MCP.md](docs/MCP.md).
+The release is not marked human-accepted until an operator completes a new
+clone, build, configuration, and first production journey.
 
-### M3 — Sort
-`scan` `assay`. Classification built from **32 Copilot and 18 Claude record kinds observed in
-the wild**, since none of these formats are documented.
+## Architecture status
 
-- Unknown kinds are classified structurally, defaulting to signal — discarding meaning is
-  worse than keeping bulk.
-- Manifests are fingerprinted by source size and mtime: a second full pass went **90s → 1s**.
-- An early version scored a session at 1.4x because `session.binary_asset` (56% of the file)
-  fell through to signal. A regression test pins it.
+- Single Go binary.
+- Embedded UI through `embed.FS`.
+- Pure-Go SQLite through `modernc.org/sqlite`.
+- No Node build.
+- No CGO requirement.
+- No core Docker dependency.
+- Loopback-only HTTP interface.
+- JSON-RPC MCP server over stdio.
 
-### M4 — Clean
-`prune` `archive` `ops`. Disposal that cannot destroy meaning.
-
-- Sources are **never mutated**; pruned output is a new file.
-- Records are preserved and payloads replaced **in place**, because transcripts are chained by
-  id and dropping a record breaks replay.
-- **Splitting is deliberately not offered**: `tool_use`/`tool_result` pairs must stay together
-  and no CLI can relink split files.
-- **Artifacts preserved by default** — screenshots are the raw material for tutorials.
-- Verification is structural: record count, identifier count, signal-record count, parse
-  errors, and the output must actually be smaller.
-- Dry run is the default. Every mutating operation is audited.
-
-### M5 — Mine
-`reclaim` `nuggets`. Shells out to your **already-authenticated CLIs** — no API keys, seats
-already paid for.
-
-- Redaction runs at **extraction**, not publication: a secret reaching the nugget store has
-  already escaped. It caught a real AWS access key on the first live run.
-- Placeholders are actionable (`<AWS_ACCOUNT_ID — ask operator>`) so documentation stays
-  usable.
-- Salvage strips MCP entirely — it only reads text, so tool definitions are pure waste.
-- Three real integration failures found and fixed: the Windows 8191-char command-line limit
-  (prompts are now staged to a file), `--additional-mcp-config` requiring the `mcpServers`
-  key, and needing `--allow-all-paths` to read a staged prompt.
-
-### M6 — Make
-`catalog` `refine` `artifacts`. Nine templates, each declaring its audience and shape, because
-"write a tutorial" without a shape produces mush.
-
-- **Catalog-then-generate**: evidence is loaded once and every artifact reuses it as cached
-  context. Cache writes were ~55% of cost in a real session, roughly 3× cache reads.
-- Session ids are **assigned** via `--session-id`, never discovered. An earlier version
-  pattern-matched CLI output and silently fell back to fresh invocations — creating three
-  separate sessions and writing artifacts from no evidence at all. They looked plausible.
-
-### M7 — Show
-`ui`. Embedded via `embed.FS`, **loopback only**, no build step, no node_modules.
-
-Overview with live footprint and assay bars, session browser with resume one-liners, nugget
-browser with provenance, artifact list, and the operation log.
-
-### M8 — Advise
-`advise`. Deterministic recommendations, each citing its evidence.
-
-Real output: 4 sessions past the cliff (2.8 GiB) · 4 of 688 sessions hold half the transcript
-bytes · tool output is 49% of classified bytes · 4,478 screenshots collapse to 977 distinct
-moments · 198 sessions point at deleted workspaces.
-
-### M9 — Account
-`cost`. Per-run usage read back from each tool's own records, with calibration.
-
-Estimates were wrong by 70–200× before calibration. After it, a prediction of 76.5 AIU landed
-against 75.6 actual — within 1%.
-
-### M10 — Act
-Operations run from the UI rather than being described by it. A panel that only reports is an
-instrument, not a tool.
-
-### M11 — Guide
-`start`, tiered summaries, `ask`. The pipeline order stopped living only in the author's head.
-
-### M12 — Extend
-`plugins list|probe|verify`. Declarative, cost-labelled integration manifests
-with passive listing, explicit probes, and OpenAPI operation verification.
-
-Open Notebook adds an explicit, free **Send nuggets** action: it sends a
-second-redacted, bounded set of stored nuggets to an existing notebook as one
-multipart text source, then returns its local UI link. It never sends raw
-transcripts, creates notebooks, or waits for destination-side processing.
-
-Built-in integrations now have a human setup path in the UI: discover the
-optional tool, open its official setup guide, save local settings without
-editing YAML, then explicitly test it. Existing advanced manifests remain
-available under a collapsed Advanced section and can be adopted or recovered
-without silent overwrite. Passwords are action-scoped and never persist in
-Midden settings, its index, or job history.
-
----
-
-## Index authority
-
-The index is the fast read path, but it is not a source of truth by itself.
-Every complete scan now reconciles it against the source stores:
-
-- sessions absent from a fully read source are removed before a stale resume
-  command can silently start a new session;
-- manifests whose source changed, orphan manifests, and duplicate artifact
-  rows are removed;
-- partial adapters preserve their existing rows and withhold deletion
-  authority;
-- scan generations, tombstones, cross-process locks, and SQLite triggers
-  prevent overlapping or pre-upgrade writers from resurrecting deleted rows.
-
-The web UI exposes this as **Refresh data**. Sessions state how many rows are
-shown, in range, automated-hidden, or not loaded, and freshness travels with
-the same cache snapshot that supplied the rows.
-
----
-
-## Performance
-
-Reads come from the index. Re-deriving them from the source stores meant opening every Claude
-transcript, because Claude keeps cwd and title inside the file. On Windows each open triggers
-an on-access virus scan of the whole file for the ~60 lines actually read — 1.7s per
-transcript cold, 0.16s warm, measured over 135 files.
-
-| | before | after |
-|---|---|---|
-| `midden ls` | 551s | **0.17s** |
-| `/api/health` | 180s+ | **0.14s** |
-| `/api/sessions` | hung | **0.05s** |
-
-It stayed hidden because every result was *correct*. Nothing measured latency, and the CLI
-always passed a narrow scope while the UI asked for everything.
-
-Anything still slow now says what it is doing. Silence during a multi-minute first run is
-indistinguishable from a hang.
-
----
+The index is the fast read path. Complete successful scans reconcile stale
+source rows; partial adapters preserve prior rows rather than claiming
+deletion authority. Cross-process scan locks, generation stamps, tombstones,
+and SQLite triggers prevent overlapping or older writers from resurrecting
+stale sessions.
 
 ## Known limits
 
-- opencode per-session byte accounting needs a full `part` scan (~190s over 341k rows), so it
-  is opt-in behind `--sizes`.
-- Copilot and opencode write no live-session marker, so `open now` is Claude-only.
-  `~/.copilot/restart/<pid>.json` looks like one — PID-named, carries a `sessionId` — and is
-  not. It records restart intent, persists after the process dies, and is absent for a
-  normally-running session: verified with Copilot live, its session had no marker while seven
-  stale ones remained. Wiring it up would report seven closed sessions as open.
-- Liveness on Windows needs `GetExitCodeProcess`, not `os.FindProcess`: the latter succeeds
-  for a process that has already exited, which made every stale marker report its session as
-  open forever. The process start time is also checked against the marker's, because PIDs are
-  recycled and marker files are not.
-- Cross-compiles cleanly to linux/amd64, linux/arm64 and darwin/arm64 (pure-Go SQLite, no
-  cgo), but has only been *run* on Windows.
-- `watch` polls rather than using filesystem notifications; a session can cross the cliff
-  between ticks.
-- Reclamation quality depends on the model you point it at. That is a dial you hold — every
-  nugget records the model that produced it, so weak extractions can be identified and re-run.
+- OpenCode per-session byte accounting requires a full `part` aggregate and is
+  opt-in behind `--sizes`.
+- Copilot and OpenCode expose no trustworthy live-session marker; reliable live
+  detection is Claude-only.
+- `watch` polls rather than subscribing to filesystem events.
+- Model-backed output quality depends on the selected backend and model.
+- A first model-backed estimate is conservative until actual usage calibrates
+  later estimates.
+- The application cross-compiles to Linux and macOS, but the full human journey
+  has been exercised on Windows.
+- The Go race detector cannot run on a workstation without a C compiler even
+  though normal tests use pure-Go SQLite.
+- The repository currently has no configured Git remote. Documentation uses
+  `<repository-url>` until a remote is deliberately attached.
+
+## Release gate
+
+The release gate is:
+
+```text
+clean clone
+→ go test ./...
+→ build 2.1.0
+→ isolated MIDDEN_HOME
+→ Mine
+→ small evidence extraction
+→ Conductor greeting and clarification
+→ plan preview
+→ evidence approval
+→ draft production
+→ review and local export
+→ mobile and keyboard check
+```
+
+See [docs/ACCEPTANCE_TEST.md](docs/ACCEPTANCE_TEST.md).

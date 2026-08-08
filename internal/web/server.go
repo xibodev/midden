@@ -96,6 +96,11 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/integrations/test", s.handleIntegrationTest)
 	mux.HandleFunc("/api/plugins", s.handlePlugins)
 	mux.HandleFunc("/api/plugins/probe", s.handlePluginProbe)
+	mux.HandleFunc("/api/refinery", s.handleRefineryOverview)
+	mux.HandleFunc("/api/refinery/recipe", s.handleRefineryRecipe)
+	mux.HandleFunc("/api/refinery/output", s.handleRefineryOutput)
+	mux.HandleFunc("/api/refinery/action", s.handleRefineryAction)
+	mux.HandleFunc("/api/refinery/connections", s.handleRefineryConnections)
 
 	return localOnly(mux)
 }
@@ -210,17 +215,51 @@ func (s *Server) handleSessions(w http.ResponseWriter, r *http.Request) {
 	snap := s.cache.get(s)
 	setSnapshotHeader(w, snap)
 
-	out := make([]sessionView, 0, 64)
+	search := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("search")))
+	offset, _ := strconv.Atoi(r.URL.Query().Get("offset"))
+	if offset < 0 {
+		offset = 0
+	}
+	matches := make([]core.Session, 0, 64)
 	for _, x := range snap.Sessions {
-		if !sc.Match(x) {
+		if !sc.Match(x) || !sessionSearchMatch(x, search) {
 			continue
 		}
-		out = append(out, toView(x))
-		if sc.Limit > 0 && len(out) >= sc.Limit {
-			break
-		}
+		matches = append(matches, x)
+	}
+	if r.URL.Query().Get("sort") == "consequence" {
+		sort.SliceStable(matches, func(i, j int) bool {
+			if matches[i].Risk() != matches[j].Risk() {
+				return matches[i].Risk() > matches[j].Risk()
+			}
+			if matches[i].Bytes != matches[j].Bytes {
+				return matches[i].Bytes > matches[j].Bytes
+			}
+			return matches[i].Updated.After(matches[j].Updated)
+		})
+	}
+	if offset > len(matches) {
+		offset = len(matches)
+	}
+	end := len(matches)
+	if sc.Limit > 0 && offset+sc.Limit < end {
+		end = offset + sc.Limit
+	}
+	out := make([]sessionView, 0, end-offset)
+	for _, session := range matches[offset:end] {
+		out = append(out, toView(session))
 	}
 	writeJSON(w, out)
+}
+
+func sessionSearchMatch(session core.Session, search string) bool {
+	if search == "" {
+		return true
+	}
+	return strings.Contains(strings.ToLower(session.Title), search) ||
+		strings.Contains(strings.ToLower(session.Dir), search) ||
+		strings.Contains(strings.ToLower(session.Repo), search) ||
+		strings.Contains(strings.ToLower(session.ID), search)
 }
 
 // handleSessionStats tells the Sessions tab what its filters are hiding.
@@ -238,9 +277,10 @@ func (s *Server) handleSessionStats(w http.ResponseWriter, r *http.Request) {
 
 	snap := s.cache.get(s)
 	setSnapshotHeader(w, snap)
+	search := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("search")))
 	total, matching, visible := len(snap.Sessions), 0, 0
 	for _, session := range snap.Sessions {
-		if !allScope.Match(session) {
+		if !allScope.Match(session) || !sessionSearchMatch(session, search) {
 			continue
 		}
 		matching++
@@ -623,7 +663,7 @@ func (s *Server) handleCost(w http.ResponseWriter, r *http.Request) {
 	}
 
 	calib := map[string]any{}
-	for _, op := range []string{"reclaim", "refine"} {
+	for _, op := range []string{"reclaim", "refine", "refinery"} {
 		if st, err := s.db.CalibrationFor(op); err == nil && st.Samples > 0 {
 			calib[op] = map[string]any{
 				"samples": st.Samples, "mean_factor": round1(st.MeanFactor),

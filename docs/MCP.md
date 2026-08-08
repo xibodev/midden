@@ -1,94 +1,163 @@
-# Using Midden from an AI CLI
+# MCP setup
 
-Midden exposes its session index as an MCP server, so any agent can survey your whole
-session history cheaply instead of guessing or shelling out to `ls`.
+Midden exposes a small, read-only, token-bounded MCP server over stdio. It lets
+an AI client find and summarize local AI coding sessions without reading raw
+multi-gigabyte stores into context.
 
-Every tool declares a hard token budget and truncates to it, reporting what was omitted.
-A model can call `midden_list_sessions` with no filters and know it will never blow context.
+The MCP surface does not call a model and does not mutate a source store.
 
-## Measured cost
+## Before registration
 
-Run against 682 real sessions / 36.3 GiB:
+Build or install Midden and refresh its index:
 
-| Tool | Actual | Budget |
-|---|---|---|
-| `midden_health` | **158** tokens | 400 |
-| `midden_list_sessions` (all 682) | **3,859** tokens | 4,000 |
-| `midden_list_sessions --days 5` | 1,278 tokens | 4,000 |
-| `midden_search` | 514 tokens | 1,500 |
-| `midden_session_brief` (681 MiB session) | **283** tokens | 1,500 |
-| `midden_resume_command` | 61 tokens | 200 |
+```powershell
+New-Item -ItemType Directory -Force .\bin | Out-Null
+go build -trimpath -o .\bin\midden.exe .\cmd\midden
 
-Surveying an entire multi-gigabyte session history costs less than reading one source file.
-
-## Register the server
-
-Build first:
-
-```bash
-go build -o midden ./cmd/midden
+$env:MIDDEN_HOME = (Join-Path $PWD '.midden')
+.\bin\midden.exe scan
+.\bin\midden.exe version
 ```
 
-### Copilot CLI — `~/.copilot/mcp-config.json`
+Use the absolute executable path in MCP configuration. A relative path often
+breaks because an AI client starts servers from a different working directory.
+
+If you use a custom `MIDDEN_HOME`, configure the AI client to pass the same
+environment variable to the MCP process, or start the client from a shell that
+already has it set.
+
+## GitHub Copilot CLI
+
+Add a server entry to `%USERPROFILE%\.copilot\mcp-config.json`:
 
 ```json
 {
   "mcpServers": {
     "midden": {
-      "command": "C:\\path\\to\\midden.exe",
-      "args": ["mcp"],
       "type": "local",
+      "command": "C:\\absolute\\path\\to\\midden.exe",
+      "args": ["mcp"],
       "tools": ["*"]
     }
   }
 }
 ```
 
-### Claude Code
+Merge this entry with any existing `mcpServers` object rather than replacing
+the complete file.
 
-```bash
-claude mcp add midden -- /path/to/midden mcp
+Restart Copilot CLI after editing the configuration.
+
+## Claude Code
+
+From a shell where the intended `MIDDEN_HOME` is set:
+
+```powershell
+claude mcp add midden -- 'C:\absolute\path\to\midden.exe' mcp
 ```
 
-### opencode — `opencode.json`
+Use Claude Code's MCP inspection command to confirm the server is connected,
+then restart the session if the tool list was already loaded.
+
+## OpenCode
+
+Add a local MCP server to `opencode.json`:
 
 ```json
 {
   "mcp": {
     "midden": {
       "type": "local",
-      "command": ["/path/to/midden", "mcp"],
+      "command": [
+        "C:\\absolute\\path\\to\\midden.exe",
+        "mcp"
+      ],
       "enabled": true
     }
   }
 }
 ```
 
+Merge this object with existing OpenCode configuration and restart OpenCode.
+
 ## Tools
 
-| Tool | Purpose |
-|---|---|
-| `midden_health` | Orientation: footprint, counts, at-risk, open now. **Call this first.** |
-| `midden_list_sessions` | One compact line per session. Filters: `tool`, `days`, `workspace`, `limit`. |
-| `midden_search` | Match on title, workspace or repository. |
-| `midden_session_brief` | Original goal + recent exchanges for one session. Works on sessions too large to resume. |
-| `midden_resume_command` | The exact shell one-liner, in the host OS dialect. Warns if open or oversized. |
+| Tool | Purpose | Output budget |
+|---|---|---|
+| `midden_health` | Footprint, session counts, open sessions, dead workspaces, resume risk | about 400 tokens |
+| `midden_list_sessions` | Compact session list with optional tool, day, workspace, and limit filters | about 4,000 tokens |
+| `midden_search` | Match title, workspace, or repository | about 1,500 tokens |
+| `midden_session_brief` | Original goal and recent exchanges for one session | about 1,500 tokens |
+| `midden_resume_command` | Exact host-OS resume command with safety warnings | about 200 tokens |
 
-### Intended flow
+Truncation is explicit and includes the omitted count. The server never
+silently floods the caller's context.
 
+## Recommended agent flow
+
+```text
+1. midden_health
+2. midden_list_sessions with days or workspace filters
+3. midden_session_brief for one session
+4. midden_resume_command only when the workspace exists and the session is safe
 ```
-midden_health                 → orientation, ~150 tokens
-midden_list_sessions(days=7)  → find the session
-midden_session_brief(id=...)  → recover its context
-midden_resume_command(id=...) → get back into it
+
+Suggested instruction for an MCP-enabled agent:
+
+```text
+Use midden_health first. Narrow session lists before requesting briefs. Never
+resume a session marked open or past the resume-risk threshold; recover a brief
+and hand off instead.
 ```
 
-## Notes
+## Behavior and limits
 
-- **Read-only.** No tool mutates a source store. Sessions are opened `mode=ro` + `query_only`.
-- **No model calls.** Everything is deterministic extraction; the server costs tokens only in
-  the sense that its *output* enters your context.
-- **Truncation is always announced**, with the omitted count and a hint to narrow scope.
-  Silent truncation would be worse than short output.
-- **`midden_session_brief` works past the resume cliff.** A 681 MiB transcript that
-  `--resume` cannot load still yields its goal and last exchanges in ~280 tokens.
+- The transport is newline-delimited JSON-RPC 2.0 over stdio.
+- `midden mcp` is expected to wait quietly when run by hand.
+- Tool output is deterministic extraction, not a model answer.
+- Source databases are opened read-only.
+- The server does not expose refinery production, cleanup, integration probes,
+  or any mutation.
+- A brief can recover context from a transcript too large for its original CLI
+  to resume.
+- Claude live-session detection prevents an agent from being told to resume a
+  session already open in another terminal.
+- Copilot and OpenCode do not expose a trustworthy live marker, so their
+  liveness cannot be reported.
+
+## Troubleshooting
+
+### The client reports that the executable does not exist
+
+Verify the configured path:
+
+```powershell
+& 'C:\absolute\path\to\midden.exe' version
+```
+
+Use the final `.exe` path, not the repository directory.
+
+### The server connects but returns no sessions
+
+Run:
+
+```powershell
+& 'C:\absolute\path\to\midden.exe' scan
+& 'C:\absolute\path\to\midden.exe' doctor
+```
+
+Confirm the MCP process receives the same `MIDDEN_HOME` and runs as the same
+operating-system user.
+
+### Starting `midden mcp` appears to hang
+
+That is normal. It is waiting for stdio JSON-RPC messages. Press `Ctrl+C` when
+testing manually.
+
+### The tool list does not appear
+
+Restart the AI client after changing MCP configuration. Many clients load MCP
+tools only when a session starts.
+
+See [Troubleshooting](TROUBLESHOOTING.md) for source discovery and state-path
+issues.
