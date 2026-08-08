@@ -518,14 +518,25 @@ func evidenceIDsFromValue(value any) []string {
 	var out []string
 	switch typed := value.(type) {
 	case map[string]any:
-		for key, item := range typed {
-			switch key {
-			case "id", "evidence_id", "chosen_evidence_id", "rejected_evidence_id":
-				if id, ok := item.(string); ok && id != "" {
-					out = append(out, id)
-					continue
-				}
+		// JSON object iteration order is deliberately undefined in Go. Keep
+		// evidence order stable so saving the same reviewed JSONL cannot
+		// randomly reshuffle the output's evidence and provenance.
+		idKeys := []string{"id", "evidence_id", "chosen_evidence_id", "rejected_evidence_id"}
+		for _, key := range idKeys {
+			if id, ok := typed[key].(string); ok && id != "" {
+				out = append(out, id)
 			}
+		}
+		keys := make([]string, 0, len(typed))
+		for key := range typed {
+			if key != "id" && key != "evidence_id" &&
+				key != "chosen_evidence_id" && key != "rejected_evidence_id" {
+				keys = append(keys, key)
+			}
+		}
+		sort.Strings(keys)
+		for _, key := range keys {
+			item := typed[key]
 			out = append(out, evidenceIDsFromValue(item)...)
 		}
 	case []any:

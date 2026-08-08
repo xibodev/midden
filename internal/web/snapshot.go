@@ -206,12 +206,13 @@ func (s *Server) buildSnapshot(c *snapshotCache) *snapshot {
 	// Recollect under the scan lock instead.
 	if !hasIndex {
 		sessions, _ = adapter.Collect(core.Scope{IncludeNoise: true})
-		go s.refreshIndexInBackground()
 	} else {
 		// The index has no notion of which sessions are open right now, and
 		// that changes minute to minute. Overlaying it is cheap: a handful of
 		// small marker files plus a liveness check.
 		overlayLive(sessions)
+	}
+	if s.backgroundWork {
 		go s.refreshIndexInBackground()
 	}
 
@@ -244,7 +245,9 @@ func (s *Server) buildSnapshot(c *snapshotCache) *snapshot {
 
 	st.BusiestWorkspace = guide.BusiestScope(byWorkspace)
 
-	_, st.FootprintByte = c.footprints()
+	if s.backgroundWork {
+		_, st.FootprintByte = c.footprints()
+	}
 
 	if t, err := s.db.Aggregate(""); err == nil {
 		st.Assayed = int(t.Assayed)

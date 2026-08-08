@@ -44,6 +44,12 @@ type Server struct {
 	jobs  *Jobs
 	cache *snapshotCache
 
+	// backgroundWork is enabled only for the fully constructed application
+	// server. Tests build narrow Server values around temporary databases; a
+	// background refresh from those values can outlive the test and keep
+	// scan.lock open while Windows removes the temporary directory.
+	backgroundWork bool
+
 	integrationMu sync.Mutex
 	legacyTestMu  sync.RWMutex
 	legacyTests   map[string]legacyIntegrationTest
@@ -54,7 +60,11 @@ type Server struct {
 }
 
 func NewServer(db *index.DB) *Server {
-	s := &Server{db: db, jobs: NewJobs(), cache: newSnapshotCache(), legacyTests: map[string]legacyIntegrationTest{}}
+	s := &Server{
+		db: db, jobs: NewJobs(), cache: newSnapshotCache(),
+		legacyTests:    map[string]legacyIntegrationTest{},
+		backgroundWork: true,
+	}
 	// Start the expensive disk walk immediately so the headline figure is
 	// usually ready by the time the operator looks at it, without any request
 	// ever waiting on it.
