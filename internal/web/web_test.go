@@ -592,10 +592,14 @@ func TestEmbeddedUIUsesPagedLiveActivityJobs(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"/api/jobs?limit=40", "/api/recovery-runs?limit=${state.activityRecoveryPageSize}", "/api/ops?limit=${state.activityAuditPageSize}", "activityJobs", "jobsTotal", "recoveryRunsTotal", "activityOperationsTotal"} {
-		if !strings.Contains(string(js), want) {
+	body := string(js)
+	for _, want := range []string{"/api/jobs?limit=40", "/api/recovery-runs?limit=${state.activityRecoveryPageSize}", "/api/ops?limit=${state.activityAuditPageSize}", "activityJobs", "jobsTotal", "recoveryRunsTotal", "activityOperationsTotal", "`${humanStatus(job.op)} - ${job.scope || 'all'}`"} {
+		if !strings.Contains(body, want) {
 			t.Errorf("Activity UI missing %q", want)
 		}
+	}
+	if strings.ContainsRune(body, '\uFFFD') {
+		t.Error("Activity UI contains a Unicode replacement character")
 	}
 }
 

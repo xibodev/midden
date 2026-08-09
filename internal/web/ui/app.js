@@ -2183,7 +2183,7 @@ async function renderActivity() {
     const card = el('article', `job-card activity-job ${active ? 'is-active' : ''}`.trim());
     const copy = el('div');
     append(copy, el('div', 'job-kicker', active ? 'Live background work' : 'Recorded outcome'),
-      el('h3', null, `${humanStatus(job.op)} � ${job.scope || 'all'}`),
+      el('h3', null, `${humanStatus(job.op)} - ${job.scope || 'all'}`),
       el('p', null, job.error || job.progress || 'Waiting'),
       el('span', 'job-timestamp', active ? `Started ${relativeAge(job.started)}` : `Finished ${relativeAge(job.ended)}`));
     append(card, copy, badge(humanStatus(job.status), statusKind(job.status)));
