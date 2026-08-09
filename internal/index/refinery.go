@@ -269,6 +269,69 @@ func (d *DB) Recipes(limit int) ([]Recipe, error) {
 	return recipes, rows.Err()
 }
 
+func (d *DB) RecipesPage(limit, offset int, search string, excludeArchived bool) ([]Recipe, int, error) {
+	if limit <= 0 {
+		limit = 20
+	}
+	if offset < 0 {
+		offset = 0
+	}
+	var where []string
+	args := []any{}
+	if excludeArchived {
+		where = append(where, `status != 'archived'`)
+	}
+	if strings.TrimSpace(search) != "" {
+		pattern := "%" + escapeLike(strings.TrimSpace(search)) + "%"
+		where = append(where,
+			`(title LIKE ? ESCAPE '\' OR workspace LIKE ? ESCAPE '\' OR request LIKE ? ESCAPE '\')`)
+		args = append(args, pattern, pattern, pattern)
+	}
+	whereSQL := ""
+	if len(where) > 0 {
+		whereSQL = " WHERE " + strings.Join(where, " AND ")
+	}
+	var total int
+	if err := d.sql.QueryRow(`SELECT COUNT(*) FROM refinery_recipes`+whereSQL, args...).Scan(&total); err != nil {
+		return nil, 0, err
+	}
+	query := `
+		SELECT uid,title,COALESCE(workspace,''),COALESCE(request,''),status,
+		       outputs,evidence_ids,created_at,updated_at,COALESCE(approved_at,0)
+		FROM refinery_recipes` + whereSQL + `
+		ORDER BY updated_at DESC, uid DESC LIMIT ? OFFSET ?`
+	pageArgs := append(append([]any{}, args...), limit, offset)
+	rows, err := d.sql.Query(query, pageArgs...)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+	recipes := make([]Recipe, 0, limit)
+	for rows.Next() {
+		var recipe Recipe
+		var outputs, evidence string
+		var created, updated, approved int64
+		if err := rows.Scan(&recipe.UID, &recipe.Title, &recipe.Workspace,
+			&recipe.Request, &recipe.Status, &outputs, &evidence, &created,
+			&updated, &approved); err != nil {
+			return nil, 0, err
+		}
+		if err := json.Unmarshal([]byte(outputs), &recipe.Outputs); err != nil {
+			return nil, 0, err
+		}
+		if err := json.Unmarshal([]byte(evidence), &recipe.EvidenceIDs); err != nil {
+			return nil, 0, err
+		}
+		recipe.CreatedAt = time.Unix(created, 0)
+		recipe.UpdatedAt = time.Unix(updated, 0)
+		if approved > 0 {
+			recipe.ApprovedAt = time.Unix(approved, 0)
+		}
+		recipes = append(recipes, recipe)
+	}
+	return recipes, total, rows.Err()
+}
+
 // PutRefineryRun persists the current production timeline.
 func (d *DB) PutRefineryRun(run *RefineryRun) error {
 	if run == nil {

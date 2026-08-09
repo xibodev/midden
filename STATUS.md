@@ -66,6 +66,8 @@ Recover exact sessions
   source fallback.
 - Output source can always be downloaded.
 - Library is independent from the selected Studio item.
+- Every growing collection has an explicit cap, visible range/total, and page
+  controls or intentional incremental history loading.
 - Cleanup states why a session is eligible, held, or protected.
 - Web archive application refuses sessions that have not satisfied recovery
   eligibility.

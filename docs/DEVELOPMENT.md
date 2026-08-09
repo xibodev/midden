@@ -85,6 +85,34 @@ The UI is served directly from `embed.FS`; edit the files in
 
 There is no generated web bundle to commit.
 
+### Collection discipline
+
+Any collection that can grow with normal use must define:
+
+- a finite page size;
+- a visible total and current range;
+- Previous/Next or an intentional incremental-history control;
+- search/filter state where discovery matters;
+- a backend limit or paged query rather than an unbounded read.
+
+Do not render hundreds of sessions, jobs, messages, evidence items, outputs,
+records, or provenance entries into one document. Current default page sizes:
+
+| Collection | Page size |
+|---|---:|
+| Recover sessions | 20 |
+| Studio work items | 12 |
+| Studio chat history | 30, loaded incrementally |
+| Evidence review | 15 |
+| Library outputs | 12 |
+| Cleanup candidates | 20 |
+| Activity jobs, recovery runs, audit | 10 |
+| JSONL records | 20 |
+| Provenance sources | 15 |
+
+Changing a page size requires a browser check with a collection larger than two
+pages. Search and filter changes must reset to page one.
+
 For human testing, exercise:
 
 - normal desktop and compact desktop window widths;

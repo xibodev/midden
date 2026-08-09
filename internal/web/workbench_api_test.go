@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -49,13 +50,18 @@ func TestWorkItemsExposePersistentThreadAndMessages(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
 	}
-	var items []workItemSummary
-	if err := json.Unmarshal(rec.Body.Bytes(), &items); err != nil {
+	var response struct {
+		Items []workItemSummary `json:"items"`
+		Total int               `json:"total"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
 		t.Fatal(err)
 	}
-	if len(items) != 1 || items[0].MessageCount != 1 ||
-		items[0].Thread == nil || items[0].Thread.Backend != "copilot" {
-		t.Fatalf("items=%#v", items)
+	if response.Total != 1 || len(response.Items) != 1 ||
+		response.Items[0].MessageCount != 1 ||
+		response.Items[0].Thread == nil ||
+		response.Items[0].Thread.Backend != "copilot" {
+		t.Fatalf("response=%#v", response)
 	}
 	if strings.Contains(rec.Body.String(), "private-session") {
 		t.Fatal("work-item list exposed the CLI session handle")
@@ -82,6 +88,58 @@ func TestWorkItemGetDoesNotCreateThread(t *testing.T) {
 	}
 	if _, err := db.WorkThread(recipe.UID); !errors.Is(err, sql.ErrNoRows) {
 		t.Fatalf("GET created work thread: %v", err)
+	}
+}
+
+func TestWorkItemMessagesAreCappedWithTotal(t *testing.T) {
+	t.Setenv("MIDDEN_HOME", t.TempDir())
+	db, err := index.Open()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	recipe := index.Recipe{Title: "Long conversation"}
+	if err := db.PutRecipe(&recipe); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 40; i++ {
+		message := index.WorkMessage{
+			RecipeID: recipe.UID, Role: "user",
+			Body: fmt.Sprintf("message %02d", i),
+		}
+		if err := db.PutWorkMessage(&message); err != nil {
+			t.Fatal(err)
+		}
+	}
+	server := &Server{db: db, jobs: NewJobs(), cache: newSnapshotCache()}
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet,
+		"/api/work-item?id="+recipe.UID+"&message_limit=10", nil)
+	server.handleWorkItem(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	var response struct {
+		Messages []index.WorkMessage `json:"messages"`
+		Total    int                 `json:"message_total"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatal(err)
+	}
+	if response.Total != 40 || len(response.Messages) != 10 ||
+		response.Messages[0].Body != "message 30" {
+		t.Fatalf("response=%#v", response)
+	}
+	rec = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodGet,
+		"/api/work-item?id="+recipe.UID+"&message_limit=10&message_offset=10", nil)
+	server.handleWorkItem(rec, req)
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatal(err)
+	}
+	if response.Total != 40 || len(response.Messages) != 10 ||
+		response.Messages[0].Body != "message 20" {
+		t.Fatalf("offset response=%#v", response)
 	}
 }
 
@@ -293,6 +351,25 @@ func TestCleanupIdentityIncludesTool(t *testing.T) {
 	}
 	if decisions[string(core.ToolCopilot)] == "eligible" {
 		t.Fatalf("copilot borrowed Claude recovery: %#v", decisions)
+	}
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet,
+		"/api/cleanup-candidates?limit=1&offset=0", nil)
+	server.handleCleanupCandidates(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	var page struct {
+		Candidates []cleanupCandidate `json:"candidates"`
+		Total      int                `json:"total"`
+		Counts     map[string]int     `json:"counts"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &page); err != nil {
+		t.Fatal(err)
+	}
+	if page.Total != 2 || len(page.Candidates) != 1 ||
+		page.Counts["eligible"] != 1 {
+		t.Fatalf("page=%#v", page)
 	}
 }
 

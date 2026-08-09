@@ -436,6 +436,8 @@ func TestEmbeddedUIContainsPersistentWorkbench(t *testing.T) {
 	for _, want := range []string{
 		"work_chat", "Same session", "session_ids", "previewEvidenceExtraction",
 		"renderTaskDock", "renderOwnedPreview", "openCleanupCandidate",
+		"recoverPageSize", "libraryPageSize", "cleanupPageSize",
+		"pageSlice", "pager",
 	} {
 		if !strings.Contains(js, want) {
 			t.Errorf("app.js missing %q", want)

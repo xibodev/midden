@@ -56,21 +56,30 @@ func (s *Server) handleWorkItems(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "GET required", http.StatusMethodNotAllowed)
 		return
 	}
-	recipes, err := s.db.Recipes(100)
+	limit := 12
+	if parsed, err := strconv.Atoi(r.URL.Query().Get("limit")); err == nil && parsed > 0 {
+		limit = parsed
+		if limit > 50 {
+			limit = 50
+		}
+	}
+	offset, _ := strconv.Atoi(r.URL.Query().Get("offset"))
+	if offset < 0 {
+		offset = 0
+	}
+	recipes, total, err := s.db.RecipesPage(limit, offset, r.URL.Query().Get("search"), true)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 	items := make([]workItemSummary, 0, len(recipes))
 	for _, recipe := range recipes {
-		if recipe.Status == refinery.RecipeArchived {
-			continue
-		}
 		outputs, _ := s.db.RefineryOutputs(recipe.UID, 0)
-		messages, _ := s.db.WorkMessages(recipe.UID, 100)
+		messageCount, _ := s.db.WorkMessageCount(recipe.UID)
+		messages, _ := s.db.WorkMessages(recipe.UID, 1)
 		item := workItemSummary{
 			Recipe: recipe, OutputCount: len(outputs),
-			MessageCount: len(messages),
+			MessageCount: messageCount,
 		}
 		if len(messages) > 0 {
 			item.LastMessage = core.Truncate(messages[len(messages)-1].Body, 120)
@@ -81,7 +90,7 @@ func (s *Server) handleWorkItems(w http.ResponseWriter, r *http.Request) {
 		}
 		items = append(items, item)
 	}
-	writeJSON(w, items)
+	writeJSON(w, map[string]any{"items": items, "total": total})
 }
 
 func (s *Server) handleWorkItem(w http.ResponseWriter, r *http.Request) {
@@ -106,7 +115,19 @@ func (s *Server) handleWorkItem(w http.ResponseWriter, r *http.Request) {
 	}
 	outputs, _ := s.db.RefineryOutputs(recipe.UID, 100)
 	runs, _ := s.db.RefineryRuns(recipe.UID, 30)
-	messages, _ := s.db.WorkMessages(recipe.UID, 200)
+	messageLimit := 30
+	if parsed, err := strconv.Atoi(r.URL.Query().Get("message_limit")); err == nil && parsed > 0 {
+		messageLimit = parsed
+		if messageLimit > 50 {
+			messageLimit = 50
+		}
+	}
+	messageOffset, _ := strconv.Atoi(r.URL.Query().Get("message_offset"))
+	if messageOffset < 0 {
+		messageOffset = 0
+	}
+	messages, _ := s.db.WorkMessagesPage(recipe.UID, messageLimit, messageOffset)
+	messageTotal, _ := s.db.WorkMessageCount(recipe.UID)
 	thread, err := s.workThread(recipe.UID)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -115,7 +136,9 @@ func (s *Server) handleWorkItem(w http.ResponseWriter, r *http.Request) {
 	estimate, report := s.productionEstimate(recipe, evidence)
 	writeJSON(w, map[string]any{
 		"recipe": recipe, "evidence": evidence, "outputs": outputs, "runs": runs,
-		"messages": messages, "thread": publicWorkThread(thread), "evidence_report": report,
+		"messages": messages, "message_total": messageTotal,
+		"message_offset": messageOffset, "message_limit": messageLimit,
+		"thread": publicWorkThread(thread), "evidence_report": report,
 		"estimate": estimate, "estimate_text": productionEstimateText(recipe, estimate),
 	})
 }
@@ -508,9 +531,56 @@ func (s *Server) handleCleanupCandidates(w http.ResponseWriter, r *http.Request)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+	counts := map[string]int{"eligible": 0, "held": 0, "protected": 0}
+	reviewedOutputs := 0
+	for _, candidate := range candidates {
+		counts[candidate.Decision]++
+		reviewedOutputs += candidate.ReviewedOutputs
+	}
+	decision := strings.TrimSpace(r.URL.Query().Get("decision"))
+	search := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("search")))
+	filtered := make([]cleanupCandidate, 0, len(candidates))
+	for _, candidate := range candidates {
+		if decision != "" && candidate.Decision != decision {
+			continue
+		}
+		if search != "" {
+			haystack := strings.ToLower(candidate.Session.Title + " " +
+				candidate.Session.Dir + " " + candidate.Session.Tool)
+			if !strings.Contains(haystack, search) {
+				continue
+			}
+		}
+		filtered = append(filtered, candidate)
+	}
+	limit := 20
+	if parsed, err := strconv.Atoi(r.URL.Query().Get("limit")); err == nil && parsed > 0 {
+		limit = parsed
+		if limit > 100 {
+			limit = 100
+		}
+	}
+	offset, _ := strconv.Atoi(r.URL.Query().Get("offset"))
+	if offset < 0 {
+		offset = 0
+	}
+	total := len(filtered)
+	if offset > total {
+		offset = total
+	}
+	end := minInt(total, offset+limit)
 	writeJSON(w, map[string]any{
-		"candidates": candidates, "eligible_bytes": eligibleBytes,
+		"candidates": filtered[offset:end], "total": total,
+		"counts": counts, "eligible_bytes": eligibleBytes,
+		"reviewed_outputs": reviewedOutputs,
 	})
+}
+
+func minInt(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }
 
 func (s *Server) cleanupCandidates() ([]cleanupCandidate, int64, error) {
@@ -614,7 +684,12 @@ func (s *Server) cleanupCandidates() ([]cleanupCandidate, int64, error) {
 		if rank[candidates[i].Decision] != rank[candidates[j].Decision] {
 			return rank[candidates[i].Decision] < rank[candidates[j].Decision]
 		}
-		return candidates[i].Session.Bytes > candidates[j].Session.Bytes
+		if candidates[i].Session.Bytes != candidates[j].Session.Bytes {
+			return candidates[i].Session.Bytes > candidates[j].Session.Bytes
+		}
+		left := sessionIdentity(candidates[i].Session.Tool, candidates[i].Session.ID)
+		right := sessionIdentity(candidates[j].Session.Tool, candidates[j].Session.ID)
+		return left < right
 	})
 	return candidates, eligibleBytes, nil
 }

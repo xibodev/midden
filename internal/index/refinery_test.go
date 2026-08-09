@@ -1,6 +1,7 @@
 package index
 
 import (
+	"fmt"
 	"path/filepath"
 	"testing"
 	"time"
@@ -175,5 +176,42 @@ func TestEmptyRefineryCollectionsEncodeAsArrays(t *testing.T) {
 	if recipes == nil || outputs == nil || runs == nil || nuggets == nil {
 		t.Fatalf("nil collection: recipes=%#v outputs=%#v runs=%#v nuggets=%#v",
 			recipes, outputs, runs, nuggets)
+	}
+}
+
+func TestRecipesPageCapsAndSearches(t *testing.T) {
+	t.Setenv("MIDDEN_HOME", t.TempDir())
+	db, err := Open()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	for i := 0; i < 25; i++ {
+		recipe := Recipe{Title: fmt.Sprintf("Work item %02d", i)}
+		if i == 7 {
+			recipe.Title = "Literal 100% recovery"
+		}
+		if err := db.PutRecipe(&recipe); err != nil {
+			t.Fatal(err)
+		}
+	}
+	archived := Recipe{Title: "Archived hidden item", Status: "archived"}
+	if err := db.PutRecipe(&archived); err != nil {
+		t.Fatal(err)
+	}
+	page, total, err := db.RecipesPage(10, 10, "", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if total != 25 || len(page) != 10 {
+		t.Fatalf("total=%d page=%d", total, len(page))
+	}
+	matches, total, err := db.RecipesPage(10, 0, "100%", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if total != 1 || len(matches) != 1 ||
+		matches[0].Title != "Literal 100% recovery" {
+		t.Fatalf("total=%d matches=%#v", total, matches)
 	}
 }

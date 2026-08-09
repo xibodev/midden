@@ -390,20 +390,27 @@ func (d *DB) PutWorkMessage(message *WorkMessage) error {
 }
 
 func (d *DB) WorkMessages(recipeID string, limit int) ([]WorkMessage, error) {
+	return d.WorkMessagesPage(recipeID, limit, 0)
+}
+
+func (d *DB) WorkMessagesPage(recipeID string, limit, offset int) ([]WorkMessage, error) {
 	query := `
 		SELECT uid,recipe_id,role,body,COALESCE(job_id,''),created_at
 		FROM work_messages WHERE recipe_id = ?
 		ORDER BY created_at,rowid`
 	args := []any{recipeID}
 	if limit > 0 {
+		if offset < 0 {
+			offset = 0
+		}
 		query = `
 			SELECT uid,recipe_id,role,body,COALESCE(job_id,''),created_at
 			FROM (
 			  SELECT rowid AS ordinal,uid,recipe_id,role,body,job_id,created_at
 			  FROM work_messages WHERE recipe_id = ?
-			  ORDER BY created_at DESC,rowid DESC LIMIT ?
+			  ORDER BY created_at DESC,rowid DESC LIMIT ? OFFSET ?
 			) ORDER BY created_at,ordinal`
-		args = append(args, limit)
+		args = append(args, limit, offset)
 	}
 	rows, err := d.sql.Query(query, args...)
 	if err != nil {
@@ -423,6 +430,14 @@ func (d *DB) WorkMessages(recipeID string, limit int) ([]WorkMessage, error) {
 		messages = append(messages, message)
 	}
 	return messages, rows.Err()
+}
+
+func (d *DB) WorkMessageCount(recipeID string) (int, error) {
+	var count int
+	err := d.sql.QueryRow(
+		`SELECT COUNT(*) FROM work_messages WHERE recipe_id = ?`, recipeID,
+	).Scan(&count)
+	return count, err
 }
 
 func nullableJSON(value json.RawMessage) any {

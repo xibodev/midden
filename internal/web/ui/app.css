@@ -266,6 +266,14 @@ tbody tr:last-child td { border-bottom: 0; }
 .run-row h3, .job-card h3 { margin: 0; font-size: 12px; }
 .run-row p, .job-card p { margin: 3px 0 0; color: var(--muted); font-size: 10px; }
 .run-meta { margin-top: 7px; display: flex; gap: 5px; flex-wrap: wrap; }
+.pager {
+  min-height: 42px; display: flex; align-items: center; justify-content: space-between;
+  gap: 10px; margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--line);
+}
+.pager span { color: var(--muted); font: 9px var(--mono); text-align: center; }
+.work-rail .pager { flex-wrap: wrap; justify-content: center; }
+.work-rail .pager span { order: -1; width: 100%; }
+.filter-row > input { flex: 1 1 260px; }
 
 .studio-shell {
   min-height: calc(100vh - 150px); display: grid;

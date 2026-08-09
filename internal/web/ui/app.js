@@ -12,18 +12,44 @@ const state = {
   jobCallbacks: new Map(),
   completedJobs: new Set(),
   selectedSessions: new Set(),
+  selectedSessionMeta: new Map(),
   mineBuilderOpen: false,
+  recoverPage: 0,
+  recoverPageSize: 20,
+  recoverFilters: {search: '', tool: '', days: ''},
   workItems: [],
+  workTotal: 0,
   selectedWork: sessionStorage.getItem('midden.selectedWork') || '',
+  workPage: 0,
+  workPageSize: 12,
+  workSearch: '',
   workDetail: null,
+  messagePages: new Map(),
   conversationMode: 'chat',
   consoleHistory: new Map(),
   selectedOutput: '',
   previewMode: 'rendered',
   outputDetail: null,
+  recordPages: new Map(),
+  provenancePages: new Map(),
   pendingChat: new Set(),
   libraryFilter: 'all',
+  libraryPage: 0,
+  libraryPageSize: 12,
   cleanup: null,
+  cleanupPage: 0,
+  cleanupPageSize: 20,
+  cleanupFilters: {search: '', decision: ''},
+  activityJobPage: 0,
+  activityJobPageSize: 10,
+  activityRecoveryPage: 0,
+  activityRecoveryPageSize: 10,
+  activityAuditPage: 0,
+  activityAuditPageSize: 10,
+  toolPage: 0,
+  toolPageSize: 12,
+  pluginPage: 0,
+  pluginPageSize: 10,
   connections: null,
   integrations: null,
   plugins: null,
@@ -142,6 +168,33 @@ function emptyState(title, copy, action) {
   append(node, el('strong', null, title), el('span', null, copy), action ? el('div', 'actions') : null);
   if (action) $('.actions', node).append(action);
   return node;
+}
+
+function pageSlice(items, page, pageSize) {
+  const pages = Math.max(1, Math.ceil(items.length / pageSize));
+  const safePage = Math.min(Math.max(0, page), pages - 1);
+  return {
+    items: items.slice(safePage * pageSize, safePage * pageSize + pageSize),
+    page: safePage,
+    pages,
+    total: items.length,
+  };
+}
+
+function pager(total, page, pageSize, onChange, label = 'items') {
+  const pages = Math.max(1, Math.ceil(total / pageSize));
+  const safePage = Math.min(Math.max(0, page), pages - 1);
+  const wrap = el('div', 'pager');
+  const first = total ? safePage * pageSize + 1 : 0;
+  const last = Math.min(total, safePage * pageSize + pageSize);
+  const previous = button('Previous', 'button ghost compact', () => onChange(safePage - 1));
+  previous.disabled = safePage === 0;
+  const next = button('Next', 'button ghost compact', () => onChange(safePage + 1));
+  next.disabled = safePage >= pages - 1;
+  append(wrap, previous,
+    el('span', null, `${first}–${last} of ${total} ${label} · Page ${safePage + 1}/${pages}`),
+    next);
+  return wrap;
 }
 
 function formatBytes(value) {
@@ -424,6 +477,7 @@ async function refreshAll() {
   state.recoveryRuns = [];
   state.workItems = [];
   state.workDetail = null;
+  state.cleanup = null;
   state.outputDetail = null;
   state.cleanup = null;
   await loadOverview(true);
@@ -517,7 +571,7 @@ setInterval(() => {
 function workspaceOptions(includeAll = true) {
   const options = [];
   if (includeAll) options.push({value: '', label: 'All workspaces'});
-  (state.overview?.workspaces || []).forEach((workspace) => {
+  (state.overview?.workspaces || []).slice(0, 100).forEach((workspace) => {
     options.push({
       value: workspace.id,
       label: `${workspace.name} · ${workspace.sessions} sessions · ${workspace.nuggets} evidence`,
@@ -529,10 +583,23 @@ function workspaceOptions(includeAll = true) {
 async function loadRecoveryData(force = false) {
   await loadOverview(force);
   if (force || !state.recoveryRuns.length) state.recoveryRuns = await get('/api/recovery-runs');
-  const params = new URLSearchParams({limit: '60', offset: '0', sort: 'consequence'});
+  const filters = state.recoverFilters;
+  const params = new URLSearchParams({
+    limit: String(state.recoverPageSize),
+    offset: String(state.recoverPage * state.recoverPageSize),
+    sort: 'consequence',
+  });
+  if (filters.search) params.set('search', filters.search);
+  if (filters.tool) params.set('tool', filters.tool);
+  if (filters.days) params.set('days', filters.days);
   const [sessions, stats] = await Promise.all([
     get(`/api/sessions?${params}`), get(`/api/session-stats?${params}`),
   ]);
+  const maxPage = Math.max(0, Math.ceil(Number(stats.target || 0) / state.recoverPageSize) - 1);
+  if (state.recoverPage > maxPage) {
+    state.recoverPage = maxPage;
+    return loadRecoveryData(force);
+  }
   state.sessions = sessions || [];
   state.sessionStats = stats;
 }
@@ -554,12 +621,11 @@ async function renderRecover() {
     ]));
 
   const sessions = state.sessions;
-  const unrecovered = sessions.filter((session) => !session.recovered).length;
   const atRisk = sessions.filter((session) => session.risk && session.risk !== 'ok').length;
   append(root, metricGrid([
     {label: 'Indexed', value: state.overview.stats?.sessions || 0, copy: 'sessions across installed tools'},
     {label: 'In view', value: state.sessionStats?.target || sessions.length, copy: 'matching current inventory'},
-    {label: 'At risk', value: atRisk, copy: 'resume or workspace consequence'},
+    {label: 'At risk on page', value: atRisk, copy: `within ${state.recoverPageSize} displayed rows`},
     {label: 'Evidence', value: state.overview.stats?.nuggets || 0, copy: 'recovered items'},
     {label: 'Mine runs', value: state.recoveryRuns.length, copy: 'durable recovery history'},
   ]));
@@ -675,18 +741,19 @@ function renderSessionInventory() {
     'Consequence-first ordering surfaces risk and large dormant transcripts before routine history.',
     [badge(`${state.sessionStats?.target || state.sessions.length} matching`)]));
 
-  const filter = textInput('', 'Filter title, workspace, repository');
+  const filter = textInput(state.recoverFilters.search, 'Filter title, workspace, repository');
   const tool = selectInput([
     {value: '', label: 'All sources'}, {value: 'copilot', label: 'Copilot'},
     {value: 'claude', label: 'Claude'}, {value: 'opencode', label: 'OpenCode'},
-  ]);
+  ], state.recoverFilters.tool);
   const range = selectInput([
     {value: '7', label: 'Last 7 days'}, {value: '30', label: 'Last 30 days'},
     {value: '', label: 'Any time'},
-  ], '');
+  ], state.recoverFilters.days);
   const filters = el('div', 'filter-bar');
   append(filters, filter, tool, range, button('Clear selection', 'button ghost compact', () => {
     state.selectedSessions.clear();
+    state.selectedSessionMeta.clear();
     renderRecover().catch(showError);
   }));
   inner.append(filters);
@@ -701,13 +768,7 @@ function renderSessionInventory() {
 
   const draw = () => {
     clear(tbody);
-    const query = filter.value.trim().toLowerCase();
-    const days = Number(range.value || 0);
-    state.sessions
-      .filter((session) => !tool.value || session.tool === tool.value)
-      .filter((session) => !days || new Date(session.updated) >= new Date(Date.now() - days * 86400000))
-      .filter((session) => !query || `${session.title} ${session.dir} ${session.repo}`.toLowerCase().includes(query))
-      .forEach((session) => {
+    state.sessions.forEach((session) => {
         const row = el('tr');
         const key = sessionKey(session);
         const check = el('input', 'row-check');
@@ -715,10 +776,15 @@ function renderSessionInventory() {
         check.checked = state.selectedSessions.has(key);
         check.setAttribute('aria-label', `Select ${session.title || session.short}`);
         check.addEventListener('change', () => {
-          if (check.checked) state.selectedSessions.add(key);
-          else state.selectedSessions.delete(key);
+          if (check.checked) {
+            state.selectedSessions.add(key);
+            state.selectedSessionMeta.set(key, {bytes: Number(session.bytes || 0)});
+          } else {
+            state.selectedSessions.delete(key);
+            state.selectedSessionMeta.delete(key);
+          }
           updateSelectedSummary();
-        });
+    });
         const title = el('td');
         append(title, el('span', 'session-title', session.title || session.short),
           el('span', 'session-path', session.dir));
@@ -739,13 +805,34 @@ function renderSessionInventory() {
       tbody.append(row);
     }
   };
-  filter.addEventListener('input', draw);
-  tool.addEventListener('change', draw);
-  range.addEventListener('change', draw);
+  let searchTimer;
+  filter.addEventListener('input', () => {
+    clearTimeout(searchTimer);
+    searchTimer = setTimeout(() => {
+      state.recoverFilters.search = filter.value.trim();
+      state.recoverPage = 0;
+      renderRecover().catch(showError);
+    }, 220);
+  });
+  tool.addEventListener('change', () => {
+    state.recoverFilters.tool = tool.value;
+    state.recoverPage = 0;
+    renderRecover().catch(showError);
+  });
+  range.addEventListener('change', () => {
+    state.recoverFilters.days = range.value;
+    state.recoverPage = 0;
+    renderRecover().catch(showError);
+  });
   draw();
   append(table, head, tbody);
   wrap.append(table);
   inner.append(wrap);
+  inner.append(pager(Number(state.sessionStats?.target || 0), state.recoverPage,
+    state.recoverPageSize, (page) => {
+      state.recoverPage = page;
+      renderRecover().catch(showError);
+    }, 'sessions'));
 
   const selected = el('div', 'selected-bar');
   selected.id = 'selected-session-summary';
@@ -759,8 +846,7 @@ function updateSelectedSummary() {
   const selected = $('#selected-session-summary');
   if (!selected) return;
   clear(selected);
-  const totalBytes = state.sessions
-    .filter((session) => state.selectedSessions.has(sessionKey(session)))
+  const totalBytes = Array.from(state.selectedSessionMeta.values())
     .reduce((sum, session) => sum + Number(session.bytes || 0), 0);
   const copy = el('div');
   append(copy, el('strong', null, `${state.selectedSessions.size} session(s) selected`),
@@ -784,8 +870,9 @@ function renderRecoveryHistory() {
     try { scope = JSON.parse(run.scope || '{}'); } catch {}
     const row = el('article', 'run-row');
     const copy = el('div');
-    const label = scope.session_ids?.length
-      ? `${scope.session_ids.length} selected sessions`
+    const selectedCount = scope.session_keys?.length || scope.session_ids?.length || 0;
+    const label = selectedCount
+      ? `${selectedCount} selected sessions`
       : scope.workspace || (scope.days ? `Last ${scope.days} days` : 'All indexed sessions');
     append(copy, el('h3', null, `${humanStatus(run.op)} · ${label}`),
       el('p', null, `${run.sessions || 0} sessions · ${run.depth || 'assay'} · ${run.backend || 'local'}`));
@@ -900,10 +987,21 @@ async function previewArchive(session) {
 
 async function loadWorkItems(force = false) {
   await loadOverview(force);
-  if (force || !state.workItems.length) state.workItems = await get('/api/work-items');
-  if (state.selectedWork && !state.workItems.some((item) => item.recipe.uid === state.selectedWork)) {
-    state.selectedWork = '';
-    sessionStorage.removeItem('midden.selectedWork');
+  if (force || !state.workItems.length) {
+    const params = new URLSearchParams({
+      limit: String(state.workPageSize),
+      offset: String(state.workPage * state.workPageSize),
+    });
+    if (state.workSearch) params.set('search', state.workSearch);
+    const response = await get(`/api/work-items?${params}`);
+    state.workItems = response.items || [];
+    state.workTotal = Number(response.total || 0);
+    const maxPage = Math.max(0, Math.ceil(state.workTotal / state.workPageSize) - 1);
+    if (state.workPage > maxPage) {
+      state.workPage = maxPage;
+      state.workItems = [];
+      return loadWorkItems(force);
+    }
   }
   if (!state.selectedWork && state.workItems.length) state.selectedWork = state.workItems[0].recipe.uid;
 }
@@ -920,7 +1018,10 @@ async function selectWork(recipeID) {
 async function loadWorkDetail(force = false) {
   if (!state.selectedWork) return null;
   if (force || !state.workDetail || state.workDetail.recipe.uid !== state.selectedWork) {
-    state.workDetail = await get(`/api/work-item?id=${encodeURIComponent(state.selectedWork)}`);
+    const messagePage = state.messagePages.get(state.selectedWork) || 0;
+    const messageLimit = 30;
+    const messageOffset = messagePage * messageLimit;
+    state.workDetail = await get(`/api/work-item?id=${encodeURIComponent(state.selectedWork)}&message_limit=${messageLimit}&message_offset=${messageOffset}`);
   }
   return state.workDetail;
 }
@@ -934,7 +1035,7 @@ async function renderStudio() {
       button('Import evidence set', 'button ghost', openCreateWorkItem),
       button('New work item', 'button', openCreateWorkItem),
     ]));
-  if (!state.workItems.length) {
+  if (!state.workItems.length && !state.selectedWork) {
     root.append(emptyState('No work items yet',
       'Recover evidence, then create a focused output plan without leaving Studio.',
       button('Create the first work item', 'button', openCreateWorkItem)));
@@ -951,16 +1052,17 @@ function renderWorkRail() {
   const head = el('div', 'rail-head');
   const top = el('div', 'actions');
   top.style.justifyContent = 'space-between';
-  append(top, el('strong', null, 'Work items'), badge(`${state.workItems.length} active`, 'blue'));
-  const search = textInput('', 'Find work item');
+  append(top, el('strong', null, 'Work items'), badge(`${state.workTotal} active`, 'blue'));
+  const search = textInput(state.workSearch, 'Find work item');
   append(head, top, search);
   const list = el('div', 'work-list');
   const draw = () => {
     clear(list);
-    const query = search.value.trim().toLowerCase();
-    state.workItems
-      .filter((item) => !query || `${item.recipe.title} ${item.recipe.request} ${item.recipe.workspace}`.toLowerCase().includes(query))
-      .forEach((item) => {
+    const visible = [...state.workItems];
+    if (state.workDetail && !visible.some((item) => item.recipe.uid === state.workDetail.recipe.uid)) {
+      visible.unshift({recipe: state.workDetail.recipe, output_count: state.workDetail.outputs.length});
+    }
+    visible.forEach((item) => {
         const recipe = item.recipe;
         const node = el('button', `work-item ${recipe.uid === state.selectedWork ? 'active' : ''}`.trim());
         node.type = 'button';
@@ -972,12 +1074,31 @@ function renderWorkRail() {
         node.append(meta);
         node.addEventListener('click', () => selectWork(recipe.uid).catch(showError));
         list.append(node);
-      });
+    });
+    return {total: state.workTotal};
   };
-  search.addEventListener('input', draw);
-  draw();
+  let searchTimer;
+  search.addEventListener('input', () => {
+    clearTimeout(searchTimer);
+    searchTimer = setTimeout(() => {
+      state.workSearch = search.value.trim();
+      state.workPage = 0;
+      state.workItems = [];
+      renderStudio().catch(showError);
+    }, 220);
+  });
+  let pageResult = draw();
   const foot = el('div', 'work-rail-foot');
-  foot.append(button('New work item', 'button ghost compact', openCreateWorkItem));
+  const renderFoot = (result) => {
+    clear(foot);
+    foot.append(pager(result.total, state.workPage, state.workPageSize, (page) => {
+      state.workPage = page;
+      state.workItems = [];
+      renderStudio().catch(showError);
+    }, 'work items'));
+    foot.append(button('New work item', 'button ghost compact', openCreateWorkItem));
+  };
+  renderFoot(pageResult);
   append(rail, head, list, foot);
   return rail;
 }
@@ -1026,11 +1147,35 @@ function renderChat(detail) {
   messages.id = 'work-messages';
   messages.append(el('div', 'message system',
     `Evidence is fixed to this work item. Routine turns use one persistent CLI session and the approved ${formatCount(detail.thread?.budget_tokens || 1_200_000)}-token envelope.`));
-  if (!(detail.messages || []).length) {
+  const allMessages = detail.messages || [];
+  const messageTotal = Number(detail.message_total || allMessages.length);
+  const messagePage = state.messagePages.get(detail.recipe.uid) || 0;
+  const messageLimit = Number(detail.message_limit || 30);
+  const messageOffset = Number(detail.message_offset || 0);
+  if (messageTotal > messageLimit) {
+    const controls = el('div', 'pager');
+    const newer = button('Newer messages', 'button ghost compact', () => {
+      state.messagePages.set(detail.recipe.uid, Math.max(0, messagePage - 1));
+      state.workDetail = null;
+      renderStudio().catch(showError);
+    });
+    newer.disabled = messagePage === 0;
+    const older = button('Older messages', 'button ghost compact', () => {
+      state.messagePages.set(detail.recipe.uid, messagePage + 1);
+      state.workDetail = null;
+      renderStudio().catch(showError);
+    });
+    older.disabled = messageOffset + allMessages.length >= messageTotal;
+    const first = Math.max(1, messageTotal - messageOffset - allMessages.length + 1);
+    const last = messageTotal - messageOffset;
+    append(controls, newer, el('span', null, `${first}–${last} of ${messageTotal} messages`), older);
+    messages.append(controls);
+  }
+  if (!allMessages.length) {
     messages.append(el('div', 'message agent',
       'This work item is ready. Ask a question, request a revision, or inspect the current outputs on the right.'));
   }
-  (detail.messages || []).forEach((message) => {
+  allMessages.slice(-messageLimit).forEach((message) => {
     const node = el('div', `message ${message.role === 'agent' ? 'agent' : message.role}`);
     append(node, document.createTextNode(message.body),
       el('small', null, `${message.role === 'agent' ? detail.thread?.backend || 'AI CLI' : 'operator'} · ${formatDate(message.created_at)}`));
@@ -1055,6 +1200,7 @@ function renderChat(detail) {
     append(messages, optimistic, typing);
     messages.scrollTop = messages.scrollHeight;
     state.pendingChat.add(detail.recipe.uid);
+    state.messagePages.set(detail.recipe.uid, 0);
     input.disabled = true;
     send.disabled = true;
     send.textContent = 'Working…';
@@ -1236,7 +1382,7 @@ function renderOutputContent(detail, output) {
   const outputDetail = state.outputDetail;
   if (!outputDetail) return emptyState('Loading', 'Output is still loading.');
   if (state.previewMode === 'source') return renderSourceEditor(outputDetail);
-  if (state.previewMode === 'provenance') return renderProvenance(outputDetail.provenance);
+  if (state.previewMode === 'provenance') return renderProvenance(outputDetail.provenance, output);
   return renderOwnedPreview(outputDetail.body || '', output.format, output);
 }
 
@@ -1334,22 +1480,39 @@ function markdownToHTML(markdown) {
 }
 
 function renderJSONL(body, output) {
+  const wrap = el('div');
   const list = el('div', 'record-list');
+  const pagerWrap = el('div');
   const lines = String(body || '').split(/\r?\n/).filter((line) => line.trim());
-  lines.forEach((line, index) => {
-    const card = el('article', 'record-card');
-    try {
-      const value = JSON.parse(line);
-      const title = value?.metadata?.title || value?.title || value?.description || `Record ${index + 1}`;
-      const content = value?.text || value?.content || value?.response || value?.expected || JSON.stringify(value, null, 2);
-      append(card, el('h3', null, title), el('p', null, content));
-    } catch {
-      append(card, el('h3', null, `Invalid line ${index + 1}`), el('p', null, line));
-    }
-    list.append(card);
-  });
-  if (!list.children.length) list.append(emptyState('No records', `${output.title} is empty.`));
-  return list;
+  let page = state.recordPages.get(output.uid) || 0;
+  const pageSize = 20;
+  const draw = () => {
+    clear(list);
+    const result = pageSlice(lines, page, pageSize);
+    page = result.page;
+    state.recordPages.set(output.uid, page);
+    result.items.forEach((line, localIndex) => {
+      const index = page * pageSize + localIndex;
+      const card = el('article', 'record-card');
+      try {
+        const value = JSON.parse(line);
+        const title = value?.metadata?.title || value?.title || value?.description || `Record ${index + 1}`;
+        const content = value?.text || value?.content || value?.response || value?.expected || JSON.stringify(value, null, 2);
+        append(card, el('h3', null, title), el('p', null, content));
+      } catch {
+        append(card, el('h3', null, `Invalid line ${index + 1}`), el('p', null, line));
+      }
+      list.append(card);
+    });
+    if (!list.children.length) list.append(emptyState('No records', `${output.title} is empty.`));
+    clear(pagerWrap).append(pager(lines.length, page, pageSize, (nextPage) => {
+      page = nextPage;
+      draw();
+    }, 'records'));
+  };
+  draw();
+  append(wrap, list, pagerWrap);
+  return wrap;
 }
 
 function renderSourceEditor(detail) {
@@ -1365,24 +1528,42 @@ function renderSourceEditor(detail) {
   return wrap;
 }
 
-function renderProvenance(body) {
+function renderProvenance(body, output) {
+  const wrap = el('div');
   const grid = el('div', 'provenance-grid');
+  const pagerWrap = el('div');
   if (!body) return emptyState('No provenance sidecar', 'This output cannot be approved without provenance.');
   try {
     const value = JSON.parse(body);
-    (value.evidence || []).forEach((item) => {
-      const card = el('article', 'provenance-card');
-      append(card, el('h3', null, item.title || item.evidence_id),
-        el('p', null, `${item.tool || 'source'} · ${String(item.session_id || '').slice(0, 8)} · ${Math.round(Number(item.confidence || 0) * 100)}% confidence`));
-      grid.append(card);
-    });
-    if (!grid.children.length) {
+    const items = value.evidence || [];
+    let page = state.provenancePages.get(output.uid) || 0;
+    const pageSize = 15;
+    const draw = () => {
+      clear(grid);
+      const result = pageSlice(items, page, pageSize);
+      page = result.page;
+      state.provenancePages.set(output.uid, page);
+      result.items.forEach((item) => {
+        const card = el('article', 'provenance-card');
+        append(card, el('h3', null, item.title || item.evidence_id),
+          el('p', null, `${item.tool || 'source'} · ${String(item.session_id || '').slice(0, 8)} · ${Math.round(Number(item.confidence || 0) * 100)}% confidence`));
+        grid.append(card);
+      });
+      clear(pagerWrap).append(pager(items.length, page, pageSize, (nextPage) => {
+        page = nextPage;
+        draw();
+      }, 'evidence sources'));
+    };
+    if (!items.length) {
       grid.append(el('pre', 'source-stage', JSON.stringify(value, null, 2)));
+    } else {
+      draw();
     }
   } catch {
     grid.append(el('pre', 'source-stage', body));
   }
-  return grid;
+  append(wrap, grid, pagerWrap);
+  return wrap;
 }
 
 async function saveOutputReview(output, body, decision) {
@@ -1393,6 +1574,7 @@ async function saveOutputReview(output, body, decision) {
     state.workDetail = null;
     state.outputDetail = null;
     state.overview = null;
+    state.workItems = [];
     await renderStudio();
     toast(`Output ${humanStatus(decision)}`);
   } catch (error) {
@@ -1413,6 +1595,7 @@ async function exportOutput(outputID) {
     state.workDetail = null;
     state.outputDetail = null;
     state.overview = null;
+    state.workItems = [];
     await renderStudio();
     notice(`Exported locally: ${result.path}`);
   } catch (error) {
@@ -1424,24 +1607,45 @@ function openEvidenceReview(detail) {
   const body = openDrawer(`Evidence · ${detail.recipe.title}`);
   body.append(el('p', 'muted', 'Control exactly what every output is allowed to claim.'));
   const selected = new Set(detail.recipe.evidence_ids || []);
+  const search = textInput('', 'Search evidence');
   const list = el('div', 'record-list');
-  (detail.evidence || []).forEach((nugget) => {
-    const card = el('label', 'record-card');
-    const check = el('input', 'row-check');
-    check.type = 'checkbox';
-    check.value = nugget.uid;
-    check.checked = selected.has(nugget.uid);
-    check.addEventListener('change', () => {
-      if (check.checked) selected.add(nugget.uid);
-      else selected.delete(nugget.uid);
+  const pagerWrap = el('div');
+  let page = 0;
+  const pageSize = 15;
+  const draw = () => {
+    clear(list);
+    const query = search.value.trim().toLowerCase();
+    const filtered = (detail.evidence || []).filter((nugget) => !query ||
+      `${nugget.title} ${nugget.body} ${nugget.kind}`.toLowerCase().includes(query));
+    const result = pageSlice(filtered, page, pageSize);
+    page = result.page;
+    result.items.forEach((nugget) => {
+      const card = el('label', 'record-card');
+      const check = el('input', 'row-check');
+      check.type = 'checkbox';
+      check.value = nugget.uid;
+      check.checked = selected.has(nugget.uid);
+      check.addEventListener('change', () => {
+        if (check.checked) selected.add(nugget.uid);
+        else selected.delete(nugget.uid);
+      });
+      const copy = el('div');
+      append(copy, el('h3', null, nugget.title || humanStatus(nugget.kind)),
+        el('p', null, truncate(nugget.body, 320)));
+      append(card, check, copy);
+      list.append(card);
     });
-    const copy = el('div');
-    append(copy, el('h3', null, nugget.title || humanStatus(nugget.kind)),
-      el('p', null, truncate(nugget.body, 320)));
-    append(card, check, copy);
-    list.append(card);
+    clear(pagerWrap).append(pager(filtered.length, page, pageSize, (nextPage) => {
+      page = nextPage;
+      draw();
+    }, 'evidence items'));
+  };
+  search.addEventListener('input', () => {
+    page = 0;
+    draw();
   });
-  body.append(list);
+  draw();
+  append(body, search, list, pagerWrap);
   const actions = el('div', 'actions');
   append(actions,
     button('Save selection', 'button ghost', async () => {
@@ -1595,15 +1799,18 @@ async function renderLibrary() {
   categories.forEach(([kind, label]) => {
     filters.append(button(label, `segment ${state.libraryFilter === kind ? 'active' : ''}`.trim(), () => {
       state.libraryFilter = kind;
+      state.libraryPage = 0;
       renderLibrary().catch(showError);
     }));
   });
   append(toolbar, filters, badge(`${overview.outputs?.length || 0} outputs`));
   root.append(toolbar);
   const grid = el('div', 'library-grid');
-  (overview.outputs || [])
-    .filter((output) => state.libraryFilter === 'all' || outputCategory(output) === state.libraryFilter)
-    .forEach((output) => {
+  const filtered = (overview.outputs || [])
+    .filter((output) => state.libraryFilter === 'all' || outputCategory(output) === state.libraryFilter);
+  const page = pageSlice(filtered, state.libraryPage, state.libraryPageSize);
+  state.libraryPage = page.page;
+  page.items.forEach((output) => {
       const card = el('article', 'asset-card');
       const category = outputCategory(output);
       const thumb = el('div', `asset-thumb ${category}`,
@@ -1625,9 +1832,15 @@ async function renderLibrary() {
       body.append(actions);
       append(card, thumb, body);
       grid.append(card);
-    });
+  });
   if (!grid.children.length) root.append(emptyState('No outputs match', 'Change the Library filter or create a work item.'));
-  else root.append(grid);
+  else {
+    root.append(grid);
+    root.append(pager(filtered.length, state.libraryPage, state.libraryPageSize, (nextPage) => {
+      state.libraryPage = nextPage;
+      renderLibrary().catch(showError);
+    }, 'outputs'));
+  }
 }
 
 function outputCategory(output) {
@@ -1640,12 +1853,24 @@ function outputCategory(output) {
 }
 
 async function renderCleanup() {
-  if (!state.cleanup) state.cleanup = await get('/api/cleanup-candidates');
+  if (!state.cleanup) {
+    const params = new URLSearchParams({
+      limit: String(state.cleanupPageSize),
+      offset: String(state.cleanupPage * state.cleanupPageSize),
+    });
+    if (state.cleanupFilters.search) params.set('search', state.cleanupFilters.search);
+    if (state.cleanupFilters.decision) params.set('decision', state.cleanupFilters.decision);
+    state.cleanup = await get(`/api/cleanup-candidates?${params}`);
+    const maxPage = Math.max(0, Math.ceil(Number(state.cleanup.total || 0) / state.cleanupPageSize) - 1);
+    if (state.cleanupPage > maxPage) {
+      state.cleanupPage = maxPage;
+      state.cleanup = null;
+      return renderCleanup();
+    }
+  }
   const root = clear($('#cleanup-content'));
   const candidates = state.cleanup.candidates || [];
-  const eligible = candidates.filter((item) => item.decision === 'eligible');
-  const held = candidates.filter((item) => item.decision === 'held');
-  const protectedItems = candidates.filter((item) => item.decision === 'protected');
+  const counts = state.cleanup.counts || {};
   append(root, pageHead('Cleanup', 'Clear source data only when recovery proves it is safe.',
     'Eligibility is explainable and reversible. A newer session is useful evidence, never sufficient proof by itself.',
     [button('Refresh eligibility', 'button ghost', () => {
@@ -1653,16 +1878,16 @@ async function renderCleanup() {
       renderCleanup().catch(showError);
     })]));
   append(root, metricGrid([
-    {label: 'Eligible now', value: eligible.length, copy: formatBytes(state.cleanup.eligible_bytes)},
-    {label: 'Held', value: held.length, copy: 'missing recovery gates'},
-    {label: 'Protected', value: protectedItems.length, copy: 'live, current, or referenced'},
-    {label: 'Reviewed outputs', value: candidates.reduce((sum, item) => sum + item.reviewed_outputs, 0), copy: 'supporting cleanup decisions'},
-    {label: 'Candidates', value: candidates.length, copy: 'closed source transcripts'},
+    {label: 'Eligible now', value: counts.eligible || 0, copy: formatBytes(state.cleanup.eligible_bytes)},
+    {label: 'Held', value: counts.held || 0, copy: 'missing recovery gates'},
+    {label: 'Protected', value: counts.protected || 0, copy: 'live, current, or referenced'},
+    {label: 'Reviewed outputs', value: state.cleanup.reviewed_outputs || 0, copy: 'supporting cleanup decisions'},
+    {label: 'Candidates', value: (counts.eligible || 0) + (counts.held || 0) + (counts.protected || 0), copy: 'closed source transcripts'},
   ]));
   const layout = el('div', 'split-grid');
   layout.append(renderCleanupTable(candidates), renderCleanupPolicy());
   root.append(layout);
-  $('#nav-cleanup-count').textContent = String(eligible.length);
+  $('#nav-cleanup-count').textContent = String(counts.eligible || 0);
 }
 
 function renderCleanupTable(candidates) {
@@ -1671,6 +1896,16 @@ function renderCleanupTable(candidates) {
   inner.append(panelHead('Eligibility queue', 'Every recommendation includes its proof',
     'Inspect the complete recovery chain before any archive preview.',
     [badge('archive first', 'free')]));
+  const search = textInput(state.cleanupFilters.search, 'Filter session, workspace, or source');
+  const decision = selectInput([
+    {value: '', label: 'All decisions'},
+    {value: 'eligible', label: 'Eligible'},
+    {value: 'held', label: 'Held'},
+    {value: 'protected', label: 'Protected'},
+  ], state.cleanupFilters.decision);
+  const filters = el('div', 'filter-row');
+  append(filters, search, decision);
+  inner.append(filters);
   const wrap = el('div', 'table-wrap');
   const table = el('table');
   const head = el('thead');
@@ -1678,30 +1913,51 @@ function renderCleanupTable(candidates) {
   ['Session','Dormant','Evidence','Used by','Footprint','Decision',''].forEach((label) => row.append(el('th', null, label)));
   head.append(row);
   const body = el('tbody');
-  candidates.slice(0, 100).forEach((candidate) => {
-    const item = el('tr');
-    const sessionCell = el('td');
-    append(sessionCell, el('span', 'session-title', candidate.session.title || candidate.session.short),
-      el('span', 'session-path', `${candidate.session.tool} · ${candidate.session.dir}`));
-    append(item, sessionCell, el('td', null, `${candidate.dormant_days}d`),
-      el('td', null, String(candidate.evidence)),
-      el('td', null, `${candidate.reviewed_outputs}/${candidate.outputs}`),
-      el('td', null, formatBytes(candidate.session.bytes)), el('td'), el('td'));
-    item.children[5].append(badge(candidate.decision, statusKind(candidate.decision)));
-    item.children[6].append(button('Inspect', 'button ghost compact', () => openCleanupCandidate(candidate)));
-    body.append(item);
+  candidates.forEach((candidate) => {
+      const item = el('tr');
+      const sessionCell = el('td');
+      append(sessionCell, el('span', 'session-title', candidate.session.title || candidate.session.short),
+        el('span', 'session-path', `${candidate.session.tool} · ${candidate.session.dir}`));
+      append(item, sessionCell, el('td', null, `${candidate.dormant_days}d`),
+        el('td', null, String(candidate.evidence)),
+        el('td', null, `${candidate.reviewed_outputs}/${candidate.outputs}`),
+        el('td', null, formatBytes(candidate.session.bytes)), el('td'), el('td'));
+      item.children[5].append(badge(candidate.decision, statusKind(candidate.decision)));
+      item.children[6].append(button('Inspect', 'button ghost compact', () => openCleanupCandidate(candidate)));
+      body.append(item);
   });
   if (!body.children.length) {
     const empty = el('tr');
     const cell = el('td');
     cell.colSpan = 7;
-    cell.append(emptyState('No cleanup candidates', 'Mine and review evidence before considering source cleanup.'));
+    cell.append(emptyState('No cleanup candidates', 'Change the filters or recover more evidence.'));
     empty.append(cell);
     body.append(empty);
   }
+  let searchTimer;
+  search.addEventListener('input', () => {
+    clearTimeout(searchTimer);
+    searchTimer = setTimeout(() => {
+      state.cleanupFilters.search = search.value.trim();
+      state.cleanupPage = 0;
+      state.cleanup = null;
+      renderCleanup().catch(showError);
+    }, 220);
+  });
+  decision.addEventListener('change', () => {
+    state.cleanupFilters.decision = decision.value;
+    state.cleanupPage = 0;
+    state.cleanup = null;
+    renderCleanup().catch(showError);
+  });
   append(table, head, body);
   wrap.append(table);
-  inner.append(wrap);
+  append(inner, wrap, pager(Number(state.cleanup.total || 0), state.cleanupPage,
+    state.cleanupPageSize, (nextPage) => {
+      state.cleanupPage = nextPage;
+      state.cleanup = null;
+      renderCleanup().catch(showError);
+    }, 'sessions'));
   panel.append(inner);
   return panel;
 }
@@ -1777,7 +2033,9 @@ async function renderActivity() {
   jobsInner.append(panelHead('Jobs', 'Recent and running work',
     'Inspect progress, completion, or failure without returning to the originating page.'));
   const list = el('div', 'job-list');
-  state.jobs.forEach((job) => {
+  const jobPage = pageSlice(state.jobs, state.activityJobPage, state.activityJobPageSize);
+  state.activityJobPage = jobPage.page;
+  jobPage.items.forEach((job) => {
     const card = el('article', 'job-card');
     const copy = el('div');
     append(copy, el('h3', null, `${humanStatus(job.op)} · ${job.scope || 'all'}`),
@@ -1786,7 +2044,11 @@ async function renderActivity() {
     list.append(card);
   });
   if (!list.children.length) list.append(emptyState('No jobs yet', 'Start a mine, chat turn, or production.'));
-  jobsInner.append(list);
+  append(jobsInner, list, pager(state.jobs.length, state.activityJobPage,
+    state.activityJobPageSize, (nextPage) => {
+      state.activityJobPage = nextPage;
+      renderActivity().catch(showError);
+    }, 'jobs'));
   jobsPanel.append(jobsInner);
 
   const right = el('div', 'stack');
@@ -1799,21 +2061,51 @@ async function renderActivity() {
       {label: 'Tokens', value: formatCount(costData.totals?.tokens || 0), copy: 'total movement'},
     ]));
   costPanel.append(costInner);
-  const auditPanel = el('section', 'panel');
+    const recoveryPanel = el('section', 'panel');
+    const recoveryInner = el('div', 'panel-inner');
+    recoveryInner.append(panelHead('Recovery history', 'Durable mine and extraction runs',
+      'Every scope remains inspectable after the job completes.'));
+    const recoveryList = el('div', 'run-list');
+    const recoveryPage = pageSlice(state.recoveryRuns, state.activityRecoveryPage,
+      state.activityRecoveryPageSize);
+    state.activityRecoveryPage = recoveryPage.page;
+    recoveryPage.items.forEach((run) => {
+      const row = el('article', 'run-row');
+      append(row, append(el('div'), el('h3', null, `${humanStatus(run.op)} · ${run.sessions || 0} session(s)`),
+        el('p', null, `${run.depth || 'assay'} · ${run.evidence || run.assayed || 0} item(s) · ${formatDate(run.started)}`)),
+        badge(humanStatus(run.status), statusKind(run.status)));
+      recoveryList.append(row);
+    });
+    if (!recoveryList.children.length) {
+      recoveryList.append(emptyState('No recovery runs', 'Start a mine from Recover.'));
+    }
+    append(recoveryInner, recoveryList, pager(state.recoveryRuns.length,
+      state.activityRecoveryPage, state.activityRecoveryPageSize, (nextPage) => {
+        state.activityRecoveryPage = nextPage;
+        renderActivity().catch(showError);
+      }, 'runs'));
+    recoveryPanel.append(recoveryInner);
+    const auditPanel = el('section', 'panel');
   const auditInner = el('div', 'panel-inner');
   auditInner.append(panelHead('Audit', 'Recent owner-visible mutations',
     'Reviews, exports, production, and cleanup actions remain traceable.'));
   const auditList = el('div', 'run-list');
-  operations.slice(0, 8).forEach((operation) => {
+  const auditPage = pageSlice(operations, state.activityAuditPage, state.activityAuditPageSize);
+  state.activityAuditPage = auditPage.page;
+  auditPage.items.forEach((operation) => {
     const row = el('article', 'run-row');
     append(row, append(el('div'), el('h3', null, humanStatus(operation.op)),
       el('p', null, operation.detail || operation.session_id || 'recorded')),
       badge(operation.ok ? 'complete' : 'failed', operation.ok ? 'free' : 'danger'));
     auditList.append(row);
   });
-  auditInner.append(auditList);
+  append(auditInner, auditList, pager(operations.length, state.activityAuditPage,
+    state.activityAuditPageSize, (nextPage) => {
+      state.activityAuditPage = nextPage;
+      renderActivity().catch(showError);
+    }, 'audit events'));
   auditPanel.append(auditInner);
-  append(right, costPanel, auditPanel);
+  append(right, costPanel, recoveryPanel, auditPanel);
   append(layout, jobsPanel, right);
   root.append(layout);
 }
@@ -1852,7 +2144,9 @@ async function renderTools() {
 
   const managedByID = new Map(state.integrations.map((item) => [item.id, item]));
   const grid = el('div', 'tool-grid');
-  state.connections.forEach((connection) => {
+  const toolPage = pageSlice(state.connections, state.toolPage, state.toolPageSize);
+  state.toolPage = toolPage.page;
+  toolPage.items.forEach((connection) => {
     const card = el('article', 'tool-card');
     const logo = el('div', 'tool-logo', connection.name.split(/\s+/).map((part) => part[0]).join('').slice(0, 2).toUpperCase());
     const copy = el('div');
@@ -1874,7 +2168,11 @@ async function renderTools() {
     append(card, logo, copy, action);
     grid.append(card);
   });
-  root.append(grid);
+  append(root, grid, pager(state.connections.length, state.toolPage,
+    state.toolPageSize, (nextPage) => {
+      state.toolPage = nextPage;
+      renderTools().catch(showError);
+    }, 'capabilities'));
 
   const advanced = el('section', 'panel');
   const inner = el('div', 'panel-inner');
@@ -1883,13 +2181,19 @@ async function renderTools() {
   if (!state.plugins.length) inner.append(emptyState('No advanced manifests', 'Managed settings cover the common integrations.'));
   else {
     const list = el('div', 'run-list');
-    state.plugins.forEach((plugin) => {
+    const pluginPage = pageSlice(state.plugins, state.pluginPage, state.pluginPageSize);
+    state.pluginPage = pluginPage.page;
+    pluginPage.items.forEach((plugin) => {
       const row = el('article', 'run-row');
       append(row, append(el('div'), el('h3', null, plugin.name), el('p', null, plugin.detail)),
         badge(humanStatus(plugin.status), statusKind(plugin.status)));
       list.append(row);
     });
-    inner.append(list);
+    append(inner, list, pager(state.plugins.length, state.pluginPage,
+      state.pluginPageSize, (nextPage) => {
+        state.pluginPage = nextPage;
+        renderTools().catch(showError);
+      }, 'manifests'));
   }
   advanced.append(inner);
   root.append(advanced);
