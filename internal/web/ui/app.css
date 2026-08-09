@@ -496,6 +496,7 @@ progress::-moz-progress-bar { background: var(--blue); border-radius: 999px; }
 
 .notice-region {
   margin: 12px clamp(18px,2.8vw,34px) 0; padding: 10px 12px;
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
   border: 1px solid #38604f; border-radius: 9px; background: #113228; color: #baf3db;
 }
 .notice-region.bad { border-color: #70414a; background: var(--red-soft); color: #ffc0c9; }

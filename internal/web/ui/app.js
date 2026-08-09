@@ -320,9 +320,18 @@ function clearNotice() {
   $('#notice-region').textContent = '';
 }
 
-function showError(error) {
+function showError(error, options = {}) {
   console.warn(error);
   notice(error?.message || String(error), 'bad');
+  if (!state.serviceAvailable && !options.suppressRetry) {
+    const retry = button('Retry connection', 'button compact', () => {
+      clearNotice();
+      state.overview = null;
+      showViewLoading(state.activeView);
+      renderViewWithError(state.activeView);
+    });
+    $('#notice-region').append(retry);
+  }
 }
 
 function setServiceStatus(available, message = '') {
@@ -516,11 +525,11 @@ async function renderViewWithError(view) {
   try {
     await renderActiveView();
   } catch (error) {
-    showError(error);
+    showError(error, {suppressRetry: true});
     const root = clear($(`#${view}-content`));
     root.append(emptyState(`${humanStatus(view)} could not load`,
       error?.message || 'The local service did not respond.',
-      button('Retry', 'button', () => {
+      button(state.serviceAvailable ? 'Retry' : 'Retry connection', 'button', () => {
         showViewLoading(view);
         renderViewWithError(view);
       })));
