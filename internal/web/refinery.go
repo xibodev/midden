@@ -762,6 +762,9 @@ func (s *Server) doMine(id string, req actionRequest) (any, error) {
 	if (len(req.SessionKeys) > 0 || len(sessions) == 0) && len(collectionErrors) > 0 {
 		return nil, collectionErrors[0]
 	}
+	if len(sessions) == 0 {
+		return nil, fmt.Errorf("no sessions in scope to mine")
+	}
 	generation, err := s.db.NextScanGeneration()
 	if err != nil {
 		return nil, err
@@ -789,6 +792,7 @@ func (s *Server) doMine(id string, req actionRequest) (any, error) {
 		if session.Tool != core.ToolOpencode &&
 			(session.TranscriptPath == "" || !fileExists(session.TranscriptPath)) {
 			result.NoTranscript++
+			result.Failed++
 			continue
 		}
 		sourceBytes, sourceMtime := index.SourceStamp(session)
@@ -798,6 +802,7 @@ func (s *Server) doMine(id string, req actionRequest) (any, error) {
 		}
 		assayer, ok := adapter.Find(session.Tool).(adapter.Assayer)
 		if !ok {
+			result.Failed++
 			continue
 		}
 		manifest, err := assayer.Assay(session, 200)
@@ -815,8 +820,23 @@ func (s *Server) doMine(id string, req actionRequest) (any, error) {
 	for _, err := range collectionErrors {
 		result.Errors = append(result.Errors, err.Error())
 	}
+	if err := mineAllWorkFailed(result.Sessions, result.Assayed, result.Skipped, result.Failed); err != nil {
+		return nil, err
+	}
 	s.cache.invalidate()
 	return result, nil
+}
+
+// mineAllWorkFailed prevents a completed status when every eligible assay
+// failed. An unchanged manifest is a valid no-op; a failed assay is not.
+func mineAllWorkFailed(sessions, assayed, skipped, failed int) error {
+	if sessions == 0 {
+		return fmt.Errorf("no sessions in scope to mine")
+	}
+	if assayed == 0 && skipped == 0 && failed > 0 {
+		return fmt.Errorf("mine failed: all %d eligible session mining steps failed", failed)
+	}
+	return nil
 }
 
 func (s *Server) acquireScanLockForJob(jobID string, maxWait time.Duration) (*index.ScanLock, error) {

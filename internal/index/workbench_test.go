@@ -2,6 +2,7 @@ package index
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -116,5 +117,68 @@ func TestWorkThreadAndMessagesRoundTrip(t *testing.T) {
 	if len(messages) != 2 || messages[0].Role != "user" ||
 		messages[1].Body != "Updated." {
 		t.Fatalf("messages=%#v", messages)
+	}
+}
+
+func TestReconcileOrphanedJobsAndRunsClosesEveryActiveRow(t *testing.T) {
+	t.Setenv("MIDDEN_HOME", t.TempDir())
+	db, err := Open()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	for _, id := range []string{"owned", "orphan"} {
+		if err := db.PutBackgroundJob(StoredJob{ID: id, Op: "mine", Status: "running"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, id := range []string{"owned", "orphan", "missing-job"} {
+		run := &RecoveryRun{JobID: id, Op: "mine", Scope: json.RawMessage(`{}`), Status: "running"}
+		if err := db.PutRecoveryRun(run); err != nil {
+			t.Fatal(err)
+		}
+	}
+	changed, err := db.ReconcileOrphanedJobsAndRuns([]string{"owned"}, "owner absent")
+	if err != nil || changed != 1 {
+		t.Fatalf("changed=%d err=%v", changed, err)
+	}
+	owned, err := db.BackgroundJob("owned")
+	if err != nil || owned.Status != "running" {
+		t.Fatalf("owned=%#v err=%v", owned, err)
+	}
+	orphan, err := db.BackgroundJob("orphan")
+	if err != nil || orphan.Status != "failed" || !strings.Contains(orphan.Error, "owner absent") {
+		t.Fatalf("orphan=%#v err=%v", orphan, err)
+	}
+	runs, err := db.RecoveryRuns(10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, run := range runs {
+		if run.JobID == "owned" && run.Status != "running" {
+			t.Fatalf("healthy run was interrupted: %#v", run)
+		}
+		if run.JobID != "owned" && (run.Status != "failed" || !strings.Contains(run.Error, "owner absent")) {
+			t.Fatalf("orphan run=%#v", run)
+		}
+	}
+}
+
+func TestRecoveryRunsPageHasBoundedItemsAndTruthfulTotal(t *testing.T) {
+	t.Setenv("MIDDEN_HOME", t.TempDir())
+	db, err := Open()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	for i := 0; i < 101; i++ {
+		run := &RecoveryRun{UID: fmt.Sprintf("run-%03d", i), Op: "mine", Scope: json.RawMessage(`{}`), Status: "done"}
+		if err := db.PutRecoveryRun(run); err != nil {
+			t.Fatal(err)
+		}
+	}
+	runs, total, err := db.RecoveryRunsPage(10, 100)
+	if err != nil || total != 101 || len(runs) != 1 {
+		t.Fatalf("runs=%d total=%d err=%v", len(runs), total, err)
 	}
 }

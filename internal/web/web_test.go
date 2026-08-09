@@ -559,9 +559,63 @@ func TestEmbeddedUIUsesPagedLiveActivityJobs(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"/api/jobs?limit=40", "activityJobs", "jobsTotal"} {
+	for _, want := range []string{"/api/jobs?limit=40", "/api/recovery-runs?limit=${state.activityRecoveryPageSize}", "/api/ops?limit=${state.activityAuditPageSize}", "activityJobs", "jobsTotal", "recoveryRunsTotal", "activityOperationsTotal"} {
 		if !strings.Contains(string(js), want) {
 			t.Errorf("Activity UI missing %q", want)
+		}
+	}
+}
+
+func TestExplicitMiddenRequestRequiresHeaderHostAndSameOrigin(t *testing.T) {
+	newRequest := func() *http.Request {
+		req := httptest.NewRequest(http.MethodPost, "/api/action", nil)
+		req.RemoteAddr = "127.0.0.1:1"
+		req.Host = "127.0.0.1:7777"
+		return req
+	}
+	rec := httptest.NewRecorder()
+	if requireExplicitMiddenRequest(rec, newRequest()) || rec.Code != http.StatusForbidden {
+		t.Fatalf("missing X-Midden-Request status=%d", rec.Code)
+	}
+	req := newRequest()
+	req.Header.Set("X-Midden-Request", "1")
+	rec = httptest.NewRecorder()
+	if requireExplicitMiddenRequest(rec, req) || rec.Code != http.StatusForbidden {
+		t.Fatalf("missing Origin status=%d", rec.Code)
+	}
+	req = newRequest()
+	req.Header.Set("X-Midden-Request", "1")
+	req.Header.Set("Origin", "http://attacker.example")
+	rec = httptest.NewRecorder()
+	if requireExplicitMiddenRequest(rec, req) || rec.Code != http.StatusForbidden {
+		t.Fatalf("cross-origin status=%d", rec.Code)
+	}
+	req = newRequest()
+	req.Header.Set("X-Midden-Request", "1")
+	req.Header.Set("Origin", "http://127.0.0.1:7777")
+	rec = httptest.NewRecorder()
+	if !requireExplicitMiddenRequest(rec, req) || rec.Code != http.StatusOK {
+		t.Fatalf("same-origin status=%d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestBrandContractAndKnownGoodCanaryArePresent(t *testing.T) {
+	contract, err := os.ReadFile("../../docs/product/brand-contract.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{`"brand": "Midden"`, `"required_wordmark": "midden"`, `"Recover"`, `"Studio"`, `"Library"`, `"Cleanup"`, `"Activity"`, `"Tools"`, `"Retired vertical tabs as primary navigation."`, `"Mobile or phone presentation at 1024x768."`} {
+		if !strings.Contains(string(contract), want) {
+			t.Errorf("brand contract missing %q", want)
+		}
+	}
+	canary, err := os.ReadFile("../../docs/product/brand/canary-known-good.svg")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"midden", "#10161c", "KNOWN-GOOD CANARY"} {
+		if !strings.Contains(string(canary), want) {
+			t.Errorf("canary missing %q", want)
 		}
 	}
 }

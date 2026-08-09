@@ -547,7 +547,12 @@ func requireExplicitMiddenRequest(w http.ResponseWriter, r *http.Request) bool {
 		http.Error(w, "loopback host required", http.StatusForbidden)
 		return false
 	}
-	if origin := r.Header.Get("Origin"); origin != "" && origin != "http://"+r.Host {
+	origin := r.Header.Get("Origin")
+	if origin == "" {
+		http.Error(w, "same-origin request required", http.StatusForbidden)
+		return false
+	}
+	if origin != "http://"+r.Host {
 		http.Error(w, "cross-origin request denied", http.StatusForbidden)
 		return false
 	}
@@ -652,12 +657,33 @@ func (s *Server) handleArtifactBody(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleOps(w http.ResponseWriter, r *http.Request) {
-	ops, err := s.db.Operations(100)
+	if r.Method != http.MethodGet {
+		http.Error(w, "GET required", http.StatusMethodNotAllowed)
+		return
+	}
+	limit, offset := historyPageParams(r)
+	ops, total, err := s.db.OperationsPage(limit, offset)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	writeJSON(w, ops)
+	writeJSON(w, map[string]any{"items": ops, "total": total, "limit": limit, "offset": offset})
+}
+
+// historyPageParams applies the shared Activity cap on every durable history endpoint.
+func historyPageParams(r *http.Request) (limit, offset int) {
+	limit = 10
+	if parsed, err := strconv.Atoi(r.URL.Query().Get("limit")); err == nil && parsed > 0 {
+		limit = parsed
+	}
+	if limit > 50 {
+		limit = 50
+	}
+	offset, _ = strconv.Atoi(r.URL.Query().Get("offset"))
+	if offset < 0 {
+		offset = 0
+	}
+	return limit, offset
 }
 
 func humanAge(d time.Duration) string {

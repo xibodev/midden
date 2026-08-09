@@ -220,6 +220,7 @@ func TestRoDSNIsReadOnly(t *testing.T) {
 type exactSpyAdapter struct {
 	tool     core.Tool
 	sessions []core.Session
+	err      error
 	calls    int
 }
 
@@ -233,7 +234,7 @@ func (a *exactSpyAdapter) Sessions(scope core.Scope) ([]core.Session, error) {
 			out = append(out, session)
 		}
 	}
-	return out, nil
+	return out, a.err
 }
 func (*exactSpyAdapter) ResumeCmd(core.Session, string) string { return "" }
 func (*exactSpyAdapter) Footprint() int64                      { return 0 }
@@ -245,6 +246,20 @@ func TestCollectExactOnlyReadsSelectedToolAndIDs(t *testing.T) {
 	copilot := &exactSpyAdapter{tool: core.ToolCopilot, sessions: []core.Session{{Tool: core.ToolCopilot, ID: "unselected"}}}
 	got, errs := collectExactFrom([]string{"claude:selected"}, []core.Adapter{copilot, claude})
 	if len(errs) != 0 || len(got) != 1 || got[0].ID != "selected" {
+		t.Fatalf("sessions=%#v errors=%v", got, errs)
+	}
+	if claude.calls != 1 || copilot.calls != 0 {
+		t.Fatalf("selected calls=%d unselected calls=%d", claude.calls, copilot.calls)
+	}
+}
+
+func TestCollectExactIgnoresUnselectedAdapterFailure(t *testing.T) {
+	claude := &exactSpyAdapter{tool: core.ToolClaude, sessions: []core.Session{
+		{Tool: core.ToolClaude, ID: "selected"},
+	}}
+	copilot := &exactSpyAdapter{tool: core.ToolCopilot, err: errors.New("copilot store is unreadable")}
+	got, errs := collectExactFrom([]string{"claude:selected"}, []core.Adapter{copilot, claude})
+	if len(errs) != 0 || len(got) != 1 || got[0].Tool != core.ToolClaude || got[0].ID != "selected" {
 		t.Fatalf("sessions=%#v errors=%v", got, errs)
 	}
 	if claude.calls != 1 || copilot.calls != 0 {

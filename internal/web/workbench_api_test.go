@@ -163,6 +163,7 @@ func TestWorkConsoleIsAllowlisted(t *testing.T) {
 			strings.NewReader(body))
 		req.Host = "127.0.0.1:7777"
 		req.Header.Set("X-Midden-Request", "1")
+		req.Header.Set("Origin", "http://127.0.0.1:7777")
 		rec := httptest.NewRecorder()
 		server.handleWorkConsole(rec, req)
 		return rec

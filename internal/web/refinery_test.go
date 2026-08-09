@@ -41,6 +41,7 @@ func TestRefineryDesignAndEvidenceApproval(t *testing.T) {
 		req.Host = "127.0.0.1:7777"
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("X-Midden-Request", "1")
+		req.Header.Set("Origin", "http://127.0.0.1:7777")
 		rec := httptest.NewRecorder()
 		server.handleRefineryAction(rec, req)
 		return rec
@@ -563,5 +564,14 @@ func TestCompletedRecipeReturnsToReviewWhenOutputReopens(t *testing.T) {
 	}
 	if got.Status != refinery.RecipeReview {
 		t.Fatalf("status=%q, want review", got.Status)
+	}
+}
+
+func TestMineAllWorkFailureIsNotSuccessful(t *testing.T) {
+	if err := mineAllWorkFailed(1, 0, 0, 1); err == nil || !strings.Contains(err.Error(), "all 1") {
+		t.Fatalf("mine failure error=%v", err)
+	}
+	if err := mineAllWorkFailed(1, 0, 1, 0); err != nil {
+		t.Fatalf("unchanged manifest should be a valid no-op: %v", err)
 	}
 }

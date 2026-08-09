@@ -263,6 +263,62 @@ func (d *DB) InterruptRecoveryRunsByJobID(ids []string, detail string) error {
 	return err
 }
 
+// ReconcileOrphanedJobsAndRuns closes every active durable row that has no
+// currently healthy owner lease. Job and recovery-run state change together,
+// so Activity can never report a failed job with a permanently running linked
+// recovery scope after a process has disappeared.
+func (d *DB) ReconcileOrphanedJobsAndRuns(ownedJobIDs []string, detail string) (int, error) {
+	if detail == "" {
+		detail = "Midden job owner stopped heartbeating"
+	}
+	now := time.Now().Unix()
+	tx, err := d.sql.Begin()
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback()
+
+	query := `
+		UPDATE background_jobs
+		SET status='failed', progress='interrupted', ended_at=?, updated_at=?, error=?
+		WHERE status IN ('queued','running')`
+	args := []any{now, now, detail}
+	if len(ownedJobIDs) > 0 {
+		placeholders := strings.TrimRight(strings.Repeat("?,", len(ownedJobIDs)), ",")
+		query += " AND id NOT IN (" + placeholders + ")"
+		for _, id := range ownedJobIDs {
+			args = append(args, id)
+		}
+	}
+	result, err := tx.Exec(query, args...)
+	if err != nil {
+		return 0, err
+	}
+	changed, err := result.RowsAffected()
+	if err != nil {
+		return 0, err
+	}
+
+	// This query runs after the job update within the same transaction. Thus it
+	// also catches a recovery row whose job row is absent or was just declared
+	// orphaned, rather than leaving a separate durable "running" record behind.
+	_, err = tx.Exec(`
+		UPDATE recovery_runs
+		SET status='failed', ended_at=?, updated_at=?, error=?
+		WHERE status IN ('queued','running') AND (
+			COALESCE(job_id,'') = '' OR job_id NOT IN (
+				SELECT id FROM background_jobs WHERE status IN ('queued','running')
+			)
+		)`, now, now, detail)
+	if err != nil {
+		return 0, err
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, err
+	}
+	return int(changed), nil
+}
+
 // RecoveryRun is one durable assay or evidence-extraction scope.
 type RecoveryRun struct {
 	UID      string          `json:"uid"`
@@ -322,32 +378,42 @@ func (d *DB) PutRecoveryRun(run *RecoveryRun) error {
 }
 
 func (d *DB) RecoveryRuns(limit int) ([]RecoveryRun, error) {
-	query := `
-		SELECT uid,COALESCE(job_id,''),op,scope_json,status,
-		       COALESCE(sessions,0),COALESCE(assayed,0),COALESCE(evidence,0),
-		       COALESCE(failed,0),COALESCE(bytes,0),COALESCE(backend,''),
-		       COALESCE(model,''),COALESCE(depth,''),COALESCE(error,''),
-		       started_at,updated_at,COALESCE(ended_at,0)
-		FROM recovery_runs ORDER BY started_at DESC`
-	if limit > 0 {
-		query += fmt.Sprintf(" LIMIT %d", limit)
+	runs, _, err := d.RecoveryRunsPage(limit, 0)
+	return runs, err
+}
+
+// RecoveryRunsPage returns a bounded recovery history page and its complete durable count.
+func (d *DB) RecoveryRunsPage(limit, offset int) ([]RecoveryRun, int, error) {
+	if limit <= 0 {
+		limit = 10
 	}
-	rows, err := d.sql.Query(query)
+	if limit > 50 {
+		limit = 50
+	}
+	if offset < 0 {
+		offset = 0
+	}
+	var total int
+	if err := d.sql.QueryRow(`SELECT COUNT(*) FROM recovery_runs`).Scan(&total); err != nil {
+		return nil, 0, err
+	}
+	rows, err := d.sql.Query(`SELECT uid,COALESCE(job_id,''),op,scope_json,status,
+	       COALESCE(sessions,0),COALESCE(assayed,0),COALESCE(evidence,0),
+	       COALESCE(failed,0),COALESCE(bytes,0),COALESCE(backend,''),
+	       COALESCE(model,''),COALESCE(depth,''),COALESCE(error,''),
+	       started_at,updated_at,COALESCE(ended_at,0)
+	FROM recovery_runs ORDER BY started_at DESC, rowid DESC LIMIT ? OFFSET ?`, limit, offset)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	defer rows.Close()
-
-	runs := make([]RecoveryRun, 0)
+	runs := make([]RecoveryRun, 0, limit)
 	for rows.Next() {
 		var run RecoveryRun
 		var scope string
 		var started, updated, ended int64
-		if err := rows.Scan(&run.UID, &run.JobID, &run.Op, &scope, &run.Status,
-			&run.Sessions, &run.Assayed, &run.Evidence, &run.Failed,
-			&run.Bytes, &run.Backend, &run.Model, &run.Depth, &run.Error,
-			&started, &updated, &ended); err != nil {
-			return nil, err
+		if err := rows.Scan(&run.UID, &run.JobID, &run.Op, &scope, &run.Status, &run.Sessions, &run.Assayed, &run.Evidence, &run.Failed, &run.Bytes, &run.Backend, &run.Model, &run.Depth, &run.Error, &started, &updated, &ended); err != nil {
+			return nil, 0, err
 		}
 		run.Scope = rawJSON(scope)
 		run.Started = time.Unix(started, 0)
@@ -357,7 +423,7 @@ func (d *DB) RecoveryRuns(limit int) ([]RecoveryRun, error) {
 		}
 		runs = append(runs, run)
 	}
-	return runs, rows.Err()
+	return runs, total, rows.Err()
 }
 
 // WorkThread binds one refinery recipe to one resumable AI CLI session and a

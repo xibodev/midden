@@ -277,30 +277,41 @@ type Operation struct {
 
 // Operations returns the audit log, newest first.
 func (d *DB) Operations(limit int) ([]Operation, error) {
-	q := `SELECT uid,op,COALESCE(tool,''),COALESCE(session_id,''),
-	      COALESCE(before,0),COALESCE(after,0),COALESCE(detail,''),COALESCE(ok,0),created_at
-	      FROM operations ORDER BY created_at DESC`
-	if limit > 0 {
-		q += fmt.Sprintf(" LIMIT %d", limit)
+	ops, _, err := d.OperationsPage(limit, 0)
+	return ops, err
+}
+
+// OperationsPage returns a bounded audit page and exact durable total.
+func (d *DB) OperationsPage(limit, offset int) ([]Operation, int, error) {
+	if limit <= 0 {
+		limit = 10
 	}
-	rows, err := d.sql.Query(q)
+	if limit > 50 {
+		limit = 50
+	}
+	if offset < 0 {
+		offset = 0
+	}
+	var total int
+	if err := d.sql.QueryRow(`SELECT COUNT(*) FROM operations`).Scan(&total); err != nil {
+		return nil, 0, err
+	}
+	rows, err := d.sql.Query(`SELECT uid,op,COALESCE(tool,''),COALESCE(session_id,''), COALESCE(before,0),COALESCE(after,0),COALESCE(detail,''),COALESCE(ok,0),created_at FROM operations ORDER BY created_at DESC, rowid DESC LIMIT ? OFFSET ?`, limit, offset)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	defer rows.Close()
-
-	out := make([]Operation, 0)
+	out := make([]Operation, 0, limit)
 	for rows.Next() {
 		var o Operation
 		var ok int
 		var created int64
-		if err := rows.Scan(&o.UID, &o.Op, &o.Tool, &o.SessionID, &o.Before,
-			&o.After, &o.Detail, &ok, &created); err != nil {
-			return nil, err
+		if err := rows.Scan(&o.UID, &o.Op, &o.Tool, &o.SessionID, &o.Before, &o.After, &o.Detail, &ok, &created); err != nil {
+			return nil, 0, err
 		}
 		o.OK = ok == 1
 		o.CreatedAt = time.Unix(created, 0)
 		out = append(out, o)
 	}
-	return out, rows.Err()
+	return out, total, rows.Err()
 }

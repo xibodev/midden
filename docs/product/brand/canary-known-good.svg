@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="240" viewBox="0 0 1280 240" role="img" aria-labelledby="title desc">
+  <title id="title">midden known-good brand canary</title>
+  <desc id="desc">Dark technical desktop-workbench canary with a legible lowercase midden wordmark and recovery signal.</desc>
+  <rect width="1280" height="240" fill="#10161c"/>
+  <rect x="24" y="24" width="1232" height="192" rx="12" fill="#17222b" stroke="#355161" stroke-width="2"/>
+  <path d="M82 158V82h15l19 28 19-28h15v76h-17v-45l-17 25-17-25v45z" fill="#8ee6cf"/>
+  <path d="M174 158V82h16v76zm28 0V82h18l22 37V82h17v76h-17l-23-38v38z" fill="#8ee6cf"/>
+  <text x="300" y="136" fill="#e6f0f4" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="70" font-weight="700" letter-spacing="-4">midden</text>
+  <text x="304" y="174" fill="#9eb2bd" font-family="ui-monospace, SFMono-Regular, Consolas, monospace" font-size="22" letter-spacing="1">LOCAL RECOVERY WORKBENCH · KNOWN-GOOD CANARY</text>
+  <circle cx="1186" cy="101" r="12" fill="#8ee6cf"/><path d="M1163 148h46" stroke="#5c7988" stroke-width="3"/>
+</svg>

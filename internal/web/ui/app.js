@@ -7,6 +7,9 @@ const state = {
   sessions: [],
   sessionStats: null,
   recoveryRuns: [],
+  recoveryRunsTotal: 0,
+  activityOperations: [],
+  activityOperationsTotal: 0,
   jobs: [],
   jobsTotal: 0,
   activityJobs: [],
@@ -585,7 +588,11 @@ function workspaceOptions(includeAll = true) {
 
 async function loadRecoveryData(force = false) {
   await loadOverview(force);
-  if (force || !state.recoveryRuns.length) state.recoveryRuns = await get('/api/recovery-runs');
+  if (force || !state.recoveryRuns.length) {
+    const response = await get('/api/recovery-runs?limit=10&offset=0');
+    state.recoveryRuns = Array.isArray(response) ? response : (response.items || []);
+    state.recoveryRunsTotal = Number(Array.isArray(response) ? state.recoveryRuns.length : (response.total ?? state.recoveryRuns.length));
+  }
   const filters = state.recoverFilters;
   const params = new URLSearchParams({
     limit: String(state.recoverPageSize),
@@ -2016,22 +2023,30 @@ function openCleanupCandidate(candidate) {
 
 async function renderActivity() {
   const jobOffset = state.activityJobPage * state.activityJobPageSize;
-  const [jobResponse, runs, costData, operations] = await Promise.all([
+  const recoveryOffset = state.activityRecoveryPage * state.activityRecoveryPageSize;
+  const auditOffset = state.activityAuditPage * state.activityAuditPageSize;
+  const [jobResponse, recoveryResponse, costData, auditResponse] = await Promise.all([
     get(`/api/jobs?limit=${state.activityJobPageSize}&offset=${jobOffset}`),
-    get('/api/recovery-runs'), get('/api/cost'), get('/api/ops'),
+    get(`/api/recovery-runs?limit=${state.activityRecoveryPageSize}&offset=${recoveryOffset}`),
+    get('/api/cost'),
+    get(`/api/ops?limit=${state.activityAuditPageSize}&offset=${auditOffset}`),
   ]);
   state.activityJobs = Array.isArray(jobResponse) ? jobResponse : (jobResponse.items || []);
   state.jobsTotal = Number(Array.isArray(jobResponse) ? state.activityJobs.length : (jobResponse.total ?? state.activityJobs.length));
-  state.recoveryRuns = runs || [];
+  state.recoveryRuns = Array.isArray(recoveryResponse) ? recoveryResponse : (recoveryResponse.items || []);
+  state.recoveryRunsTotal = Number(Array.isArray(recoveryResponse) ? state.recoveryRuns.length : (recoveryResponse.total ?? state.recoveryRuns.length));
+  state.activityOperations = Array.isArray(auditResponse) ? auditResponse : (auditResponse.items || []);
+  state.activityOperationsTotal = Number(Array.isArray(auditResponse) ? state.activityOperations.length : (auditResponse.total ?? state.activityOperations.length));
+  const operations = state.activityOperations;
   const root = clear($('#activity-content'));
   append(root, pageHead('Activity', 'Long work continues without owning the screen.',
     'Jobs are durable, navigable, and independent from the page that started them.',
     [button('Open job dock', 'button', () => $('#task-dock').classList.add('open'))]));
   append(root, metricGrid([
     {label: 'Active jobs', value: state.jobs.filter((job) => ['queued','running'].includes(job.status)).length, copy: 'currently executing'},
-    {label: 'Recovery runs', value: state.recoveryRuns.length, copy: 'durable scopes'},
+    {label: 'Recovery runs', value: state.recoveryRunsTotal, copy: 'durable scopes'},
     {label: 'Model runs', value: costData.totals?.runs || 0, copy: 'cost ledger'},
-    {label: 'Audit events', value: operations.length, copy: 'append-only records'},
+    {label: 'Audit events', value: state.activityOperationsTotal, copy: 'append-only records'},
     {label: 'Outputs', value: state.overview?.stats?.outputs || 0, copy: 'owned local files'},
   ]));
   const layout = el('div', 'content-grid');
@@ -2080,10 +2095,7 @@ async function renderActivity() {
     recoveryInner.append(panelHead('Recovery history', 'Durable mine and extraction runs',
       'Every scope remains inspectable after the job completes.'));
     const recoveryList = el('div', 'run-list');
-    const recoveryPage = pageSlice(state.recoveryRuns, state.activityRecoveryPage,
-      state.activityRecoveryPageSize);
-    state.activityRecoveryPage = recoveryPage.page;
-    recoveryPage.items.forEach((run) => {
+    state.recoveryRuns.forEach((run) => {
       const row = el('article', 'run-row');
       append(row, append(el('div'), el('h3', null, `${humanStatus(run.op)} · ${run.sessions || 0} session(s)`),
         el('p', null, `${run.depth || 'assay'} · ${run.evidence || run.assayed || 0} item(s) · ${formatDate(run.started)}`)),
@@ -2093,7 +2105,7 @@ async function renderActivity() {
     if (!recoveryList.children.length) {
       recoveryList.append(emptyState('No recovery runs', 'Start a mine from Recover.'));
     }
-    append(recoveryInner, recoveryList, pager(state.recoveryRuns.length,
+    append(recoveryInner, recoveryList, pager(state.recoveryRunsTotal,
       state.activityRecoveryPage, state.activityRecoveryPageSize, (nextPage) => {
         state.activityRecoveryPage = nextPage;
         renderActivity().catch(showError);
@@ -2104,16 +2116,14 @@ async function renderActivity() {
   auditInner.append(panelHead('Audit', 'Recent owner-visible mutations',
     'Reviews, exports, production, and cleanup actions remain traceable.'));
   const auditList = el('div', 'run-list');
-  const auditPage = pageSlice(operations, state.activityAuditPage, state.activityAuditPageSize);
-  state.activityAuditPage = auditPage.page;
-  auditPage.items.forEach((operation) => {
+  operations.forEach((operation) => {
     const row = el('article', 'run-row');
     append(row, append(el('div'), el('h3', null, humanStatus(operation.op)),
       el('p', null, operation.detail || operation.session_id || 'recorded')),
       badge(operation.ok ? 'complete' : 'failed', operation.ok ? 'free' : 'danger'));
     auditList.append(row);
   });
-  append(auditInner, auditList, pager(operations.length, state.activityAuditPage,
+  append(auditInner, auditList, pager(state.activityOperationsTotal, state.activityAuditPage,
     state.activityAuditPageSize, (nextPage) => {
       state.activityAuditPage = nextPage;
       renderActivity().catch(showError);

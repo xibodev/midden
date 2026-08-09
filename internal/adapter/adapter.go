@@ -70,36 +70,56 @@ func collectExactFrom(keys []string, adapters []core.Adapter) ([]core.Session, [
 		wanted[tool][parts[1]] = true
 	}
 
+	// Index adapters by tool before reading any source. Exact composite keys
+	// must never cause a best-effort all-adapter scan: an unrelated store may
+	// be unavailable without making the selected source untrustworthy.
+	byTool := make(map[core.Tool]core.Adapter, len(adapters))
+	for _, candidate := range adapters {
+		if _, selected := wanted[candidate.Tool()]; selected {
+			byTool[candidate.Tool()] = candidate
+		}
+	}
+	tools := make([]string, 0, len(wanted))
+	for tool := range wanted {
+		tools = append(tools, string(tool))
+	}
+	sort.Strings(tools)
+
 	found := map[string]bool{}
 	var out []core.Session
 	var errs []error
-	for _, adapter := range adapters {
-		ids := wanted[adapter.Tool()]
-		if len(ids) == 0 {
+	for _, rawTool := range tools {
+		tool := core.Tool(rawTool)
+		ids := wanted[tool]
+		selected := byTool[tool]
+		if selected == nil {
+			errs = append(errs, fmt.Errorf("exact session source is unavailable: %s", tool))
 			continue
 		}
 		requested := make([]string, 0, len(ids))
 		for id := range ids {
 			requested = append(requested, id)
 		}
-		sessions, err := adapter.Sessions(core.Scope{Tools: []core.Tool{adapter.Tool()}, IDs: requested, IncludeNoise: true})
+		sort.Strings(requested)
+		sessions, err := selected.Sessions(core.Scope{Tools: []core.Tool{tool}, IDs: requested, IncludeNoise: true})
 		if err != nil {
-			errs = append(errs, err)
+			errs = append(errs, fmt.Errorf("read exact %s session(s): %w", tool, err))
+			continue
 		}
 		for _, session := range sessions {
-			if ids[session.ID] {
-				out = append(out, session)
-				found[string(adapter.Tool())+":"+session.ID] = true
+			if session.Tool != tool || !ids[session.ID] {
+				continue
 			}
+			out = append(out, session)
+			found[string(tool)+":"+session.ID] = true
 		}
-	}
-	for tool, ids := range wanted {
-		for id := range ids {
+		for _, id := range requested {
 			if !found[string(tool)+":"+id] {
 				errs = append(errs, fmt.Errorf("exact session not found: %s:%s", tool, id))
 			}
 		}
 	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Updated.After(out[j].Updated) })
 	return out, errs
 }
 

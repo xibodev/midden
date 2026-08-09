@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -81,6 +82,39 @@ func (m *jobLeaseManager) startHeartbeat() {
 	})
 }
 
+// Owns proves this process still owns a claimed job immediately before work
+// begins. Reading the durable lease avoids an in-memory-only bypass.
+func (m *jobLeaseManager) Owns(jobID string) error {
+	if m == nil {
+		return fmt.Errorf("job ownership is unavailable")
+	}
+	if jobID == "" {
+		return fmt.Errorf("job lease requires a job id")
+	}
+	if err := m.touch(); err != nil {
+		return fmt.Errorf("heartbeat job owner: %w", err)
+	}
+	body, err := os.ReadFile(m.jobPath(jobID))
+	if err != nil {
+		return fmt.Errorf("read job owner: %w", err)
+	}
+	var record jobLeaseRecord
+	if err := json.Unmarshal(body, &record); err != nil {
+		return fmt.Errorf("decode job owner: %w", err)
+	}
+	if record.JobID != jobID || record.OwnerID != m.ownerID {
+		return fmt.Errorf("job %s is not owned by this instance", jobID)
+	}
+	owner, err := os.Stat(m.instancePath())
+	if err != nil {
+		return fmt.Errorf("read job owner heartbeat: %w", err)
+	}
+	if time.Since(owner.ModTime()) > jobLeaseStaleAfter {
+		return fmt.Errorf("job owner heartbeat is stale")
+	}
+	return nil
+}
+
 func (m *jobLeaseManager) Claim(jobID string) error {
 	if jobID == "" {
 		return fmt.Errorf("job lease requires a job id")
@@ -123,38 +157,38 @@ func (m *jobLeaseManager) recoverStaleJobs() error {
 	if err != nil {
 		return fmt.Errorf("read job leases: %w", err)
 	}
-	stale := make([]string, 0)
+	healthy := make([]string, 0, len(entries))
+	staleLeaseIDs := make([]string, 0)
 	for _, entry := range entries {
 		if entry.IsDir() || filepath.Ext(entry.Name()) != ".json" {
 			continue
 		}
-		body, err := os.ReadFile(filepath.Join(m.jobsDir(), entry.Name()))
-		if err != nil {
-			return fmt.Errorf("read job lease %s: %w", entry.Name(), err)
-		}
+		path := filepath.Join(m.jobsDir(), entry.Name())
+		body, readErr := os.ReadFile(path)
 		var record jobLeaseRecord
-		if err := json.Unmarshal(body, &record); err != nil || record.JobID == "" || record.OwnerID == "" {
-			return fmt.Errorf("invalid job lease %s", entry.Name())
+		if readErr == nil {
+			readErr = json.Unmarshal(body, &record)
 		}
-		owner, err := os.Stat(filepath.Join(m.instancesDir(), record.OwnerID+".lease"))
-		if err != nil && !os.IsNotExist(err) {
-			return fmt.Errorf("read job owner %s: %w", record.OwnerID, err)
+		if readErr != nil || record.JobID == "" || record.OwnerID == "" {
+			// A malformed lease proves neither current ownership nor a usable
+			// recovery path. Treat it as absent rather than refusing startup and
+			// stranding every durable row indefinitely.
+			staleLeaseIDs = append(staleLeaseIDs, strings.TrimSuffix(entry.Name(), ".json"))
+			continue
 		}
-		if os.IsNotExist(err) || time.Since(owner.ModTime()) > jobLeaseStaleAfter {
-			stale = append(stale, record.JobID)
+		owner, statErr := os.Stat(filepath.Join(m.instancesDir(), record.OwnerID+".lease"))
+		if statErr == nil && time.Since(owner.ModTime()) <= jobLeaseStaleAfter {
+			healthy = append(healthy, record.JobID)
+			continue
 		}
+		staleLeaseIDs = append(staleLeaseIDs, record.JobID)
 	}
-	if len(stale) == 0 {
-		return nil
-	}
+
 	const detail = "Midden job owner stopped heartbeating"
-	if err := m.db.InterruptBackgroundJobsByID(stale, detail); err != nil {
-		return fmt.Errorf("interrupt stale background jobs: %w", err)
+	if _, err := m.db.ReconcileOrphanedJobsAndRuns(healthy, detail); err != nil {
+		return fmt.Errorf("reconcile orphaned durable work: %w", err)
 	}
-	if err := m.db.InterruptRecoveryRunsByJobID(stale, detail); err != nil {
-		return fmt.Errorf("interrupt stale recovery runs: %w", err)
-	}
-	for _, id := range stale {
+	for _, id := range staleLeaseIDs {
 		m.Release(id)
 	}
 	return nil

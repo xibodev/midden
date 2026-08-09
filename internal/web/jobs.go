@@ -75,19 +75,19 @@ type Jobs struct {
 
 func NewJobs(dbs ...*index.DB) *Jobs {
 	jobs := &Jobs{jobs: map[string]*Job{}}
-	if len(dbs) > 0 {
-		jobs.db = dbs[0]
-		if jobs.db != nil {
-			lease, err := newJobLeaseManager(jobs.db)
-			if err != nil {
-				jobs.startupError = err
-			} else {
-				jobs.lease = lease
-				if err := lease.recoverStaleJobs(); err != nil {
-					jobs.startupError = err
-				}
-			}
-		}
+	if len(dbs) == 0 || dbs[0] == nil {
+		jobs.startupError = fmt.Errorf("durable job ownership requires an index database")
+		return jobs
+	}
+	jobs.db = dbs[0]
+	lease, err := newJobLeaseManager(jobs.db)
+	if err != nil {
+		jobs.startupError = err
+		return jobs
+	}
+	jobs.lease = lease
+	if err := lease.recoverStaleJobs(); err != nil {
+		jobs.startupError = err
 	}
 	return jobs
 }
@@ -113,12 +113,70 @@ func (j *Jobs) create(op, scope string) *Job {
 	j.mu.Unlock()
 	if err := j.persist(copy); err != nil {
 		j.markPersistenceFailure(job.ID, err)
-	} else if j.lease != nil {
-		if err := j.lease.Claim(job.ID); err != nil {
-			j.markOwnershipFailure(job.ID, err)
-		}
+		return job
+	}
+	if err := j.claimOwnership(job.ID); err != nil {
+		j.markOwnershipFailure(job.ID, err)
 	}
 	return job
+}
+
+// claimOwnership makes durable state and an active owner lease prerequisites
+// for execution. A visible failed job is safer than work that no process can
+// later account for or recover.
+func (j *Jobs) claimOwnership(id string) error {
+	if j.db == nil {
+		return fmt.Errorf("durable job ownership requires an index database")
+	}
+	if j.lease == nil {
+		j.mu.RLock()
+		err := j.startupError
+		j.mu.RUnlock()
+		if err != nil {
+			return fmt.Errorf("initialize job ownership: %w", err)
+		}
+		return fmt.Errorf("initialize job ownership")
+	}
+	if err := j.lease.Claim(id); err != nil {
+		return err
+	}
+	if err := j.lease.Owns(id); err != nil {
+		j.lease.Release(id)
+		return err
+	}
+	return nil
+}
+
+// canRun is the final dispatch guard. It deliberately rechecks the lease at
+// the execution boundary so a call path cannot bypass create's ownership
+// claim and start unowned work.
+func (j *Jobs) canRun(id string) error {
+	j.mu.RLock()
+	job, ok := j.jobs[id]
+	status := Queued
+	if ok {
+		status = job.Status
+	}
+	startupErr := j.startupError
+	lease := j.lease
+	db := j.db
+	j.mu.RUnlock()
+	if !ok {
+		return fmt.Errorf("job %s is not registered", id)
+	}
+	if status != Queued {
+		return fmt.Errorf("job %s is not dispatchable (status %s)", id, status)
+	}
+	if db == nil {
+		return fmt.Errorf("durable job ownership requires an index database")
+	}
+	if startupErr != nil {
+		return fmt.Errorf("initialize job ownership: %w", startupErr)
+	}
+	if lease == nil {
+		return fmt.Errorf("job ownership is unavailable")
+	}
+	return lease.Owns(id)
 }
 
 func (j *Jobs) update(id string, fn func(*Job)) {
@@ -173,6 +231,9 @@ func (j *Jobs) markOwnershipFailure(id string, err error) {
 	j.mu.Unlock()
 	if ok {
 		_ = j.persist(copy)
+	}
+	if j.lease != nil {
+		j.lease.Release(id)
 	}
 }
 
@@ -553,7 +614,9 @@ func (s *Server) handleAction(w http.ResponseWriter, r *http.Request) {
 	}
 
 	job := s.jobs.create(req.Op, req.label())
-	go s.runJob(job.ID, req)
+	if job.Status == Queued {
+		go s.runJob(job.ID, req)
+	}
 	writeJSON(w, job)
 }
 
@@ -581,6 +644,10 @@ func (s *Server) handleJobs(w http.ResponseWriter, r *http.Request) {
 
 // runJob dispatches to the operation implementations.
 func (s *Server) runJob(id string, req actionRequest) {
+	if err := s.jobs.canRun(id); err != nil {
+		s.jobs.markOwnershipFailure(id, err)
+		return
+	}
 	s.jobs.update(id, func(j *Job) {
 		j.Status = Running
 		j.Progress = "starting"
@@ -730,12 +797,13 @@ func (s *Server) handleRecoveryRuns(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "GET required", http.StatusMethodNotAllowed)
 		return
 	}
-	runs, err := s.db.RecoveryRuns(100)
+	limit, offset := historyPageParams(r)
+	runs, total, err := s.db.RecoveryRunsPage(limit, offset)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	writeJSON(w, runs)
+	writeJSON(w, map[string]any{"items": runs, "total": total, "limit": limit, "offset": offset})
 }
 
 // doRefresh is the UI's explicit answer to stale indexed data.
@@ -1200,13 +1268,16 @@ func (s *Server) doReclaim(id string, req actionRequest) (any, error) {
 	}
 	var jobs []job
 	var raw int
+	assayFailures := 0
 	for _, x := range sessions {
 		a, ok := adapter.Find(x.Tool).(adapter.Assayer)
 		if !ok {
+			assayFailures++
 			continue
 		}
 		m, err := a.Assay(x, records)
 		if err != nil {
+			assayFailures++
 			continue
 		}
 		sl := reclaim.BuildSlice(x, m, records)
@@ -1217,6 +1288,9 @@ func (s *Server) doReclaim(id string, req actionRequest) (any, error) {
 		raw += sl.EstTokens()
 	}
 	if len(jobs) == 0 {
+		if assayFailures > 0 {
+			return nil, fmt.Errorf("reclaim failed: all %d eligible session assays failed", assayFailures)
+		}
 		return nil, fmt.Errorf("no usable evidence in scope")
 	}
 
@@ -1253,6 +1327,7 @@ func (s *Server) doReclaim(id string, req actionRequest) (any, error) {
 		Backend: string(be), EstTokens: raw, StartedAt: time.Now()}
 
 	var stored []index.Nugget
+	modelFailures, parseFailures, writeFailures := 0, 0, 0
 	ctx := context.Background()
 	for i, jb := range jobs {
 		s.jobs.update(id, func(j *Job) {
@@ -1265,6 +1340,7 @@ func (s *Server) doReclaim(id string, req actionRequest) (any, error) {
 
 		res, err := conv.Prime(ctx, jb.slice.Prompt())
 		if err != nil {
+			modelFailures++
 			continue
 		}
 		model := req.Model
@@ -1273,17 +1349,25 @@ func (s *Server) doReclaim(id string, req actionRequest) (any, error) {
 		}
 		ns, err := reclaim.Parse(res.Output, jb.session, model)
 		if err != nil || len(ns) == 0 {
+			parseFailures++
 			continue
 		}
-		if s.db.PutNuggets(ns) == nil {
-			stored = append(stored, ns...)
+		if err := s.db.PutNuggets(ns); err != nil {
+			writeFailures++
+			continue
 		}
+		stored = append(stored, ns...)
 	}
 
 	run.Items = len(stored)
 	run.EndedAt = time.Now()
 	run.OK = len(stored) > 0
-	s.db.PutRun(run)
+	if err := s.db.PutRun(run); err != nil {
+		return nil, fmt.Errorf("record reclaim cost run: %w", err)
+	}
+	if err := reclaimAllWorkFailed(len(stored), len(jobs), modelFailures, parseFailures, writeFailures); err != nil {
+		return nil, err
+	}
 
 	s.jobs.update(id, func(j *Job) { j.Progress = "settling cost" })
 	time.Sleep(1500 * time.Millisecond)
@@ -1291,8 +1375,23 @@ func (s *Server) doReclaim(id string, req actionRequest) (any, error) {
 
 	return map[string]any{
 		"nuggets": stored, "count": len(stored), "sessions": len(jobs),
-		"depth": valueOr(req.Depth, "summary"),
+		"failed": modelFailures + parseFailures + writeFailures,
+		"depth":  valueOr(req.Depth, "summary"),
 	}, nil
+}
+
+// reclaimAllWorkFailed turns an otherwise invisible all-failure batch into a
+// failed durable job and audit record. A partial batch remains truthful: it
+// succeeds with its explicit failure count.
+func reclaimAllWorkFailed(stored, attempts, modelFailures, parseFailures, writeFailures int) error {
+	if stored > 0 {
+		return nil
+	}
+	failed := modelFailures + parseFailures + writeFailures
+	if attempts > 0 && failed > 0 {
+		return fmt.Errorf("reclaim failed: all %d evidence extraction attempts failed (model=%d, parse=%d, write=%d)", attempts, modelFailures, parseFailures, writeFailures)
+	}
+	return fmt.Errorf("reclaim produced no evidence")
 }
 
 // doRefine generates artifacts from nuggets, batched in one warm context.

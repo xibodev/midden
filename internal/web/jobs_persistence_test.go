@@ -77,10 +77,7 @@ func TestRecoveryRunsHandlerReturnsDurableHistory(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer db.Close()
-	run := index.RecoveryRun{
-		Op: "mine", Scope: json.RawMessage(`{"days":7}`),
-		Status: "done", Sessions: 4, Assayed: 3,
-	}
+	run := index.RecoveryRun{Op: "mine", Scope: json.RawMessage(`{"days":7}`), Status: "done", Sessions: 4, Assayed: 3}
 	if err := db.PutRecoveryRun(&run); err != nil {
 		t.Fatal(err)
 	}
@@ -91,12 +88,15 @@ func TestRecoveryRunsHandlerReturnsDurableHistory(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
 	}
-	var runs []index.RecoveryRun
-	if err := json.Unmarshal(rec.Body.Bytes(), &runs); err != nil {
+	var response struct {
+		Items []index.RecoveryRun `json:"items"`
+		Total int                 `json:"total"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
 		t.Fatal(err)
 	}
-	if len(runs) != 1 || runs[0].UID != run.UID || runs[0].Assayed != 3 {
-		t.Fatalf("runs=%#v", runs)
+	if response.Total != 1 || len(response.Items) != 1 || response.Items[0].UID != run.UID || response.Items[0].Assayed != 3 {
+		t.Fatalf("response=%#v", response)
 	}
 }
 
@@ -301,5 +301,122 @@ func TestRecoveryAuditOmitsRequestBodies(t *testing.T) {
 	if len(ops) != 1 || ops[0].Op != "reclaim" || ops[0].OK ||
 		strings.Contains(ops[0].Detail, "private") || !strings.Contains(ops[0].Detail, "1 exact session") {
 		t.Fatalf("audit=%#v", ops)
+	}
+}
+
+func TestRunJobRefusesMissingOwnershipBeforeWorkStarts(t *testing.T) {
+	t.Setenv("MIDDEN_HOME", t.TempDir())
+	db, err := index.Open()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	jobs := NewJobs(db)
+	defer jobs.Close()
+	job := jobs.create("mine", "exact session")
+	jobs.lease.Release(job.ID)
+	server := &Server{db: db, jobs: jobs, cache: newSnapshotCache()}
+	server.runJob(job.ID, actionRequest{Op: "mine"})
+	got, ok := jobs.get(job.ID)
+	if !ok || got.Status != Failed || !strings.Contains(got.Error, "could not establish job ownership") {
+		t.Fatalf("job=%#v found=%v", got, ok)
+	}
+	stored, err := db.BackgroundJob(job.ID)
+	if err != nil || stored.Status != string(Failed) {
+		t.Fatalf("durable job=%#v err=%v", stored, err)
+	}
+}
+
+func TestJobCreationWithoutDurableOwnershipIsVisibleFailure(t *testing.T) {
+	jobs := NewJobs()
+	job := jobs.create("mine", "exact session")
+	if job.Status != Failed || !strings.Contains(job.Error, "ownership") {
+		t.Fatalf("job=%#v", job)
+	}
+}
+
+func TestStartupReconcilesOrphanDurableRowsWithoutLeaseFile(t *testing.T) {
+	t.Setenv("MIDDEN_HOME", t.TempDir())
+	db, err := index.Open()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if err := db.PutBackgroundJob(index.StoredJob{ID: "orphan-no-lease", Op: "mine", Status: "queued"}); err != nil {
+		t.Fatal(err)
+	}
+	run := &index.RecoveryRun{JobID: "orphan-no-lease", Op: "mine", Scope: json.RawMessage(`{}`), Status: "running"}
+	if err := db.PutRecoveryRun(run); err != nil {
+		t.Fatal(err)
+	}
+	jobs := NewJobs(db)
+	defer jobs.Close()
+	job, err := db.BackgroundJob("orphan-no-lease")
+	if err != nil || job.Status != string(Failed) || !strings.Contains(job.Error, "owner stopped heartbeating") {
+		t.Fatalf("job=%#v err=%v", job, err)
+	}
+	runs, err := db.RecoveryRuns(10)
+	if err != nil || len(runs) != 1 || runs[0].Status != "failed" {
+		t.Fatalf("runs=%#v err=%v", runs, err)
+	}
+}
+
+func TestReclaimAllWorkFailureAndAuditAreHonest(t *testing.T) {
+	err := reclaimAllWorkFailed(0, 2, 1, 1, 0)
+	if err == nil || !strings.Contains(err.Error(), "all 2") {
+		t.Fatalf("reclaim failure error=%v", err)
+	}
+	if err := reclaimAllWorkFailed(1, 2, 1, 0, 0); err != nil {
+		t.Fatalf("partial reclaim should retain its success: %v", err)
+	}
+	t.Setenv("MIDDEN_HOME", t.TempDir())
+	db, openErr := index.Open()
+	if openErr != nil {
+		t.Fatal(openErr)
+	}
+	defer db.Close()
+	server := &Server{db: db}
+	server.auditRecoveryOperation(actionRequest{Op: "mine", SessionKeys: []string{"claude:selected"}}, err)
+	ops, openErr := db.Operations(1)
+	if openErr != nil || len(ops) != 1 || ops[0].OK || !strings.Contains(ops[0].Detail, "status=failed") {
+		t.Fatalf("ops=%#v err=%v", ops, openErr)
+	}
+}
+
+func TestActivityHistoryEndpointsPageBeyondOneHundredRows(t *testing.T) {
+	t.Setenv("MIDDEN_HOME", t.TempDir())
+	db, err := index.Open()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	for i := 0; i < 101; i++ {
+		run := &index.RecoveryRun{UID: fmt.Sprintf("run-%03d", i), Op: "mine", Scope: json.RawMessage(`{}`), Status: "done"}
+		if err := db.PutRecoveryRun(run); err != nil {
+			t.Fatal(err)
+		}
+		if err := db.RecordOp("mine", "", "", 0, 0, fmt.Sprintf("row %d", i), true); err != nil {
+			t.Fatal(err)
+		}
+	}
+	server := &Server{db: db, jobs: NewJobs(db), cache: newSnapshotCache()}
+	defer server.Close()
+	for _, endpoint := range []string{"/api/recovery-runs?limit=10&offset=100", "/api/ops?limit=10&offset=100"} {
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, endpoint, nil)
+		if strings.HasPrefix(endpoint, "/api/recovery-runs") {
+			server.handleRecoveryRuns(rec, req)
+		} else {
+			server.handleOps(rec, req)
+		}
+		var page struct {
+			Items  []json.RawMessage `json:"items"`
+			Total  int               `json:"total"`
+			Limit  int               `json:"limit"`
+			Offset int               `json:"offset"`
+		}
+		if rec.Code != http.StatusOK || json.Unmarshal(rec.Body.Bytes(), &page) != nil || page.Total != 101 || len(page.Items) != 1 || page.Limit != 10 || page.Offset != 100 {
+			t.Fatalf("endpoint=%s status=%d body=%s page=%#v", endpoint, rec.Code, rec.Body.String(), page)
+		}
 	}
 }
