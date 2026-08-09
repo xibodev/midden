@@ -132,6 +132,39 @@ func TestEmbeddedHTMLReferencesItsAssets(t *testing.T) {
 	}
 }
 
+func TestNuggetsHandlerCapsClientLimit(t *testing.T) {
+	t.Setenv("MIDDEN_HOME", t.TempDir())
+	db, err := index.Open()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	nuggets := make([]index.Nugget, 0, 250)
+	for i := 0; i < 250; i++ {
+		nuggets = append(nuggets, index.Nugget{
+			UID: fmt.Sprintf("nugget-%03d", i), Tool: "claude",
+			SessionID: "session", Kind: "decision", Body: "bounded",
+		})
+	}
+	if err := db.PutNuggets(nuggets); err != nil {
+		t.Fatal(err)
+	}
+	server := &Server{db: db}
+	req := httptest.NewRequest(http.MethodGet, "/api/nuggets?limit=10000", nil)
+	rec := httptest.NewRecorder()
+	server.handleNuggets(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	var got []index.Nugget
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 200 {
+		t.Fatalf("nuggets=%d, want capped 200", len(got))
+	}
+}
+
 func TestHumanAge(t *testing.T) {
 	cases := map[string]string{}
 	_ = cases

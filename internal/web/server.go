@@ -468,6 +468,9 @@ func (s *Server) handleNuggets(w http.ResponseWriter, r *http.Request) {
 	limit := 100
 	if l, err := strconv.Atoi(q.Get("limit")); err == nil && l > 0 {
 		limit = l
+		if limit > 200 {
+			limit = 200
+		}
 	}
 	ns, err := s.db.Nuggets(index.NuggetQuery{
 		Kind: q.Get("kind"), Workspace: q.Get("workspace"),
