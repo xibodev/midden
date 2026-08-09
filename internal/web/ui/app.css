@@ -286,12 +286,15 @@ tbody tr:last-child td { border-bottom: 0; }
 .filter-row > input { flex: 1 1 260px; }
 
 .studio-shell {
-  min-height: calc(100vh - 150px); display: grid;
+  height: calc(100vh - 235px); min-height: 500px; display: grid;
   grid-template-columns: 248px minmax(360px,.92fr) minmax(420px,1.18fr);
+  grid-template-rows: minmax(0,1fr);
   overflow: hidden; border: 1px solid var(--line); border-radius: 14px;
   background: #0b1928; box-shadow: var(--shadow);
 }
-.work-rail, .conversation-pane, .preview-pane { min-width: 0; }
+.work-rail, .conversation-pane, .preview-pane {
+  min-width: 0; min-height: 0; overflow: hidden;
+}
 .work-rail { display: flex; flex-direction: column; border-right: 1px solid var(--line); background: #0b1827; }
 .rail-head, .conversation-head, .preview-head { min-height: 58px; padding: 11px 12px; border-bottom: 1px solid var(--line); }
 .rail-head { display: grid; gap: 8px; }
@@ -544,7 +547,6 @@ progress::-moz-progress-bar { background: var(--blue); border-radius: 999px; }
    Studio. General data panels stack so tables retain a usable desktop width. */
 @media (min-width: 980px) and (max-width: 1180px) {
   .studio-shell {
-    min-height: calc(100vh - 150px);
     grid-template-columns: 175px minmax(255px,.9fr) minmax(295px,1.1fr);
   }
   .work-item { padding-inline: 8px; }
@@ -552,6 +554,8 @@ progress::-moz-progress-bar { background: var(--blue); border-radius: 999px; }
   .messages { padding: 10px; }
   .message { max-width: 94%; }
   .preview-toolbar { padding-inline: 7px; }
+  .preview-toolbar { align-items: flex-start; flex-direction: column; }
+  .preview-toolbar .actions { width: 100%; flex-wrap: wrap; }
   .preview-toolbar .button.compact { padding-inline: 7px; }
   .content-grid, .split-grid { grid-template-columns: 1fr; }
   .table-wrap table { min-width: 700px; }
