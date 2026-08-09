@@ -1248,7 +1248,7 @@ func (s *Server) handleRefineryConnections(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	connections := []refineryConnectionView{
-		{ID: "local-vault", Category: "Knowledge and destinations", Name: "Local vault / Obsidian", Description: "Export reviewed Markdown, source assets, and provenance to an owner-controlled folder.", Outcome: "Durable local knowledge", Status: "ready", Detail: "Built into Midden", Cost: "free", Action: "Export after review"},
+		{ID: "local-vault", Category: "Knowledge and destinations", Name: "Local vault / Obsidian", Description: "Export reviewed Markdown, source assets, and provenance to an owner-controlled folder.", Outcome: "Durable local knowledge", Status: "ready", Detail: "Built in", Cost: "free", Action: "Export after review"},
 		toolConnection("pandoc", "Books and documents", "Pandoc", "Render reviewed Markdown to HTML, PDF, EPUB, or DOCX.", "Multi-format documents", "free", "pandoc"),
 		toolConnection("quarto", "Books and documents", "Quarto", "Build book sites, reports, and previewable project documentation.", "Books and reports", "free", "quarto"),
 		toolConnection("marp", "Slides and visuals", "Marp", "Render reviewed slide Markdown to HTML or PDF.", "Presentation decks", "free", "marp"),
@@ -1257,7 +1257,7 @@ func (s *Server) handleRefineryConnections(w http.ResponseWriter, r *http.Reques
 		toolConnection("promptfoo", "Agent improvement", "Promptfoo", "Compare current and proposed agent behavior against evidence-derived cases.", "Evaluation reports", "spends", "promptfoo"),
 		{ID: "anki", Category: "Knowledge and destinations", Name: "Anki", Description: "Export reviewed tab-separated flashcards; Anki-Connect remains an optional local connection.", Outcome: "Spaced repetition", Status: "ready", Detail: "File export is built in", Cost: "free", Action: "Create a learning recipe"},
 		{ID: "github", Category: "Publishing destinations", Name: "GitHub", Description: "Reviewed local drafts can later become branches, issues, or release drafts.", Outcome: "Repository publishing", Status: pathStatus("gh"), Detail: pathDetail("gh"), Cost: "free", Action: "Local draft first"},
-		{ID: "training", Category: "Personal model lab", Name: "Unsloth / LLaMA Factory / Axolotl", Description: "Receive privacy-reviewed JSONL and manifests only after readiness gates pass.", Outcome: "Optional training handoff", Status: "guided", Detail: "Midden exports data and configuration; it never starts training automatically.", Cost: "lab", Action: "View readiness"},
+		{ID: "training", Category: "Personal model lab", Name: "Unsloth / LLaMA Factory / Axolotl", Description: "Receive privacy-reviewed JSONL and manifests only after readiness gates pass.", Outcome: "Optional training handoff", Status: "guided", Detail: "Exports data and configuration; training never starts automatically.", Cost: "lab", Action: "View readiness"},
 	}
 	managed, err := s.integrationViews()
 	if err == nil {

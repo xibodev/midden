@@ -44,15 +44,12 @@ Open **Recover**.
 The session inventory is consequence-sorted and can be filtered by title,
 workspace, source, and age. Select one exact closed session for the first run.
 
-Select **Mine selected**, then choose:
-
-- **Assay only · free**
-- the exact selected session;
-- a suitable time range;
-- **Summary · low cost**.
-
-Start the mine. The job moves to the background dock and Activity; you can
+Select **Mine 1 selected**. This immediately starts the free exact-session
+assay, confirms that it is running, and records the result in Activity. You can
 navigate elsewhere while it runs.
+
+Use **New mine** instead when you need a configurable source, workspace, time
+range, depth, or evidence-extraction backend.
 
 Every mine records:
 

@@ -133,6 +133,9 @@ func TestEmbeddedHTMLReferencesItsAssets(t *testing.T) {
 	if strings.Contains(html, `id="recover-content" class="view-content loading-shell"`) {
 		t.Fatal("Recover root must not retain loading-shell after content renders")
 	}
+	if strings.Contains(html, `id="view-kicker"`) {
+		t.Fatal("top bar must not repeat a secondary title above every view name")
+	}
 }
 
 func TestNuggetsHandlerCapsClientLimit(t *testing.T) {

@@ -943,7 +943,7 @@ func (s *Server) doOpenNotebookPush(id string, req actionRequest) (any, error) {
 		return nil, fmt.Errorf("no nuggets match this scope")
 	}
 	body := redact.Text(notebookSourceBody(nuggets)).Text
-	title := "Midden reclaimed evidence"
+	title := "Reclaimed evidence"
 	if req.AllWorkspaces {
 		title += " · all workspaces"
 	} else {
@@ -969,13 +969,13 @@ func (s *Server) doOpenNotebookPush(id string, req actionRequest) (any, error) {
 		"source_id":     source.ID,
 		"source_status": source.Status,
 		"notebook_url":  link,
-		"note":          "Source submitted. Open Notebook continues processing in its own UI; Midden did not spend your CLI budget.",
+		"note":          "Source submitted. Open Notebook continues processing in its own UI; no Studio CLI budget was used.",
 	}, nil
 }
 
 func notebookSourceBody(nuggets []index.Nugget) string {
 	var b strings.Builder
-	b.WriteString("# Midden reclaimed evidence\n\n")
+	b.WriteString("# Reclaimed evidence\n\n")
 	b.WriteString("This source was prepared from stored nuggets, not raw AI CLI transcripts.\n\n")
 	for _, nugget := range nuggets {
 		fmt.Fprintf(&b, "## %s\n\n", nugget.Title)

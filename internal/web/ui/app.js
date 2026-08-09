@@ -67,12 +67,12 @@ const state = {
 };
 
 const viewMeta = {
-  recover: ['Recovery desk', 'Recover'],
-  studio: ['Persistent workbench', 'Studio'],
-  library: ['Owned outputs', 'Library'],
-  cleanup: ['Recovery-aware storage', 'Cleanup'],
-  activity: ['Background work', 'Activity'],
-  tools: ['Capabilities and settings', 'Tools'],
+  recover: 'Recover',
+  studio: 'Studio',
+  library: 'Library',
+  cleanup: 'Cleanup',
+  activity: 'Activity',
+  tools: 'Tools',
 };
 
 function el(tag, className, text) {
@@ -154,7 +154,7 @@ function selectInput(options, selected = '') {
 function pageHead(kicker, title, copy, actions = []) {
   const head = el('header', 'page-head');
   const pageCopy = el('div', 'page-copy');
-  append(pageCopy, el('div', 'eyebrow', kicker), el('h1', null, title), el('p', null, copy));
+  append(pageCopy, el('h1', null, title), el('p', null, copy));
   const actionWrap = el('div', 'actions');
   actions.forEach((action) => actionWrap.append(action));
   append(head, pageCopy, actionWrap.children.length ? actionWrap : null);
@@ -287,7 +287,7 @@ async function request(path, options = {}) {
       },
     });
   } catch (error) {
-    setServiceStatus(false, 'Local Midden service is unavailable');
+    setServiceStatus(false, 'Local service is unavailable');
     throw error;
   }
   setServiceStatus(true);
@@ -358,7 +358,7 @@ function setServiceStatus(available, message = '') {
     if (detail) {
       detail.textContent = available
         ? 'Source stores remain read-only. Jobs, chat, previews, and exports stay on this machine.'
-        : 'The browser cannot reach the loopback service. Restart Midden, then retry.';
+        : 'The browser cannot reach the loopback service. Restart the app, then retry.';
     }
   }
   if (!available) {
@@ -477,10 +477,7 @@ function configurePrimaryAction(view) {
   switch (view) {
   case 'recover':
     action.textContent = 'New mine';
-    action.onclick = () => {
-      state.mineBuilderOpen = true;
-      renderRecover().catch(showError);
-    };
+    action.onclick = () => openMineBuilder().catch(showError);
     break;
   case 'studio':
     action.textContent = 'New work item';
@@ -520,9 +517,7 @@ function activateView(view) {
   if (state.jobsInitialized) renderTaskDock();
   $$('.nav-item[data-view]').forEach((item) => item.classList.toggle('active', item.dataset.view === view));
   $$('.view').forEach((section) => section.classList.toggle('active', section.id === view));
-  const meta = viewMeta[view];
-  $('#view-kicker').textContent = meta[0];
-  $('#view-title').textContent = meta[1];
+  $('#view-title').textContent = viewMeta[view];
   configurePrimaryAction(view);
   closeNavigation();
   window.scrollTo({top: 0, behavior: 'instant'});
@@ -742,10 +737,6 @@ async function renderRecover() {
       button('Refresh sources', 'button ghost', () => startJob({op: 'refresh'}, {
         message: 'Source refresh started in the background.',
       }).catch(showError)),
-      button('New mine', 'button', () => {
-        state.mineBuilderOpen = true;
-        renderRecover().catch(showError);
-      }),
     ]));
 
   const sessions = state.sessions;
@@ -765,8 +756,18 @@ async function renderRecover() {
   root.append(layout);
 }
 
+async function openMineBuilder() {
+  state.mineBuilderOpen = true;
+  await renderRecover();
+  const builder = $('.mine-builder');
+  if (!builder) return;
+  builder.scrollIntoView({block: 'start', behavior: 'auto'});
+  builder.focus({preventScroll: true});
+}
+
 function renderMineBuilder() {
   const panel = el('section', 'panel mine-builder open');
+  panel.tabIndex = -1;
   const inner = el('div', 'panel-inner');
   inner.append(panelHead('New mine', 'Choose a precise recovery scope',
     'Assay is free. Evidence extraction previews its long-running cost before it starts.',
@@ -964,6 +965,7 @@ function renderSessionInventory() {
 
   const selected = el('div', 'selected-bar');
   selected.id = 'selected-session-summary';
+  selected.setAttribute('aria-live', 'polite');
   inner.append(selected);
   panel.append(inner);
   requestAnimationFrame(updateSelectedSummary);
@@ -977,12 +979,58 @@ function updateSelectedSummary() {
   const totalBytes = Array.from(state.selectedSessionMeta.values())
     .reduce((sum, session) => sum + Number(session.bytes || 0), 0);
   const copy = el('div');
-  append(copy, el('strong', null, `${state.selectedSessions.size} session(s) selected`),
+  const count = state.selectedSessions.size;
+  append(copy, el('strong', null, `${count} session(s) selected`),
     el('div', 'small-note', `${formatBytes(totalBytes)} source footprint`));
-  append(selected, copy, button('Mine selected', 'button compact', () => {
-    state.mineBuilderOpen = true;
-    renderRecover().catch(showError);
-  }));
+  const action = button(count ? `Mine ${count} selected` : 'Select sessions to mine', 'button compact', () => {
+    startSelectedMine().catch(showError);
+  });
+  action.disabled = count === 0;
+  append(selected, copy, action);
+}
+
+async function startSelectedMine() {
+  const action = $('#selected-session-summary .button');
+  const count = state.selectedSessions.size;
+  if (!count || !action) return;
+  action.disabled = true;
+  action.textContent = 'Starting…';
+  try {
+    await startJob({
+      op: 'mine',
+      session_keys: Array.from(state.selectedSessions),
+      days: 0,
+      depth: 'summary',
+      apply: true,
+    }, {
+      message: `Mining ${count} selected session${count === 1 ? '' : 's'} in the background.`,
+      onDone: async (job) => {
+        const result = job.result || {};
+        state.selectedSessions.clear();
+        state.selectedSessionMeta.clear();
+        state.overview = null;
+        state.recoveryRuns = [];
+        if (state.activeView === 'recover') await renderRecover();
+        const checked = Number(result.sessions || count);
+        const updated = Number(result.assayed || 0);
+        const current = Number(result.skipped_unchanged || 0);
+        toast(`Mine complete · ${checked} checked · ${updated} updated · ${current} already current`);
+      },
+      onFailed: (job) => {
+        const currentAction = $('#selected-session-summary .button');
+        if (currentAction) {
+          currentAction.disabled = false;
+          currentAction.textContent = `Mine ${count} selected`;
+        }
+        notice(job.error || 'Mine failed', 'bad');
+      },
+    });
+    action.textContent = 'Running in Activity';
+  } catch (error) {
+    action.disabled = false;
+    action.textContent = `Mine ${count} selected`;
+    throw error;
+  }
 }
 
 function renderRecoveryHistory() {
@@ -1098,7 +1146,7 @@ async function previewArchive(session) {
       const body = openModal('Archive preview', 'Archive is reversible and remains separate from permanent removal.');
       append(body, metricGrid([
         {label: 'Sessions', value: result.rows?.length || 0, copy: 'closed source transcripts'},
-        {label: 'Footprint', value: formatBytes((result.rows || []).reduce((sum, row) => sum + Number(row.bytes || 0), 0)), copy: 'moves into Midden archive'},
+        {label: 'Footprint', value: formatBytes((result.rows || []).reduce((sum, row) => sum + Number(row.bytes || 0), 0)), copy: 'moves into the local archive'},
       ]));
       const actions = el('div', 'modal-actions');
       append(actions, button('Cancel', 'button ghost', closeModal),
@@ -1463,7 +1511,7 @@ async function openVideoCreation(detail) {
       'The agent reads OpenMontage’s guide and the selected pipeline.',
       'Preflight and meaningful production decisions appear in this Studio chat.',
       'No unapproved paid provider call or destructive action is allowed.',
-      'The approved MP4/WebM is copied into Midden and becomes playable in the preview pane.',
+      'The approved MP4/WebM is copied into this work item and becomes playable in the preview pane.',
     ],
     montage.github_url));
   append(body, field('Video brief', topic), field('Pipeline', pipeline),
@@ -1490,7 +1538,7 @@ async function openVideoCreation(detail) {
         `Maximum provider spend: $${maximumSpend.toFixed(2)}`,
         'Follow OpenMontage AGENT_GUIDE.md and the selected pipeline. Run preflight first.',
         'Present required creative, composition-runtime, provider, and spend decisions in this chat before acting.',
-        'After the final render is approved, copy the MP4 or WebM and final report into the Midden deliverables directory from your workspace contract so they are imported and previewable.',
+        'After the final render is approved, copy the MP4 or WebM and final report into the work-item deliverables directory so they are imported and previewable.',
       ].join('\n');
       closeModal();
       await submitWorkMessage(detail, message);
@@ -1502,7 +1550,7 @@ function renderConsole(detail) {
   const panel = el('div', 'console-panel');
   const output = el('pre', 'terminal-output');
   const history = state.consoleHistory.get(detail.recipe.uid) || [
-    'midden controlled console',
+    'controlled work-item console',
     `work item: ${detail.recipe.title}`,
     'commands: help · status · files · evidence · runs · openmontage status',
     '',
@@ -2543,7 +2591,7 @@ function configureIntegration(item) {
 
 function configureOpenNotebook(item) {
   const body = openModal('Set up Open Notebook',
-    'Connect a local Open Notebook service. Midden stores loopback URLs and whether a password is required; it never stores the password.');
+    'Connect a local Open Notebook service. The app stores loopback URLs and whether a password is required; it never stores the password.');
   const api = textInput(item.settings?.api_url || 'http://127.0.0.1:5055/api');
   const ui = textInput(item.settings?.ui_url || 'http://127.0.0.1:8502');
   const required = el('input');
@@ -2558,7 +2606,7 @@ function configureOpenNotebook(item) {
       'Install and start Open Notebook using its Docker Desktop / Compose guide.',
       'Keep the API and UI bound to localhost on a shared machine.',
       'Confirm the UI opens, then enter the API base and UI address below.',
-      'Save & test checks the local OpenAPI contract; it does not upload any Midden data.',
+      'Save & test checks the local OpenAPI contract; it does not upload any recovered data.',
     ],
     item.github_url),
   fieldWithHelp('API URL', api, 'Usually http://127.0.0.1:5055/api'),
@@ -2757,6 +2805,6 @@ Promise.all([loadOverview(true), refreshJobs()])
   .then(() => renderRecover())
   .catch((error) => {
     console.error(error);
-    clear($('#recover-content')).append(emptyState('Midden could not load', error.message,
+    clear($('#recover-content')).append(emptyState('Recovery could not load', error.message,
       button('Retry', 'button', () => location.reload())));
   });

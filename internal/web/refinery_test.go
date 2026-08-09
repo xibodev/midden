@@ -440,7 +440,8 @@ func TestEmbeddedUIContainsPersistentWorkbench(t *testing.T) {
 		"recoverPageSize", "libraryPageSize", "cleanupPageSize",
 		"pageSlice", "pager", "Create video", "Browse folder",
 		"workRailCollapsed", "Save & test", "send.type = 'submit'",
-		"workspaceOptions(false, true)", "over budget",
+		"workspaceOptions(false, true)", "over budget", "startSelectedMine",
+		"Mining ${count} selected session", "Mine complete · ${checked} checked",
 	} {
 		if !strings.Contains(js, want) {
 			t.Errorf("app.js missing %q", want)
