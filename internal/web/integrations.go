@@ -426,7 +426,7 @@ func testIntegration(ctx context.Context, id string, manifest plugins.Manifest) 
 		}
 		return verified.Result
 	case integrations.OpenMontageID:
-		return plugins.ProbeManifestWithOptions(ctx, manifest, nil, plugins.ProbeOptions{AllowNetwork: true})
+		return testOpenMontage(ctx, manifest)
 	default:
 		return plugins.Result{Status: plugins.Unavailable, Detail: "unknown integration"}
 	}

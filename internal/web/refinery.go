@@ -204,8 +204,14 @@ func (s *Server) handleRefineryOutput(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusForbidden)
 		return
 	}
-	body, err := os.ReadFile(path)
-	if err != nil {
+	body := []byte(nil)
+	if isTextOutputFormat(output.Format) {
+		body, err = os.ReadFile(path)
+		if err != nil {
+			http.Error(w, "output file not found", http.StatusNotFound)
+			return
+		}
+	} else if info, statErr := os.Stat(path); statErr != nil || !info.Mode().IsRegular() {
 		http.Error(w, "output file not found", http.StatusNotFound)
 		return
 	}
@@ -219,7 +225,17 @@ func (s *Server) handleRefineryOutput(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, map[string]any{
 		"output": output, "body": string(body), "provenance": provenance,
+		"binary": !isTextOutputFormat(output.Format),
 	})
+}
+
+func isTextOutputFormat(format string) bool {
+	switch strings.ToLower(format) {
+	case "png", "jpg", "jpeg", "gif", "webp", "mp4", "webm", "pdf":
+		return false
+	default:
+		return true
+	}
 }
 
 type refineryActionRequest struct {
@@ -444,7 +460,17 @@ func (s *Server) reviewRefineryOutput(req refineryActionRequest) (any, error) {
 		return nil, fmt.Errorf("decision must be draft, reviewed, or rejected")
 	}
 	if req.Decision == refinery.OutputReviewed && strings.TrimSpace(req.Body) == "" {
-		return nil, fmt.Errorf("a reviewed output cannot be empty")
+		if isTextOutputFormat(output.Format) {
+			return nil, fmt.Errorf("a reviewed output cannot be empty")
+		}
+		path, err := safeRefineryFile(output.Path)
+		if err != nil {
+			return nil, err
+		}
+		info, err := os.Stat(path)
+		if err != nil || !info.Mode().IsRegular() || info.Size() == 0 {
+			return nil, fmt.Errorf("a reviewed binary output must be a non-empty owned file")
+		}
 	}
 	selectedEvidenceIDs := req.EvidenceIDs
 	if output.Format == "jsonl" && req.Body != "" {

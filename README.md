@@ -61,16 +61,19 @@ upgrades, and removal.
 2. Extract a small evidence scope. Choose a real depth, inspect the long-running
    estimate once, then approve the recovery job.
 3. Create a **Studio** work item from that evidence.
-4. Continue in one persistent AI CLI conversation. Routine turns use the
-   work-item budget envelope rather than opening a cost dialog every time.
+4. Continue with one persistent workspace agent. It can inspect files, use
+   local tools, and run commands in the work context. Destructive, publishing,
+   credential, upload, and unapproved paid-provider actions remain explicit
+   approval points in chat.
 5. Approve the evidence, run the output plan, and inspect rendered previews,
    editable source, and provenance side by side.
 6. Download your source or rendered output, or export a reviewed result.
 7. Open **Cleanup** to see which dormant source sessions are eligible for a
    reversible archive and exactly which recovery gates support that decision.
 
-Nothing publishes, installs an agent, uploads data, trains a model, or executes
-a shell command automatically.
+Nothing publishes, installs software, uploads data, trains a model, or executes
+a shell command merely because a page was opened. Studio tool use begins only
+after an operator sends a work request.
 
 See [Getting started](docs/GETTING_STARTED.md) for a guided first run and the
 [optional manual walkthrough](docs/ACCEPTANCE_TEST.md) for subjective UX
@@ -149,7 +152,7 @@ backend selection, ports, environment variables, and backup guidance.
 | Surface | Purpose |
 |---|---|
 | **Recover** | Session inventory, exact scopes, free assay, evidence extraction, and durable mine history |
-| **Studio** | Persistent work-item list, AI CLI conversation, controlled Console, evidence approval, production, rendered preview, source, and provenance |
+| **Studio** | Persistent tool-capable workspace agent, collapsible work-item list, controlled Console, evidence approval, production, rendered media preview, source, and provenance |
 | **Library** | Every generated output with type filters, download, review, and export |
 | **Cleanup** | Explainable eligibility gates and reversible archive previews |
 | **Activity** | Restart-safe jobs, recovery runs, cost ledger, and audit history |
@@ -164,7 +167,10 @@ backend selection, ports, environment variables, and backup guidance.
 - A recipe cannot run before its evidence is approved.
 - Generated outputs begin as drafts.
 - Export is local and requires per-output review.
-- Studio Console is allowlisted diagnostics, not an arbitrary host shell.
+- Studio's workspace agent can use local tools and shell commands after an
+  explicit work request. It is instructed to ask before destructive,
+  publishing, credential, upload, or unapproved paid-provider actions.
+- Studio Console remains allowlisted diagnostics, not an arbitrary host shell.
 - Publishing, installation, upload, training, and unrestricted shell execution
   remain out of scope or require a separate explicit action.
 - Cleanup commands default to preview and preserve source meaning in new files.

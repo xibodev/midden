@@ -88,7 +88,7 @@ func TestWorkThreadAndMessagesRoundTrip(t *testing.T) {
 	thread := WorkThread{
 		RecipeID: recipe.UID, Backend: "copilot",
 		CLISessionID: "session-1", BudgetTokens: 900000,
-		EstimatedSpent: 12000,
+		EstimatedSpent: 12000, Agentic: true, ContractVersion: 13,
 	}
 	if err := db.PutWorkThread(&thread); err != nil {
 		t.Fatal(err)
@@ -97,7 +97,8 @@ func TestWorkThreadAndMessagesRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.CLISessionID != "session-1" || got.BudgetTokens != 900000 {
+	if got.CLISessionID != "session-1" || got.BudgetTokens != 900000 ||
+		!got.Agentic || got.ContractVersion != 13 {
 		t.Fatalf("thread=%#v", got)
 	}
 

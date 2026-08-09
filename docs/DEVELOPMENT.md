@@ -117,7 +117,9 @@ For human testing, exercise:
 
 - normal desktop and compact desktop window widths;
 - keyboard-only navigation;
-- persistent Studio chat, controlled Console, work-item selection, and budget state;
+- persistent Studio workspace-agent turns, shell/tool execution in the bounded
+  work area, controlled Console, collapsible work-item selection, and budget state;
+- OpenMontage setup/test, Backlot launch, video handoff import, and MP4 preview;
 - Recover with no assay, exact-session assay, recovery history, and reclaimed-evidence states;
 - structured JSONL review and filtered provenance;
 - Library filters, downloads, Activity history, and Cleanup eligibility;

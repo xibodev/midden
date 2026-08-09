@@ -163,7 +163,7 @@ func Design(prompt, workspace string, requested []string, nuggets []index.Nugget
 		kinds = inferKinds(prompt)
 	}
 	if len(kinds) == 0 {
-		kinds = DefaultBundle()
+		kinds = []string{"tutorial"}
 	}
 	seen := map[string]bool{}
 	var outputs []index.RecipeOutputSpec

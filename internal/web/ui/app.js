@@ -29,6 +29,7 @@ const state = {
   workPageSize: 12,
   workSearch: '',
   workDetail: null,
+  workRailCollapsed: localStorage.getItem('midden.workRailCollapsed') === 'true',
   messagePages: new Map(),
   conversationMode: 'chat',
   consoleHistory: new Map(),
@@ -97,6 +98,14 @@ function button(label, className = 'button', handler) {
   const node = el('button', className, label);
   node.type = 'button';
   if (handler) node.addEventListener('click', handler);
+  return node;
+}
+
+function linkButton(label, href, className = 'button ghost') {
+  const node = el('a', className, label);
+  node.href = href;
+  node.target = '_blank';
+  node.rel = 'noopener noreferrer';
   return node;
 }
 
@@ -576,7 +585,7 @@ async function startJob(requestBody, options = {}) {
   const job = await post('/api/action', requestBody);
   if (options.onDone || options.onFailed) jobCallbacks.set(job.id, options);
   $('#task-dock').hidden = false;
-  $('#task-dock').classList.add('open');
+  $('#task-dock').classList.remove('open');
   await refreshJobs();
   if (options.message) toast(options.message);
   return job;
@@ -679,10 +688,13 @@ setInterval(() => {
   if (!document.hidden) refreshJobs().catch(() => {});
 }, 1400);
 
-function workspaceOptions(includeAll = true) {
+function workspaceOptions(includeAll = true, evidenceOnly = false) {
   const options = [];
   if (includeAll) options.push({value: '', label: 'All workspaces'});
-  (state.overview?.workspaces || []).slice(0, 100).forEach((workspace) => {
+  (state.overview?.workspaces || [])
+    .filter((workspace) => !evidenceOnly || Number(workspace.nuggets || 0) > 0)
+    .slice(0, evidenceOnly ? 20 : 40)
+    .forEach((workspace) => {
     options.push({
       value: workspace.id,
       label: `${workspace.name} · ${workspace.sessions} sessions · ${workspace.nuggets} evidence`,
@@ -722,6 +734,7 @@ async function loadRecoveryData(force = false) {
 async function renderRecover() {
   await loadRecoveryData();
   const root = clear($('#recover-content'));
+  root.classList.remove('loading-shell');
   append(root, pageHead('Recover',
     'Find what matters before clearing what does not.',
     'Choose exact sessions or a saved scope. Every mine is durable, repeatable, and linked to the evidence and outputs it produced.',
@@ -1142,14 +1155,16 @@ async function loadWorkDetail(force = false) {
 }
 
 async function renderStudio() {
-  await loadWorkItems();
+  await Promise.all([loadWorkItems(), loadIntegrations()]);
   const root = clear($('#studio-content'));
-  append(root, pageHead('Studio', 'One place to talk, operate, edit, and preview.',
-    'Work items stay visible. Chat is persistent, Console is controlled, and every generated file has an appropriate preview and download path.',
+  const head = pageHead('Studio', 'Talk, operate, create, and preview.',
+    'The persistent workspace agent can use local tools, ask for approvals, and return finished files to a native preview.',
     [
       button('Import evidence set', 'button ghost', openCreateWorkItem),
       button('New work item', 'button', openCreateWorkItem),
-    ]));
+    ]);
+  head.classList.add('studio-page-head');
+  root.append(head);
   if (!state.workItems.length && !state.selectedWork) {
     root.append(emptyState('No work items yet',
       'Recover evidence, then create a focused output plan without leaving Studio.',
@@ -1157,17 +1172,29 @@ async function renderStudio() {
     return;
   }
   const detail = await loadWorkDetail();
-  const shell = el('div', 'studio-shell');
+  const shell = el('div', `studio-shell ${state.workRailCollapsed ? 'work-rail-collapsed' : ''}`.trim());
   append(shell, renderWorkRail(), renderConversation(detail), renderPreview(detail));
   root.append(shell);
 }
 
 function renderWorkRail() {
-  const rail = el('aside', 'work-rail');
+  const rail = el('aside', `work-rail ${state.workRailCollapsed ? 'collapsed' : ''}`.trim());
+  if (state.workRailCollapsed) {
+    const expand = button('›', 'rail-toggle collapsed', toggleWorkRail);
+    expand.setAttribute('aria-label', 'Show work items');
+    expand.title = 'Show work items';
+    append(rail, expand, badge(String(state.workTotal), 'blue'));
+    return rail;
+  }
   const head = el('div', 'rail-head');
   const top = el('div', 'actions');
   top.style.justifyContent = 'space-between';
-  append(top, el('strong', null, 'Work items'), badge(`${state.workTotal} active`, 'blue'));
+  const title = el('div', 'rail-title');
+  append(title, el('strong', null, 'Work items'), badge(`${state.workTotal} active`, 'blue'));
+  const collapse = button('‹', 'rail-toggle', toggleWorkRail);
+  collapse.setAttribute('aria-label', 'Hide work items');
+  collapse.title = 'Hide work items';
+  append(top, title, collapse);
   const search = textInput(state.workSearch, 'Find work item');
   append(head, top, search);
   const list = el('div', 'work-list');
@@ -1218,18 +1245,25 @@ function renderWorkRail() {
   return rail;
 }
 
+function toggleWorkRail() {
+  state.workRailCollapsed = !state.workRailCollapsed;
+  localStorage.setItem('midden.workRailCollapsed', String(state.workRailCollapsed));
+  renderStudio().catch(showError);
+}
+
 function renderConversation(detail) {
   const pane = el('section', 'conversation-pane');
   const head = el('header', 'conversation-head');
   const copy = el('div');
-  append(copy, el('div', 'eyebrow', `${detail.recipe.evidence_ids.length} evidence · ${detail.outputs.length} outputs`),
+  append(copy, el('div', 'eyebrow', `${detail.recipe.evidence_ids.length} evidence · ${detail.outputs.length} outputs · agentic`),
     el('h2', null, detail.recipe.title));
   const budget = el('div', 'budget');
   const line = el('div', 'budget-line');
   const spent = Number(detail.thread?.estimated_spent || 0);
   const limit = Number(detail.thread?.budget_tokens || 1_200_000);
+  const budgetPercent = limit > 0 ? Math.round(spent / limit * 100) : 0;
   append(line, el('span', null, detail.thread?.backend || 'AI CLI not selected'),
-    el('span', null, `${Math.min(100, Math.round(spent / limit * 100))}% budget`));
+    el('span', null, budgetPercent > 100 ? `${budgetPercent}% · over budget` : `${budgetPercent}% budget`));
   const progress = el('progress');
   progress.max = limit;
   progress.value = Math.min(limit, spent);
@@ -1261,7 +1295,7 @@ function renderChat(detail) {
   const messages = el('div', 'messages');
   messages.id = 'work-messages';
   messages.append(el('div', 'message system',
-    `Evidence is fixed to this work item. Routine turns use one persistent CLI session and the approved ${formatCount(detail.thread?.budget_tokens || 1_200_000)}-token envelope.`));
+    `Workspace agent enabled. It can use shell and local tools, asks before destructive, publishing, credential, or unapproved paid actions, and returns finished files here. AI CLI envelope: ${formatCount(detail.thread?.budget_tokens || 1_200_000)} tokens.`));
   const allMessages = detail.messages || [];
   const messageTotal = Number(detail.message_total || allMessages.length);
   const messagePage = state.messagePages.get(detail.recipe.uid) || 0;
@@ -1302,56 +1336,166 @@ function renderChat(detail) {
   input.disabled = state.pendingChat.has(detail.recipe.uid);
   const foot = el('div', 'composer-foot');
   const send = button(state.pendingChat.has(detail.recipe.uid) ? 'Working…' : 'Send', 'button compact');
+  send.type = 'submit';
   send.disabled = state.pendingChat.has(detail.recipe.uid);
-  append(foot, el('span', null, 'Same session · same evidence · no per-turn approval'), send);
+  const composerActions = el('div', 'composer-actions');
+  const montage = (state.integrations || []).find((item) => item.id === 'openmontage');
+  const video = button('Create video', 'button ghost compact',
+    () => openVideoCreation(detail).catch(showError));
+  video.disabled = state.pendingChat.has(detail.recipe.uid);
+  video.title = montage?.state === 'connected'
+    ? 'Start an OpenMontage production in this workspace-agent session'
+    : 'Set up and test OpenMontage under Tools first';
+  append(composerActions, video, send);
+  append(foot, el('span', null, 'Same agent session · tools enabled · approvals stay visible'), composerActions);
   append(composer, input, foot);
   composer.addEventListener('submit', async (event) => {
     event.preventDefault();
     const question = input.value.trim();
     if (!question) return;
-    input.value = '';
-    const optimistic = el('div', 'message user', question);
-    const typing = el('div', 'message agent typing', 'Thinking in the persistent work session');
-    append(messages, optimistic, typing);
-    messages.scrollTop = messages.scrollHeight;
-    state.pendingChat.add(detail.recipe.uid);
-    state.messagePages.set(detail.recipe.uid, 0);
-    input.disabled = true;
-    send.disabled = true;
-    send.textContent = 'Working…';
-    try {
-      await startJob({
-        op: 'work_chat', recipe_id: detail.recipe.uid, question,
-        backend: detail.thread?.backend || '', model: detail.thread?.model || '',
-        budget_tokens: detail.thread?.budget_tokens || 1_200_000,
-      }, {
-        message: 'Message sent. You can continue using Midden.',
-        onDone: async () => {
-          state.pendingChat.delete(detail.recipe.uid);
-          state.workDetail = null;
-          await renderStudio();
-        },
-        onFailed: async (job) => {
-          state.pendingChat.delete(detail.recipe.uid);
-          typing.remove();
-          input.disabled = false;
-          send.disabled = false;
-          send.textContent = 'Send';
-          notice(job.error || 'Work chat failed', 'bad');
-        },
-      });
-    } catch (error) {
-      state.pendingChat.delete(detail.recipe.uid);
-      typing.remove();
-      input.disabled = false;
-      send.disabled = false;
-      send.textContent = 'Send';
-      showError(error);
-    }
+    submitWorkMessage(detail, question, {messages, input, send}).catch(showError);
   });
   append(panel, messages, composer);
   requestAnimationFrame(() => { messages.scrollTop = messages.scrollHeight; });
   return panel;
+}
+
+async function submitWorkMessage(detail, question, controls = {}) {
+  const {messages, input, send} = controls;
+  if (input) input.value = '';
+  const optimistic = messages ? el('div', 'message user', question) : null;
+  const typing = messages ? el('div', 'message agent typing', 'Working with local tools') : null;
+  if (messages) {
+    append(messages, optimistic, typing);
+    messages.scrollTop = messages.scrollHeight;
+  }
+  state.pendingChat.add(detail.recipe.uid);
+  state.messagePages.set(detail.recipe.uid, 0);
+  if (input) input.disabled = true;
+  if (send) {
+    send.disabled = true;
+    send.textContent = 'Working…';
+  }
+  try {
+    await startJob({
+      op: 'work_chat', recipe_id: detail.recipe.uid, question,
+      backend: detail.thread?.backend || '', model: detail.thread?.model || '',
+      budget_tokens: detail.thread?.budget_tokens || 1_200_000,
+    }, {
+      message: 'The workspace agent is running in the background.',
+      onDone: async (job) => {
+        state.pendingChat.delete(detail.recipe.uid);
+        const imported = job.result?.outputs || [];
+        const media = imported.find((output) => ['mp4', 'webm'].includes(output.format));
+        if (media) {
+          state.selectedOutput = media.uid;
+          state.previewMode = 'rendered';
+        }
+        state.workDetail = null;
+        state.outputDetail = null;
+        state.workItems = [];
+        state.overview = null;
+        await renderStudio();
+      },
+      onFailed: async (job) => {
+        state.pendingChat.delete(detail.recipe.uid);
+        if (typing) typing.remove();
+        if (input) input.disabled = false;
+        if (send) {
+          send.disabled = false;
+          send.textContent = 'Send';
+        }
+        notice(job.error || 'Workspace agent failed', 'bad');
+      },
+    });
+  } catch (error) {
+    state.pendingChat.delete(detail.recipe.uid);
+    if (typing) typing.remove();
+    if (input) input.disabled = false;
+    if (send) {
+      send.disabled = false;
+      send.textContent = 'Send';
+    }
+    throw error;
+  }
+}
+
+async function openVideoCreation(detail) {
+  await loadIntegrations();
+  const montage = state.integrations.find((item) => item.id === 'openmontage');
+  if (!montage || montage.state !== 'connected') {
+    const body = openModal('OpenMontage setup required',
+      montage?.state_detail || 'Install, configure, and test OpenMontage before starting a video production.');
+    append(body, setupGuide(
+      'Video creation is a real OpenMontage pipeline, not a Markdown video brief.',
+      [
+        'Open Tools and install or locate the official OpenMontage repository.',
+        'Select its folder, choose your AI CLI, then Save & test.',
+        'Return here; the agent will run the production through chat approvals and import the final render.',
+      ],
+      montage?.github_url || 'https://github.com/calesthio/OpenMontage'));
+    const actions = el('div', 'modal-actions');
+    append(actions, button('Cancel', 'button ghost', closeModal),
+      button('Open Tools', 'button', () => {
+        closeModal();
+        activateView('tools');
+      }));
+    body.append(actions);
+    return;
+  }
+
+  const capabilities = await post('/api/integrations/capabilities', {id: 'openmontage'});
+  const body = openModal('Create a video with OpenMontage',
+    'The workspace agent follows OpenMontage’s pipeline and pauses in this chat for required creative, runtime, provider, and spend approvals.');
+  const topic = textArea(detail.recipe.request || detail.recipe.title,
+    'Describe the video, audience, duration, tone, and source/reference footage.');
+  topic.rows = 4;
+  const pipeline = selectInput((capabilities.pipelines || []).map((name) => ({
+    value: name, label: humanStatus(name),
+  })), (capabilities.pipelines || []).includes('animated-explainer') ? 'animated-explainer' : capabilities.pipelines?.[0]);
+  const budget = textInput('2.00');
+  budget.type = 'number';
+  budget.min = '0';
+  budget.step = '0.25';
+  append(body, setupGuide(
+    'What happens next',
+    [
+      'The agent reads OpenMontage’s guide and the selected pipeline.',
+      'Preflight and meaningful production decisions appear in this Studio chat.',
+      'No unapproved paid provider call or destructive action is allowed.',
+      'The approved MP4/WebM is copied into Midden and becomes playable in the preview pane.',
+    ],
+    montage.github_url));
+  append(body, field('Video brief', topic), field('Pipeline', pipeline),
+    field('Maximum provider spend (USD)', budget));
+  const actions = el('div', 'modal-actions');
+  append(actions,
+    button('Open Backlot', 'button ghost', () => openManagedIntegration(montage).catch(showError)),
+    button('Cancel', 'button ghost', closeModal),
+    button('Start in agent chat', 'button', async () => {
+      const brief = topic.value.trim();
+      if (!brief) {
+        notice('Describe the video before starting.', 'bad');
+        return;
+      }
+      const maximumSpend = Number(budget.value);
+      if (!Number.isFinite(maximumSpend) || maximumSpend < 0) {
+        notice('Enter a valid non-negative provider spend cap.', 'bad');
+        return;
+      }
+      const message = [
+        'Create a finished video with the configured OpenMontage integration.',
+        `Pipeline: ${pipeline.value}`,
+        `Video brief: ${brief}`,
+        `Maximum provider spend: $${maximumSpend.toFixed(2)}`,
+        'Follow OpenMontage AGENT_GUIDE.md and the selected pipeline. Run preflight first.',
+        'Present required creative, composition-runtime, provider, and spend decisions in this chat before acting.',
+        'After the final render is approved, copy the MP4 or WebM and final report into the Midden deliverables directory from your workspace contract so they are imported and previewable.',
+      ].join('\n');
+      closeModal();
+      await submitWorkMessage(detail, message);
+    }));
+  body.append(actions);
 }
 
 function renderConsole(detail) {
@@ -1447,16 +1591,23 @@ function renderPreview(detail) {
       state.previewMode = mode;
       renderStudio().catch(showError);
     });
-    if (!selected) modeButton.disabled = true;
+    if (!selected || (mode === 'source' && binaryOutputFormat(selected.format))) {
+      modeButton.disabled = true;
+    }
     modes.append(modeButton);
   });
   const actions = el('div', 'actions');
   if (selected) {
-    append(actions,
-      button('Download', 'button ghost compact', () => downloadOutput(selected)),
-      ['reviewed', 'exported'].includes(selected.status)
-        ? button(selected.status === 'exported' ? 'Exported' : 'Export local', 'button compact', () => exportOutput(selected.uid))
-        : null);
+    append(actions, button('Download', 'button ghost compact', () => downloadOutput(selected)));
+    if (binaryOutputFormat(selected.format) && !['reviewed', 'exported'].includes(selected.status)) {
+      append(actions,
+        button('Reject', 'button danger compact', () => saveOutputReview(selected, '', 'rejected')),
+        button('Approve output', 'button success compact', () => saveOutputReview(selected, '', 'reviewed')));
+    }
+    if (['reviewed', 'exported'].includes(selected.status)) {
+      actions.append(button(selected.status === 'exported' ? 'Exported' : 'Export local',
+        'button compact', () => exportOutput(selected.uid)));
+    }
   } else {
     append(actions,
       ['draft', 'evidence_review'].includes(detail.recipe.status)
@@ -1514,7 +1665,7 @@ function renderPlanPreview(detail) {
 function renderOutputContent(detail, output) {
   const outputDetail = state.outputDetail;
   if (!outputDetail) return emptyState('Loading', 'Output is still loading.');
-  if (state.previewMode === 'source') return renderSourceEditor(outputDetail);
+  if (state.previewMode === 'source' && !binaryOutputFormat(output.format)) return renderSourceEditor(outputDetail);
   if (state.previewMode === 'provenance') return renderProvenance(outputDetail.provenance, output);
   return renderOwnedPreview(outputDetail.body || '', output.format, output);
 }
@@ -1543,6 +1694,7 @@ function renderOwnedPreview(body, format, output) {
     const wrap = el('div', 'rendered-stage');
     const image = el('img', 'rendered-media');
     image.alt = output.title;
+    image.draggable = false;
     image.src = `/api/output-rendered?id=${encodeURIComponent(output.uid)}`;
     image.addEventListener('error', () => {
       clear(wrap).append(emptyState('D2 source is ready',
@@ -1555,16 +1707,28 @@ function renderOwnedPreview(body, format, output) {
   if (['png', 'jpg', 'jpeg', 'gif', 'webp'].includes(format)) {
     const image = el('img', 'rendered-media');
     image.alt = output.title;
+    image.draggable = false;
     image.src = `/api/output-rendered?id=${encodeURIComponent(output.uid)}`;
     return append(el('div', 'rendered-stage'), image);
   }
   if (['mp4', 'webm'].includes(format)) {
     const video = el('video', 'rendered-media');
     video.controls = true;
+    video.preload = 'metadata';
     video.src = `/api/output-rendered?id=${encodeURIComponent(output.uid)}`;
     return append(el('div', 'rendered-stage'), video);
   }
+  if (format === 'pdf') {
+    const frame = el('iframe', 'rendered-document');
+    frame.title = output.title;
+    frame.src = `/api/output-rendered?id=${encodeURIComponent(output.uid)}`;
+    return append(el('div', 'rendered-stage'), frame);
+  }
   return el('pre', 'source-stage', body || 'This output is empty.');
+}
+
+function binaryOutputFormat(format) {
+  return ['png', 'jpg', 'jpeg', 'gif', 'webp', 'mp4', 'webm', 'pdf'].includes(String(format || '').toLowerCase());
 }
 
 function markdownToHTML(markdown) {
@@ -1886,7 +2050,7 @@ async function previewProduction(recipeID) {
 function openCreateWorkItem() {
   const body = openModal('New work item',
     'Choose an evidence scope and the finished outcome. Nothing runs until its evidence is approved.');
-  const workspace = selectInput(workspaceOptions(false));
+  const workspace = selectInput(workspaceOptions(false, true));
   const title = textInput('', 'Optional work-item name');
   const prompt = textArea('', 'Create a tutorial and architecture diagram from this evidence.');
   prompt.rows = 4;
@@ -2273,6 +2437,13 @@ async function loadTools(force = false) {
   }
 }
 
+async function loadIntegrations(force = false) {
+  if (force || !state.integrations) {
+    state.integrations = await get('/api/integrations') || [];
+  }
+  return state.integrations;
+}
+
 async function renderTools() {
   await loadTools();
   const root = clear($('#tools-content'));
@@ -2308,16 +2479,29 @@ async function renderTools() {
       badge(connection.managed ? 'plugin' : 'tool'), badge(connection.cost, connection.cost === 'spends' ? 'spend' : ''));
     copy.append(pills);
     const managed = managedByID.get(connection.id);
-    let action;
+    const actions = el('div', 'tool-card-actions');
     if (managed) {
-      action = button(managed.state === 'not_set_up' ? 'Set up' : 'Edit setup', 'button ghost compact',
-        () => configureIntegration(managed));
+      copy.append(el('p', 'tool-state-detail', managed.state_detail));
+      actions.append(button(managed.state === 'not_set_up' ? 'Set up' : 'Edit', 'button ghost compact',
+        () => configureIntegration(managed)));
+      if (managed.state !== 'not_set_up') {
+        actions.append(button('Test', 'button ghost compact',
+          () => testManagedIntegration(managed).catch(showError)));
+      }
+      if (managed.id === 'open-notebook' && managed.state === 'connected' && managed.settings?.ui_url) {
+        actions.append(linkButton('Open UI', managed.settings.ui_url, 'button ghost compact'));
+      }
+      if (managed.id === 'openmontage' && managed.state === 'connected') {
+        actions.append(button('Open Backlot', 'button ghost compact',
+          () => openManagedIntegration(managed).catch(showError)));
+      }
+      actions.append(linkButton('Guide', managed.github_url, 'button ghost compact'));
     } else if (connection.status === 'ready') {
-      action = button('Use in Studio', 'button ghost compact', () => activateView('studio'));
+      actions.append(button('Use in Studio', 'button ghost compact', () => activateView('studio')));
     } else {
-      action = button('View setup', 'button ghost compact', () => toast(connection.detail));
+      actions.append(button('View setup', 'button ghost compact', () => toast(connection.detail)));
     }
-    append(card, logo, copy, action);
+    append(card, logo, copy, actions);
     grid.append(card);
   });
   append(root, grid, pager(state.connections.length, state.toolPage,
@@ -2359,7 +2543,7 @@ function configureIntegration(item) {
 
 function configureOpenNotebook(item) {
   const body = openModal('Set up Open Notebook',
-    'Midden stores loopback URLs and whether a password is required. The password itself is never stored.');
+    'Connect a local Open Notebook service. Midden stores loopback URLs and whether a password is required; it never stores the password.');
   const api = textInput(item.settings?.api_url || 'http://127.0.0.1:5055/api');
   const ui = textInput(item.settings?.ui_url || 'http://127.0.0.1:8502');
   const required = el('input');
@@ -2367,46 +2551,174 @@ function configureOpenNotebook(item) {
   required.checked = Boolean(item.settings?.password_required);
   const check = el('label', 'check-row');
   append(check, required, el('span', null, 'Password required for explicit send actions'));
-  append(body, field('API URL', api), field('UI URL', ui), check);
+  const feedback = el('div', 'setup-feedback');
+  append(body, setupGuide(
+    'Service connection',
+    [
+      'Install and start Open Notebook using its Docker Desktop / Compose guide.',
+      'Keep the API and UI bound to localhost on a shared machine.',
+      'Confirm the UI opens, then enter the API base and UI address below.',
+      'Save & test checks the local OpenAPI contract; it does not upload any Midden data.',
+    ],
+    item.github_url),
+  fieldWithHelp('API URL', api, 'Usually http://127.0.0.1:5055/api'),
+  fieldWithHelp('UI URL', ui, 'Usually http://127.0.0.1:8502'),
+  check, feedback);
   const actions = el('div', 'modal-actions');
-  append(actions, button('Cancel', 'button ghost', closeModal),
-    button('Save setup', 'button', async () => {
-      await post('/api/integrations/configure', {
+  append(actions, linkButton('Open install guide', item.github_url, 'button ghost'),
+    button('Cancel', 'button ghost', closeModal),
+    button('Save', 'button ghost', async () => {
+      await saveManagedIntegration(item, {
         id: item.id, enabled: true, api_url: api.value, ui_url: ui.value,
         password_required: required.checked, replace_legacy: item.legacy,
-      });
-      closeModal();
-      state.connections = null;
-      state.integrations = null;
-      await renderTools();
-      toast('Open Notebook setup saved.');
+      }, false, feedback);
+    }),
+    button('Save & test', 'button', async () => {
+      await saveManagedIntegration(item, {
+        id: item.id, enabled: true, api_url: api.value, ui_url: ui.value,
+        password_required: required.checked, replace_legacy: item.legacy,
+      }, true, feedback);
     }));
   body.append(actions);
 }
 
 function configureOpenMontage(item) {
   const body = openModal('Set up OpenMontage',
-    'Midden records the installed repository and controlled AI CLI profile. It does not install dependencies.');
+    'Connect the official local repository so Studio can run its agentic video pipelines and open Backlot.');
   const home = textInput(item.settings?.home || '', 'Absolute path to OpenMontage');
+  const homeRow = el('div', 'input-action-row');
+  const browse = button('Browse folder…', 'button ghost', async () => {
+    browse.disabled = true;
+    browse.textContent = 'Waiting for folder…';
+    try {
+      const result = await post('/api/integrations/browse', {id: item.id, home: home.value});
+      if (result?.path) home.value = result.path;
+    } finally {
+      browse.disabled = false;
+      browse.textContent = 'Browse folder…';
+    }
+  });
+  append(homeRow, home, browse);
   const backend = selectInput([
     {value: 'copilot', label: 'Copilot CLI'}, {value: 'claude', label: 'Claude Code'},
     {value: 'opencode', label: 'OpenCode'},
   ], item.settings?.backend || 'copilot');
-  append(body, field('OpenMontage home', home), field('Backend', backend));
+  const feedback = el('div', 'setup-feedback');
+  append(body, setupGuide(
+    'Local video-production capability',
+    [
+      'Install Git, Python 3.10+, Node.js 18+, FFmpeg, and an authenticated Copilot, Claude, or OpenCode CLI.',
+      'Clone the official OpenMontage repository.',
+      'Run its Windows PowerShell setup commands (or make setup on macOS/Linux) until the local Backlot module and dependencies are ready.',
+      'Choose the repository folder below. It must contain AGENT_GUIDE.md, PROJECT_CONTEXT.md, pipeline_defs, and backlot.',
+      'Save & test verifies the repository, Python environment, Node.js, FFmpeg, selected AI CLI, Backlot, and available pipelines.',
+    ],
+    item.github_url,
+    [
+      'git clone https://github.com/calesthio/OpenMontage.git',
+      'cd OpenMontage',
+      'py -3 -m venv .venv',
+      '.\\.venv\\Scripts\\Activate.ps1',
+      'python -m pip install -r requirements.txt',
+      'cd remotion-composer; npm install; cd ..',
+    ]),
+  fieldWithHelp('OpenMontage home', homeRow, 'Select the cloned repository root, not pipeline_defs or projects.'),
+  fieldWithHelp('Agentic CLI', backend, 'Studio uses this authenticated CLI to drive OpenMontage.'),
+  feedback);
   const actions = el('div', 'modal-actions');
-  append(actions, button('Cancel', 'button ghost', closeModal),
-    button('Save setup', 'button', async () => {
-      await post('/api/integrations/configure', {
+  append(actions, linkButton('Open install guide', item.github_url, 'button ghost'),
+    button('Cancel', 'button ghost', closeModal),
+    button('Save', 'button ghost', async () => {
+      await saveManagedIntegration(item, {
         id: item.id, enabled: true, home: home.value, backend: backend.value,
         replace_legacy: item.legacy,
-      });
-      closeModal();
-      state.connections = null;
-      state.integrations = null;
-      await renderTools();
-      toast('OpenMontage setup saved.');
+      }, false, feedback);
+    }),
+    button('Save & test', 'button', async () => {
+      await saveManagedIntegration(item, {
+        id: item.id, enabled: true, home: home.value, backend: backend.value,
+        replace_legacy: item.legacy,
+      }, true, feedback);
     }));
   body.append(actions);
+}
+
+function setupGuide(summary, steps, href, commands = []) {
+  const guide = el('section', 'setup-guide');
+  append(guide, el('strong', null, summary));
+  const list = el('ol');
+  steps.forEach((step) => list.append(el('li', null, step)));
+  guide.append(list);
+  if (commands.length) {
+    const code = el('pre', 'setup-commands');
+    code.textContent = commands.join('\n');
+    guide.append(code);
+  }
+  if (href) guide.append(linkButton('Upstream documentation ↗', href, 'setup-link'));
+  return guide;
+}
+
+function fieldWithHelp(label, input, help) {
+  const wrap = el('div', 'field-with-help');
+  const control = el('div', 'field');
+  append(control, document.createTextNode(label), input);
+  append(wrap, control, el('p', 'small-note', help));
+  return wrap;
+}
+
+async function saveManagedIntegration(item, payload, test, feedback) {
+  feedback.className = 'setup-feedback';
+  if (item.id === 'openmontage' && !String(payload.home || '').trim()) {
+    feedback.textContent = 'Choose or paste the OpenMontage repository folder.';
+    feedback.classList.add('error');
+    return;
+  }
+  if (item.id === 'open-notebook' && (!String(payload.api_url || '').trim() || !String(payload.ui_url || '').trim())) {
+    feedback.textContent = 'Enter both the local API URL and UI URL.';
+    feedback.classList.add('error');
+    return;
+  }
+  feedback.textContent = test ? 'Saving and testing…' : 'Saving…';
+  try {
+    let views = await post('/api/integrations/configure', payload);
+    if (test) views = await post('/api/integrations/test', {id: item.id});
+    state.integrations = views || [];
+    state.connections = null;
+    const updated = state.integrations.find((candidate) => candidate.id === item.id);
+    feedback.textContent = updated?.state_detail || 'Setup saved.';
+    feedback.classList.add(updated?.state === 'connected' || !test ? 'success' : 'error');
+    if (!test || updated?.state === 'connected') {
+      closeModal();
+      await loadTools(true);
+      await renderTools();
+      toast(test ? `${item.name} is connected.` : `${item.name} setup saved.`);
+    }
+  } catch (error) {
+    feedback.textContent = error.message;
+    feedback.classList.add('error');
+  }
+}
+
+async function testManagedIntegration(item) {
+  const views = await post('/api/integrations/test', {id: item.id});
+  state.integrations = views || [];
+  state.connections = null;
+  await loadTools(true);
+  await renderTools();
+  const updated = state.integrations.find((candidate) => candidate.id === item.id);
+  toast(updated?.state === 'connected'
+    ? `${item.name} connection passed.`
+    : updated?.state_detail || `${item.name} needs attention.`,
+  updated?.state === 'connected' ? '' : 'bad');
+}
+
+async function openManagedIntegration(item) {
+  if (item.id === 'open-notebook' && item.settings?.ui_url) {
+    window.open(item.settings.ui_url, '_blank', 'noopener,noreferrer');
+    return;
+  }
+  const result = await post('/api/integrations/open', {id: item.id});
+  toast(result.detail || `${item.name} is opening.`);
 }
 
 async function probePlugins() {

@@ -130,6 +130,9 @@ func TestEmbeddedHTMLReferencesItsAssets(t *testing.T) {
 			t.Errorf("index.html does not reference %s", want)
 		}
 	}
+	if strings.Contains(html, `id="recover-content" class="view-content loading-shell"`) {
+		t.Fatal("Recover root must not retain loading-shell after content renders")
+	}
 }
 
 func TestNuggetsHandlerCapsClientLimit(t *testing.T) {

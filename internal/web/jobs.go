@@ -1507,11 +1507,12 @@ func (s *Server) doRefine(id string, req actionRequest) (any, error) {
 	return map[string]any{"artifacts": out, "written": written}, nil
 }
 
-// settle reads real usage back and attaches it to the job.
-func (s *Server) settle(jobID, runUID string) {
+// settle reads real usage back, attaches it to the job, and returns the
+// reconciled target run when the backend exposed usage.
+func (s *Server) settle(jobID, runUID string) *cost.Run {
 	pending, err := s.db.UnreconciledRuns()
 	if err != nil {
-		return
+		return nil
 	}
 	for _, r := range pending {
 		var total cost.Usage
@@ -1530,9 +1531,12 @@ func (s *Server) settle(jobID, runUID string) {
 			runs, _ := s.db.Runs(1, r.Op)
 			if len(runs) > 0 {
 				s.jobs.update(jobID, func(j *Job) { j.Cost = &runs[0] })
+				run := runs[0]
+				return &run
 			}
 		}
 	}
+	return nil
 }
 
 func kindOfLine(line []byte) string {

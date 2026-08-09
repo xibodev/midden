@@ -13,9 +13,11 @@ Open **Tools** to:
 
 1. Read what an integration does and whether later actions can spend.
 2. Open the upstream installation guide.
-3. Install and configure the upstream project yourself.
-4. Save a local URL, path, or backend in Midden.
-5. Select **Test connection** when the upstream tool is running.
+3. Follow complete setup steps for that connection type.
+4. Browse for a local repository folder or enter loopback URLs.
+5. Save the local URL, path, or backend in Midden.
+6. Select **Save & test** to verify the real service or runtime prerequisites.
+7. Open the connected UI directly from the capability card where supported.
 
 Managed settings are written to:
 
@@ -114,14 +116,27 @@ Its upstream setup requires:
 - FFmpeg;
 - an authenticated agentic CLI.
 
-In **Tools → OpenMontage**, configure:
+In **Tools → OpenMontage**:
 
-- the absolute path to the checked-out repository;
-- `copilot`, `claude`, or `opencode` as its backend.
+1. Follow the displayed prerequisite and clone instructions.
+2. Select **Browse folder** and choose the checked-out repository root.
+3. Choose `copilot`, `claude`, or `opencode` as the agentic backend.
+4. Select **Save & test**.
 
-Midden saves the path and backend only. It does not install dependencies.
-Testing the connection reads the configured folder only after an explicit
-request.
+Midden saves the path and backend only. Testing is explicit and verifies:
+
+- the OpenMontage repository contract;
+- pipeline definitions;
+- the Backlot UI;
+- a usable Python environment;
+- Node.js and FFmpeg;
+- the selected authenticated AI CLI.
+
+After a successful test, **Open Backlot** launches OpenMontage's local living
+storyboard. Studio's **Create video** action starts the selected pipeline in the
+persistent workspace-agent conversation. Required production decisions and
+spend approvals remain visible in chat. Approved MP4/WebM files copied to the
+Midden delivery directory are imported as draft outputs and preview inline.
 
 OpenMontage actions can spend through the selected CLI, so eventual production
 retains Midden's preview and approval gates.
@@ -196,15 +211,11 @@ Migration:
 - requires **Finish migration** if interrupted;
 - refuses to use conflicting managed and advanced configurations.
 
-## Studio and Console boundary
+## Studio workspace-agent and Console boundary
 
-Studio can continue one evidence-grounded AI CLI conversation, design a work
-item, and run an approved production. Console exposes allowlisted diagnostics
-such as status, files, evidence, runs, and OpenMontage status. It is not a host
-shell.
-
-Any future shell-capable feature is a separate trust domain. It must reject a
-working directory inside:
+Studio continues one evidence-grounded AI CLI conversation with local tools
+enabled. It selects a normal project workspace when one is safe and otherwise
+uses a Midden-owned work area. It rejects a working directory inside:
 
 - `~\.copilot`
 - `~\.claude`
@@ -213,3 +224,11 @@ working directory inside:
 
 Path checks must resolve Windows junctions and symbolic links rather than
 compare strings.
+
+The workspace agent is instructed to ask before destructive or irreversible
+actions, publishing, credential changes, external uploads, and unapproved paid
+provider calls. Final files must be copied to the dedicated per-work-item
+delivery directory before Midden imports or previews them.
+
+Console remains a separate allowlisted diagnostics surface for status, files,
+evidence, runs, and OpenMontage status. It is not a host shell.

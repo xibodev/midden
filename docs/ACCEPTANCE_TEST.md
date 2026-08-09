@@ -112,6 +112,17 @@ Pass if:
 - the commands return work-item diagnostics;
 - arbitrary shell commands are rejected.
 
+Studio **Chat** is different from Console:
+
+- clicking **Send** starts a durable background agent job;
+- a narrow command is executed as written rather than replaced by the
+  background work-item goal;
+- tool traces stay out of the saved chat answer;
+- the agent cannot use `.copilot`, `.claude`, OpenCode, or Midden state as its
+  working directory;
+- a finished file placed in the per-work-item handoff directory appears as a
+  draft output in Studio.
+
 ## 7. Production, preview, and download
 
 Run a small approved output plan.
@@ -138,6 +149,11 @@ Pass if:
 - Activity retains jobs after browser refresh;
 - Tools distinguishes plugins, tools, skills, viewers, and destinations;
 - managed Open Notebook and OpenMontage settings remain editable.
+- OpenMontage setup provides folder browsing, full prerequisites, **Save &
+  test**, and **Open Backlot**;
+- **Create video** exposes pipeline and spend controls, returns the run to the
+  agent chat, and previews an imported MP4/WebM without reading the binary into
+  the JSON API.
 
 ## 9. Keyboard and compact desktop
 

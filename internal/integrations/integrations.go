@@ -88,7 +88,7 @@ func Catalog() []CatalogEntry {
 			Kind:           "service",
 			Cost:           "free",
 			GitHubURL:      "https://github.com/lfnovo/open-notebook",
-			InstallSummary: "Use the upstream Docker Desktop/Compose setup; change the upstream encryption key before first use and review the upstream default UI/API bindings for local-only exposure. Midden does not install it.",
+			InstallSummary: "Use the upstream Docker Desktop/Compose setup, change its encryption key, and keep the UI/API local-only. Midden does not install it; Tools can save the loopback URLs, test the OpenAPI contract, and open the UI.",
 		},
 		{
 			ID:             OpenMontageID,
@@ -97,7 +97,7 @@ func Catalog() []CatalogEntry {
 			Kind:           "capability",
 			Cost:           "spends",
 			GitHubURL:      "https://github.com/calesthio/OpenMontage",
-			InstallSummary: "Install it yourself from a local repository; it requires Python 3.10+, Node 18+, FFmpeg, and an agentic CLI.",
+			InstallSummary: "Clone the official local repository; it requires Python 3.10+, Node 18+, FFmpeg, and an authenticated agentic CLI. Midden can select the folder, verify Backlot and the runtime, then drive video work from Studio.",
 		},
 	}
 }

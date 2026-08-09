@@ -90,6 +90,45 @@ func TestSalvageInvocationsStripMCP(t *testing.T) {
 	}
 }
 
+func TestCopilotWorkspaceArgsAreSilentAndPathBounded(t *testing.T) {
+	runner := &Runner{
+		Backend: Copilot, Dir: `C:\work`,
+		AllowedDirs: []string{`C:\work`, `C:\delivery`, `C:\work`},
+	}
+	got := strings.Join(runner.NewConversation().primeArgv("x"), " ")
+	for _, want := range []string{
+		"--allow-all-tools", "--no-ask-user", "--silent", "--no-color",
+		"--output-format json", "--no-custom-instructions",
+		"-C C:\\work",
+		"--add-dir C:\\work", "--add-dir C:\\delivery",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("Copilot workspace args %q lack %q", got, want)
+		}
+	}
+	if strings.Contains(got, "--allow-all-paths") {
+		t.Fatalf("bounded workspace unexpectedly allows all paths: %q", got)
+	}
+	if strings.Count(got, "--add-dir C:\\work") != 1 {
+		t.Fatalf("duplicate allowed directory in %q", got)
+	}
+}
+
+func TestCopilotFinalAnswerExtractsOnlyFinalMessage(t *testing.T) {
+	input := strings.Join([]string{
+		`{"type":"assistant.message","data":{"content":"planning","phase":"analysis"}}`,
+		`{"type":"tool.execution_complete","data":{"result":"noisy tool output"}}`,
+		`{"type":"assistant.message","data":{"content":"clean final","phase":"final_answer"}}`,
+		`{"type":"result","sessionId":"session-1","exitCode":0}`,
+	}, "\n")
+	if got := copilotFinalAnswer(input); got != "clean final" {
+		t.Fatalf("copilotFinalAnswer()=%q", got)
+	}
+	if got := copilotFinalAnswer("plain text"); got != "plain text" {
+		t.Fatalf("plain fallback=%q", got)
+	}
+}
+
 func TestOversizedPromptsAreStagedToAFile(t *testing.T) {
 	// Windows caps a command line at 8191 characters and salvage prompts
 	// routinely exceed it. The failure mode was an opaque OS error.
@@ -121,6 +160,18 @@ func TestSmallPromptsArePassedInline(t *testing.T) {
 	}
 	if staged != "short prompt" {
 		t.Errorf("small prompts should not be staged, got %q", staged)
+	}
+}
+
+func TestSmallMultilinePromptsAreStaged(t *testing.T) {
+	r := &Runner{Backend: Copilot}
+	staged, cleanup, err := r.stage("line one\nline two")
+	defer cleanup()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if staged == "line one\nline two" || !strings.Contains(staged, "midden-prompt") {
+		t.Fatalf("multiline prompt was not staged: %q", staged)
 	}
 }
 

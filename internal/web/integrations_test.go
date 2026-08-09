@@ -274,6 +274,49 @@ func TestIntegrationConfigureExplicitlyReplacesLegacyWithBackup(t *testing.T) {
 	}
 }
 
+func TestOpenMontageCapabilitiesRequireExplicitConfiguredDiscovery(t *testing.T) {
+	t.Setenv("MIDDEN_HOME", t.TempDir())
+	db, err := index.Open()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	server := &Server{db: db, cache: newSnapshotCache(), jobs: NewJobs()}
+
+	home := filepath.Join(t.TempDir(), "OpenMontage")
+	if err := os.MkdirAll(filepath.Join(home, "pipeline_defs"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(home, "backlot"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, "pipeline_defs", "animated-explainer.yaml"), []byte("name: animated-explainer\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := integrations.Save(index.Dir(), integrations.Config{
+		OpenMontage: &integrations.OpenMontageSettings{
+			Enabled: true, Home: home, Backend: "copilot",
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	rec := httptest.NewRecorder()
+	server.handleIntegrationCapabilities(rec, explicitIntegrationRequest(
+		t, http.MethodPost, "/api/integrations/capabilities", `{"id":"openmontage"}`))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("capabilities=%d body=%s", rec.Code, rec.Body.String())
+	}
+	var got integrationCapabilitiesView
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.Home != home || !got.BacklotAvailable || len(got.Pipelines) != 1 ||
+		got.Pipelines[0] != "animated-explainer" {
+		t.Fatalf("capabilities=%#v", got)
+	}
+}
+
 func TestLegacyOpenNotebookTestMakesSendPathAvailable(t *testing.T) {
 	t.Setenv("MIDDEN_HOME", t.TempDir())
 	db, err := index.Open()

@@ -70,15 +70,15 @@ func NewUUID() string {
 func (c *Conversation) primeArgv(prompt string) []string {
 	switch c.runner.Backend {
 	case Copilot:
-		a := []string{"--session-id", c.sessionID, "--prompt", prompt,
-			"--allow-all-tools", "--allow-all-paths"}
+		a := []string{"--session-id", c.sessionID}
+		a = append(a, c.runner.copilotRuntimeArgs()...)
 		if c.runner.Model != "" {
 			a = append(a, "--model", c.runner.Model)
 		}
 		if c.runner.Pure {
 			a = append(a, "--additional-mcp-config", emptyMCPConfig)
 		}
-		return a
+		return append(a, "--prompt", prompt)
 
 	case Claude:
 		a := []string{"--session-id", c.sessionID, "--print", prompt}
@@ -107,12 +107,12 @@ func (c *Conversation) primeArgv(prompt string) []string {
 func (c *Conversation) followupArgv(prompt string) []string {
 	switch c.runner.Backend {
 	case Copilot:
-		a := []string{"--resume", c.sessionID, "--prompt", prompt,
-			"--allow-all-tools", "--allow-all-paths"}
+		a := []string{"--resume", c.sessionID}
+		a = append(a, c.runner.copilotRuntimeArgs()...)
 		if c.runner.Pure {
 			a = append(a, "--additional-mcp-config", emptyMCPConfig)
 		}
-		return a
+		return append(a, "--prompt", prompt)
 
 	case Claude:
 		a := []string{"--resume", c.sessionID, "--print", prompt}
@@ -213,6 +213,9 @@ func (c *Conversation) invoke(ctx context.Context, argv func(string) []string, p
 		Model:   c.runner.Model,
 		Command: display,
 		Elapsed: time.Since(start),
+	}
+	if c.runner.Backend == Copilot {
+		res.Output = copilotFinalAnswer(res.Output)
 	}
 	if err != nil {
 		if cctx.Err() == context.DeadlineExceeded {

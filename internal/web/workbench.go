@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"mime"
 	"net/http"
 	"os"
@@ -21,6 +22,7 @@ import (
 	"github.com/mekjr1/midden/internal/cost"
 	agentexec "github.com/mekjr1/midden/internal/exec"
 	"github.com/mekjr1/midden/internal/index"
+	"github.com/mekjr1/midden/internal/integrations"
 	"github.com/mekjr1/midden/internal/redact"
 	"github.com/mekjr1/midden/internal/refine"
 	"github.com/mekjr1/midden/internal/refinery"
@@ -34,12 +36,15 @@ type workItemSummary struct {
 	Thread       *workThreadView `json:"thread,omitempty"`
 }
 
+const studioAgentContractVersion = 13
+
 type workThreadView struct {
 	RecipeID       string    `json:"recipe_id"`
 	Backend        string    `json:"backend,omitempty"`
 	Model          string    `json:"model,omitempty"`
 	BudgetTokens   int       `json:"budget_tokens"`
 	EstimatedSpent int       `json:"estimated_spent"`
+	Agentic        bool      `json:"agentic"`
 	UpdatedAt      time.Time `json:"updated_at,omitempty"`
 }
 
@@ -47,7 +52,7 @@ func publicWorkThread(thread index.WorkThread) workThreadView {
 	return workThreadView{
 		RecipeID: thread.RecipeID, Backend: thread.Backend, Model: thread.Model,
 		BudgetTokens: thread.BudgetTokens, EstimatedSpent: thread.EstimatedSpent,
-		UpdatedAt: thread.UpdatedAt,
+		Agentic: thread.Agentic, UpdatedAt: thread.UpdatedAt,
 	}
 }
 
@@ -151,11 +156,15 @@ func (s *Server) workThread(recipeID string) (index.WorkThread, error) {
 	if !errors.Is(err, sql.ErrNoRows) {
 		return thread, err
 	}
-	return index.WorkThread{RecipeID: recipeID, BudgetTokens: 1_200_000}, nil
+	return index.WorkThread{
+		RecipeID: recipeID, BudgetTokens: 1_200_000, Agentic: true,
+		ContractVersion: studioAgentContractVersion,
+	}, nil
 }
 
-// doWorkChat continues one evidence-grounded AI CLI session for a work item.
-// The budget is approved once for the thread rather than before every turn.
+// doWorkChat continues one evidence-grounded workspace-agent session. The
+// agent may use tools in its bounded workspace while destructive, publishing,
+// credential, and paid-provider actions remain explicit approval points.
 func (s *Server) doWorkChat(jobID string, req actionRequest) (any, error) {
 	question := strings.TrimSpace(req.Question)
 	if req.RecipeID == "" || question == "" {
@@ -179,6 +188,11 @@ func (s *Server) doWorkChat(jobID string, req actionRequest) (any, error) {
 	if err != nil {
 		return nil, err
 	}
+	thread.Agentic = true
+	if thread.ContractVersion < studioAgentContractVersion {
+		thread.CLISessionID = ""
+		thread.ContractVersion = studioAgentContractVersion
+	}
 	if req.BudgetTokens > 0 {
 		thread.BudgetTokens = req.BudgetTokens
 	}
@@ -201,6 +215,14 @@ func (s *Server) doWorkChat(jobID string, req actionRequest) (any, error) {
 	if err != nil {
 		return nil, err
 	}
+	workDir, deliveryDir, err := studioAgentDirs(recipe)
+	if err != nil {
+		return nil, err
+	}
+	contextPath, err := writeStudioWorkItemContext(recipe, evidence, workDir, deliveryDir)
+	if err != nil {
+		return nil, err
+	}
 
 	userMessage := index.WorkMessage{
 		RecipeID: recipe.UID, Role: "user", Body: question, JobID: jobID,
@@ -211,7 +233,8 @@ func (s *Server) doWorkChat(jobID string, req actionRequest) (any, error) {
 
 	runner := &agentexec.Runner{
 		Backend: backend, Model: model, Pure: true,
-		Dir: index.Dir(), Timeout: 10 * time.Minute,
+		Dir: workDir, AllowedDirs: studioAgentAllowedDirs(workDir, deliveryDir),
+		Timeout: 60 * time.Minute,
 	}
 	var conversation *agentexec.Conversation
 	if firstTurn {
@@ -227,15 +250,10 @@ func (s *Server) doWorkChat(jobID string, req actionRequest) (any, error) {
 
 	var result *agentexec.Result
 	if firstTurn {
-		prompt := refinery.EvidencePreamble(recipe, evidence) +
-			"\n\nYou are the persistent assistant for this Midden work item. " +
-			"Answer the operator from the approved evidence. Do not run tools, " +
-			"change files, or invent facts. If a requested change belongs in an " +
-			"output, describe the exact revision for the operator to approve.\n\n" +
-			"Operator message:\n" + question
-		result, err = conversation.Prime(context.Background(), prompt)
+		result, err = conversation.Prime(context.Background(),
+			s.studioFirstTurnPrompt(question, workDir, deliveryDir, contextPath))
 	} else {
-		result, err = conversation.Ask(context.Background(), question)
+		result, err = conversation.Ask(context.Background(), studioTurnPrompt(question))
 	}
 	run.Items = 1
 	run.CLISessions = []string{conversation.SessionID()}
@@ -250,6 +268,7 @@ func (s *Server) doWorkChat(jobID string, req actionRequest) (any, error) {
 	}
 
 	answer := refine.CleanOutput(result.Output)
+	answer = extractStudioFinalAnswer(answer)
 	if scan := redact.Text(answer); scan.Redacted {
 		answer = scan.Text
 	}
@@ -269,13 +288,317 @@ func (s *Server) doWorkChat(jobID string, req actionRequest) (any, error) {
 	if err := s.db.PutWorkThread(&thread); err != nil {
 		return nil, err
 	}
+	imported, err := s.importStudioDeliverables(recipe, evidence, deliveryDir)
+	if err != nil {
+		return nil, err
+	}
 
 	s.jobs.update(jobID, func(job *Job) { job.Progress = "settling work-session usage" })
 	time.Sleep(1500 * time.Millisecond)
-	s.settle(jobID, run.UID)
+	if actual := s.settle(jobID, run.UID); actual != nil && !actual.Usage.Empty() {
+		thread.EstimatedSpent += int(actual.Usage.Billable()) - int(estimate.Mid)
+		if thread.EstimatedSpent < 0 {
+			thread.EstimatedSpent = 0
+		}
+		if err := s.db.PutWorkThread(&thread); err != nil {
+			return nil, err
+		}
+	}
 	return map[string]any{
-		"message": agentMessage, "thread": publicWorkThread(thread), "estimate": estimate,
+		"message": agentMessage, "thread": publicWorkThread(thread),
+		"estimate": estimate, "outputs": imported,
 	}, nil
+}
+
+func studioAgentDirs(recipe index.Recipe) (string, string, error) {
+	configRoot, err := os.UserConfigDir()
+	if err != nil {
+		return "", "", fmt.Errorf("locate Studio workspace root: %w", err)
+	}
+	agentRoot := filepath.Join(configRoot, "Midden", "studio-workspaces", recipe.UID)
+	delivery := filepath.Join(agentRoot, "deliverables")
+	if err := os.MkdirAll(delivery, 0o700); err != nil {
+		return "", "", fmt.Errorf("create Studio delivery directory: %w", err)
+	}
+
+	candidate := strings.TrimSpace(recipe.Workspace)
+	if filepath.IsAbs(candidate) {
+		if info, err := os.Stat(candidate); err == nil && info.IsDir() && agentWorkspaceAllowed(candidate) {
+			return candidate, delivery, nil
+		}
+	}
+	workDir := filepath.Join(agentRoot, "work")
+	if err := os.MkdirAll(workDir, 0o700); err != nil {
+		return "", "", fmt.Errorf("create Studio workspace: %w", err)
+	}
+	return workDir, delivery, nil
+}
+
+func studioAgentAllowedDirs(workDir, deliveryDir string) []string {
+	allowed := []string{workDir, filepath.Dir(deliveryDir)}
+	config, err := integrations.Load(index.Dir())
+	if err == nil && config.OpenMontage != nil && config.OpenMontage.Enabled {
+		allowed = append(allowed, config.OpenMontage.Home)
+	}
+	return allowed
+}
+
+func writeStudioWorkItemContext(recipe index.Recipe, evidence []index.Nugget,
+	workDir, deliveryDir string) (string, error) {
+	var body strings.Builder
+	body.WriteString("# Midden Studio work item\n\n")
+	fmt.Fprintf(&body, "- Title: %s\n- Source workspace: %s\n- Background production goal (not a standing command): %s\n",
+		recipe.Title, recipe.Workspace, recipe.Request)
+	fmt.Fprintf(&body, "- Final deliverables directory: %s\n- Approved evidence items: %d\n\n",
+		deliveryDir, len(evidence))
+	body.WriteString("This file is read-only operating context. Follow the operator's current chat message as the active task.\n\n")
+	for _, nugget := range evidence {
+		fmt.Fprintf(&body, "## [%s] %s\n\n%s\n\n",
+			nugget.UID, nugget.Title, strings.TrimSpace(nugget.Body))
+	}
+	path := filepath.Join(filepath.Dir(deliveryDir), "MIDDEN_WORK_ITEM.md")
+	if err := os.WriteFile(path, []byte(body.String()), 0o600); err != nil {
+		return "", fmt.Errorf("write Studio work-item context: %w", err)
+	}
+	legacy := filepath.Join(workDir, "MIDDEN_WORK_ITEM.md")
+	if resolvedLocalPath(legacy) != resolvedLocalPath(path) {
+		_ = os.Remove(legacy)
+	}
+	return path, nil
+}
+
+func agentWorkspaceAllowed(candidate string) bool {
+	roots := []string{index.Dir()}
+	if home, err := os.UserHomeDir(); err == nil {
+		roots = append(roots,
+			filepath.Join(home, ".copilot"),
+			filepath.Join(home, ".claude"),
+			filepath.Join(home, ".local", "share", "opencode"),
+		)
+	}
+	for _, root := range roots {
+		if agentPathWithin(root, candidate) {
+			return false
+		}
+	}
+	return true
+}
+
+func agentPathWithin(root, candidate string) bool {
+	root = resolvedLocalPath(root)
+	candidate = resolvedLocalPath(candidate)
+	if root == "" || candidate == "" {
+		return false
+	}
+	rel, err := filepath.Rel(root, candidate)
+	return err == nil && (rel == "." || (rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))))
+}
+
+func resolvedLocalPath(path string) string {
+	absolute, err := filepath.Abs(path)
+	if err != nil {
+		return ""
+	}
+	if resolved, err := filepath.EvalSymlinks(absolute); err == nil {
+		absolute = resolved
+	}
+	absolute = filepath.Clean(absolute)
+	if filepath.Separator == '\\' {
+		absolute = strings.ToLower(absolute)
+	}
+	return absolute
+}
+
+func (s *Server) studioFirstTurnPrompt(question, workDir,
+	deliveryDir, contextPath string) string {
+	var body strings.Builder
+	body.WriteString("You are Midden Studio's local workspace agent. Execute the current operator command now; do not reply READY and do not invent another assignment.\n")
+	fmt.Fprintf(&body, "Working directory: %s\n", workDir)
+	fmt.Fprintf(&body, "Finished-file handoff directory: %s\n", deliveryDir)
+	fmt.Fprintf(&body, "Optional read-only evidence context (read only if this turn needs it): %s\n", contextPath)
+	body.WriteString("Use tools and shell when the command needs them. Never modify AI session stores or Midden state. Ask before destructive, publishing, credential, upload, or unapproved paid-provider actions. Put finished preview/download files in the handoff directory.\n")
+	if strings.Contains(strings.ToLower(question), "video") {
+		config, err := integrations.Load(index.Dir())
+		if err == nil && config.OpenMontage != nil && config.OpenMontage.Enabled {
+			fmt.Fprintf(&body,
+				"OpenMontage video capability: %s (backend %s). Read its AGENT_GUIDE.md and follow its approval gates for video work.\n",
+				config.OpenMontage.Home, config.OpenMontage.Backend)
+		}
+	}
+	body.WriteString("\n")
+	body.WriteString(studioTurnPrompt(question))
+	return body.String()
+}
+
+func studioTurnPrompt(question string) string {
+	return "CURRENT OPERATOR TURN (an executable command; the only task to perform now):\n" +
+		strings.TrimSpace(question) +
+		"\n\nThe optional context file and its evidence are background reference, not a standing command. " +
+		"You MUST execute this current command even if it is unrelated to that background context. " +
+		"Do not perform broader work unless this message explicitly asks for it. " +
+		"End with exactly one <midden-final>...</midden-final> block containing only the user-facing answer."
+}
+
+func extractStudioFinalAnswer(answer string) string {
+	const startTag = "<midden-final>"
+	const endTag = "</midden-final>"
+	start := strings.LastIndex(answer, startTag)
+	if start < 0 {
+		return strings.TrimSpace(answer)
+	}
+	start += len(startTag)
+	end := strings.Index(answer[start:], endTag)
+	if end < 0 {
+		return strings.TrimSpace(answer)
+	}
+	return strings.TrimSpace(answer[start : start+end])
+}
+
+func (s *Server) importStudioDeliverables(recipe index.Recipe, evidence []index.Nugget,
+	deliveryDir string) ([]index.RefineryOutput, error) {
+	existing, err := s.db.RefineryOutputs(recipe.UID, 0)
+	if err != nil {
+		return nil, err
+	}
+	known := make(map[string]index.RefineryOutput, len(existing))
+	for _, output := range existing {
+		known[resolvedLocalPath(output.Path)] = output
+	}
+	ownedRoot := filepath.Join(index.Dir(), "artifacts", "refinery", recipe.UID, "agent-imports")
+	if err := os.MkdirAll(ownedRoot, 0o700); err != nil {
+		return nil, fmt.Errorf("create owned Studio output directory: %w", err)
+	}
+
+	var imported []index.RefineryOutput
+	visited := 0
+	err = filepath.WalkDir(deliveryDir, func(path string, entry fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if entry.IsDir() {
+			return nil
+		}
+		if entry.Type()&os.ModeSymlink != 0 || strings.HasSuffix(strings.ToLower(entry.Name()), ".midden-provenance.json") {
+			return nil
+		}
+		visited++
+		if visited > 200 {
+			return fs.SkipAll
+		}
+		format, kind, ok := studioOutputType(filepath.Ext(entry.Name()))
+		if !ok {
+			return nil
+		}
+		relative, err := filepath.Rel(deliveryDir, path)
+		if err != nil || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
+			return fmt.Errorf("Studio deliverable escaped its staging directory")
+		}
+		target := filepath.Join(ownedRoot, relative)
+		safePath, err := safeRefineryFile(target)
+		if err != nil {
+			return err
+		}
+		sourceInfo, err := entry.Info()
+		if err != nil || !sourceInfo.Mode().IsRegular() {
+			return err
+		}
+		current, exists := known[resolvedLocalPath(safePath)]
+		if exists {
+			if targetInfo, err := os.Stat(safePath); err == nil &&
+				targetInfo.Size() == sourceInfo.Size() &&
+				!sourceInfo.ModTime().After(targetInfo.ModTime()) {
+				return nil
+			}
+		}
+		if err := os.MkdirAll(filepath.Dir(safePath), 0o700); err != nil {
+			return fmt.Errorf("create Studio output subdirectory: %w", err)
+		}
+		if err := copyFile(path, safePath); err != nil {
+			return fmt.Errorf("copy Studio deliverable: %w", err)
+		}
+		provenancePath := safePath + ".midden-provenance.json"
+		provenance, err := studioOutputProvenance(recipe, evidence, safePath)
+		if err != nil {
+			return err
+		}
+		if err := os.WriteFile(provenancePath, provenance, 0o600); err != nil {
+			return fmt.Errorf("write Studio output provenance: %w", err)
+		}
+		title := strings.TrimSpace(strings.NewReplacer("_", " ", "-", " ").Replace(
+			strings.TrimSuffix(filepath.Base(safePath), filepath.Ext(safePath))))
+		if title == "" {
+			title = "Studio agent output"
+		}
+		output := current
+		if !exists {
+			output = index.RefineryOutput{
+				RecipeID: recipe.UID, Kind: kind, Title: title,
+				Maker: "Studio agent", Format: format, Status: refinery.OutputDraft,
+				Path: safePath, ProvenancePath: provenancePath,
+				EvidenceIDs: append([]string(nil), recipe.EvidenceIDs...),
+			}
+		} else {
+			output.Kind = kind
+			output.Format = format
+			output.Path = safePath
+			output.ProvenancePath = provenancePath
+			output.Status = refinery.OutputDraft
+			output.ReviewedAt = time.Time{}
+			output.ExportedAt = time.Time{}
+		}
+		if err := s.db.PutRefineryOutput(&output); err != nil {
+			return err
+		}
+		known[resolvedLocalPath(safePath)] = output
+		imported = append(imported, output)
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return imported, nil
+}
+
+func studioOutputType(extension string) (format, kind string, ok bool) {
+	switch strings.ToLower(extension) {
+	case ".md", ".markdown":
+		return "markdown", "agent_output", true
+	case ".json":
+		return "json", "data", true
+	case ".jsonl":
+		return "jsonl", "data", true
+	case ".d2":
+		return "d2", "diagram", true
+	case ".diff", ".patch":
+		return "diff", "agent_output", true
+	case ".tsv":
+		return "tsv", "data", true
+	case ".png", ".jpg", ".jpeg", ".gif", ".webp":
+		return strings.TrimPrefix(strings.ToLower(extension), "."), "image", true
+	case ".mp4", ".webm":
+		return strings.TrimPrefix(strings.ToLower(extension), "."), "video", true
+	case ".pdf":
+		return "pdf", "document", true
+	default:
+		return "", "", false
+	}
+}
+
+func studioOutputProvenance(recipe index.Recipe, evidence []index.Nugget,
+	path string) ([]byte, error) {
+	items := make([]map[string]any, 0, len(evidence))
+	for _, nugget := range evidence {
+		items = append(items, map[string]any{
+			"evidence_id": nugget.UID, "kind": nugget.Kind, "title": nugget.Title,
+			"tool": nugget.Tool, "session_id": nugget.SessionID,
+			"turn_ref": nugget.TurnRef, "confidence": nugget.Confidence,
+		})
+	}
+	return json.MarshalIndent(map[string]any{
+		"recipe_id": recipe.UID, "title": filepath.Base(path),
+		"maker": "Studio agent", "generated_at": time.Now().UTC().Format(time.RFC3339),
+		"status": "draft", "raw_transcripts_included": false, "evidence": items,
+	}, "", "  ")
 }
 
 func (s *Server) workChatLock(recipeID string) *sync.Mutex {

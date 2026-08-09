@@ -93,6 +93,20 @@ func TestDesignRequiresReclaimedEvidence(t *testing.T) {
 	}
 }
 
+func TestDesignUsesOneFocusedFallbackOutput(t *testing.T) {
+	recipe, err := Design("Create a short note from this evidence.", "", nil,
+		[]index.Nugget{{
+			UID: "n1", Kind: "decision", Title: "Keep it focused",
+			Body: "One clear output is easier to review.", Confidence: .9,
+		}}, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(recipe.Outputs) != 1 || recipe.Outputs[0].Kind != "tutorial" {
+		t.Fatalf("fallback outputs=%#v", recipe.Outputs)
+	}
+}
+
 func TestDeterministicPacksCarryProvenanceWithoutRawTranscripts(t *testing.T) {
 	nuggets := []index.Nugget{
 		{

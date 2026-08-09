@@ -54,6 +54,8 @@ CREATE TABLE IF NOT EXISTS work_threads (
   backend         TEXT,
   model           TEXT,
   cli_session_id  TEXT,
+  agentic         INTEGER NOT NULL DEFAULT 1,
+  contract_version INTEGER NOT NULL DEFAULT 13,
   budget_tokens   INTEGER NOT NULL DEFAULT 1200000,
   estimated_spent INTEGER NOT NULL DEFAULT 0,
   created_at      INTEGER NOT NULL,
@@ -75,8 +77,63 @@ CREATE INDEX IF NOT EXISTS idx_work_messages_recipe
 `
 
 func (d *DB) migrateWorkbench() error {
-	_, err := d.sql.Exec(workbenchSchema)
+	if _, err := d.sql.Exec(workbenchSchema); err != nil {
+		return err
+	}
+	if err := d.ensureWorkThreadColumns(); err != nil {
+		return err
+	}
+	// Threads created by older builds were primed as read-only advisors.
+	// Reset only those sessions so their next turn receives the agentic
+	// workspace contract instead of resuming contradictory instructions.
+	_, err := d.sql.Exec(`
+		UPDATE work_threads
+		SET agentic=1, cli_session_id='', updated_at=?
+		WHERE agentic=0`, time.Now().Unix())
 	return err
+}
+
+func (d *DB) ensureWorkThreadColumns() error {
+	rows, err := d.sql.Query(`PRAGMA table_info(work_threads)`)
+	if err != nil {
+		return err
+	}
+	hasAgentic := false
+	hasContractVersion := false
+	for rows.Next() {
+		var cid int
+		var name, columnType string
+		var notNull, primaryKey int
+		var defaultValue any
+		if err := rows.Scan(&cid, &name, &columnType, &notNull, &defaultValue, &primaryKey); err != nil {
+			rows.Close()
+			return err
+		}
+		if name == "agentic" {
+			hasAgentic = true
+		}
+		if name == "contract_version" {
+			hasContractVersion = true
+		}
+	}
+	if err := rows.Close(); err != nil {
+		return err
+	}
+	if !hasAgentic {
+		if _, err := d.sql.Exec(`ALTER TABLE work_threads ADD COLUMN agentic INTEGER NOT NULL DEFAULT 0`); err != nil {
+			if !strings.Contains(strings.ToLower(err.Error()), "duplicate column") {
+				return fmt.Errorf("add work_threads.agentic: %w", err)
+			}
+		}
+	}
+	if !hasContractVersion {
+		if _, err := d.sql.Exec(`ALTER TABLE work_threads ADD COLUMN contract_version INTEGER NOT NULL DEFAULT 0`); err != nil {
+			if !strings.Contains(strings.ToLower(err.Error()), "duplicate column") {
+				return fmt.Errorf("add work_threads.contract_version: %w", err)
+			}
+		}
+	}
+	return nil
 }
 
 // StoredJob is the durable representation of a web background operation.
@@ -429,14 +486,16 @@ func (d *DB) RecoveryRunsPage(limit, offset int) ([]RecoveryRun, int, error) {
 // WorkThread binds one refinery recipe to one resumable AI CLI session and a
 // cumulative budget envelope.
 type WorkThread struct {
-	RecipeID       string    `json:"recipe_id"`
-	Backend        string    `json:"backend,omitempty"`
-	Model          string    `json:"model,omitempty"`
-	CLISessionID   string    `json:"cli_session_id,omitempty"`
-	BudgetTokens   int       `json:"budget_tokens"`
-	EstimatedSpent int       `json:"estimated_spent"`
-	CreatedAt      time.Time `json:"created_at"`
-	UpdatedAt      time.Time `json:"updated_at"`
+	RecipeID        string    `json:"recipe_id"`
+	Backend         string    `json:"backend,omitempty"`
+	Model           string    `json:"model,omitempty"`
+	CLISessionID    string    `json:"cli_session_id,omitempty"`
+	Agentic         bool      `json:"agentic"`
+	ContractVersion int       `json:"contract_version"`
+	BudgetTokens    int       `json:"budget_tokens"`
+	EstimatedSpent  int       `json:"estimated_spent"`
+	CreatedAt       time.Time `json:"created_at"`
+	UpdatedAt       time.Time `json:"updated_at"`
 }
 
 func (d *DB) PutWorkThread(thread *WorkThread) error {
@@ -453,38 +512,49 @@ func (d *DB) PutWorkThread(thread *WorkThread) error {
 	}
 	_, err := d.sql.Exec(`
 		INSERT INTO work_threads
-		  (recipe_id,backend,model,cli_session_id,budget_tokens,estimated_spent,
-		   created_at,updated_at)
-		VALUES (?,?,?,?,?,?,?,?)
+		  (recipe_id,backend,model,cli_session_id,agentic,contract_version,
+		   budget_tokens,estimated_spent,created_at,updated_at)
+		VALUES (?,?,?,?,?,?,?,?,?,?)
 		ON CONFLICT(recipe_id) DO UPDATE SET
 		  backend=excluded.backend, model=excluded.model,
 		  cli_session_id=excluded.cli_session_id,
+		  agentic=excluded.agentic,
+		  contract_version=excluded.contract_version,
 		  budget_tokens=excluded.budget_tokens,
 		  estimated_spent=excluded.estimated_spent,
 		  updated_at=excluded.updated_at`,
 		thread.RecipeID, thread.Backend, thread.Model, thread.CLISessionID,
-		thread.BudgetTokens, thread.EstimatedSpent, thread.CreatedAt.Unix(),
-		thread.UpdatedAt.Unix())
+		boolInt(thread.Agentic), thread.ContractVersion, thread.BudgetTokens,
+		thread.EstimatedSpent, thread.CreatedAt.Unix(), thread.UpdatedAt.Unix())
 	return err
 }
 
 func (d *DB) WorkThread(recipeID string) (WorkThread, error) {
 	var thread WorkThread
 	var created, updated int64
+	var agentic int
 	err := d.sql.QueryRow(`
 		SELECT recipe_id,COALESCE(backend,''),COALESCE(model,''),
-		       COALESCE(cli_session_id,''),budget_tokens,estimated_spent,
-		       created_at,updated_at
+		       COALESCE(cli_session_id,''),agentic,contract_version,budget_tokens,
+		       estimated_spent,created_at,updated_at
 		FROM work_threads WHERE recipe_id = ?`, recipeID).
 		Scan(&thread.RecipeID, &thread.Backend, &thread.Model,
-			&thread.CLISessionID, &thread.BudgetTokens,
+			&thread.CLISessionID, &agentic, &thread.ContractVersion, &thread.BudgetTokens,
 			&thread.EstimatedSpent, &created, &updated)
 	if err != nil {
 		return thread, err
 	}
+	thread.Agentic = agentic != 0
 	thread.CreatedAt = time.Unix(created, 0)
 	thread.UpdatedAt = time.Unix(updated, 0)
 	return thread, nil
+}
+
+func boolInt(value bool) int {
+	if value {
+		return 1
+	}
+	return 0
 }
 
 type WorkMessage struct {

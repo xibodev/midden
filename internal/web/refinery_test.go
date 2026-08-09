@@ -435,14 +435,115 @@ func TestEmbeddedUIContainsPersistentWorkbench(t *testing.T) {
 	}
 	js := string(body)
 	for _, want := range []string{
-		"work_chat", "Same session", "session_ids", "previewEvidenceExtraction",
+		"work_chat", "Same agent session", "session_ids", "previewEvidenceExtraction",
 		"renderTaskDock", "renderOwnedPreview", "openCleanupCandidate",
 		"recoverPageSize", "libraryPageSize", "cleanupPageSize",
-		"pageSlice", "pager",
+		"pageSlice", "pager", "Create video", "Browse folder",
+		"workRailCollapsed", "Save & test", "send.type = 'submit'",
+		"workspaceOptions(false, true)", "over budget",
 	} {
 		if !strings.Contains(js, want) {
 			t.Errorf("app.js missing %q", want)
 		}
+	}
+}
+
+func TestStudioAgentImportsVideoWithoutReadingBinaryBody(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("MIDDEN_HOME", home)
+	db, err := index.Open()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	recipe := index.Recipe{Title: "Video work item"}
+	if err := db.PutRecipe(&recipe); err != nil {
+		t.Fatal(err)
+	}
+	server := &Server{db: db, cache: newSnapshotCache(), jobs: NewJobs()}
+	workDir, delivery, err := studioAgentDirs(recipe)
+	if err != nil {
+		t.Fatal(err)
+	}
+	contextPath, err := writeStudioWorkItemContext(recipe, nil, workDir, delivery)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if body, err := os.ReadFile(contextPath); err != nil ||
+		!strings.Contains(string(body), "Video work item") {
+		t.Fatalf("work-item context body=%q err=%v", body, err)
+	}
+	videoPath := filepath.Join(delivery, "final-render.mp4")
+	if err := os.WriteFile(videoPath, []byte{0, 1, 2, 3, 255}, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	imported, err := server.importStudioDeliverables(recipe, nil, delivery)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(imported) != 1 || imported[0].Format != "mp4" || imported[0].Kind != "video" {
+		t.Fatalf("imported=%#v", imported)
+	}
+	if imported[0].Path == videoPath ||
+		!strings.Contains(imported[0].Path, filepath.Join("artifacts", "refinery")) {
+		t.Fatalf("deliverable was not copied into Midden ownership: %#v", imported[0])
+	}
+	if _, err := os.Stat(imported[0].ProvenancePath); err != nil {
+		t.Fatalf("provenance missing: %v", err)
+	}
+	repeated, err := server.importStudioDeliverables(recipe, nil, delivery)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(repeated) != 0 {
+		t.Fatalf("duplicate imports=%#v", repeated)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/refinery/output?id="+imported[0].UID, nil)
+	rec := httptest.NewRecorder()
+	server.handleRefineryOutput(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	var payload struct {
+		Body   string `json:"body"`
+		Binary bool   `json:"binary"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if !payload.Binary || payload.Body != "" {
+		t.Fatalf("binary response=%#v", payload)
+	}
+	if _, err := server.reviewRefineryOutput(refineryActionRequest{
+		OutputID: imported[0].UID, Decision: refinery.OutputReviewed,
+	}); err != nil {
+		t.Fatalf("review binary output: %v", err)
+	}
+	reviewed, err := db.RefineryOutput(imported[0].UID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reviewed.Status != refinery.OutputReviewed || reviewed.ReviewedAt.IsZero() {
+		t.Fatalf("reviewed binary=%#v", reviewed)
+	}
+}
+
+func TestExtractStudioFinalAnswerRemovesToolTranscript(t *testing.T) {
+	answer := "tool log\nmore noise\n<midden-final>Ready for review.</midden-final>\ntrailing noise"
+	if got := extractStudioFinalAnswer(answer); got != "Ready for review." {
+		t.Fatalf("final answer=%q", got)
+	}
+	if got := extractStudioFinalAnswer("plain answer"); got != "plain answer" {
+		t.Fatalf("plain answer=%q", got)
+	}
+	turn := studioTurnPrompt("Print the current directory.")
+	if !strings.Contains(turn, "the only task to perform now") ||
+		!strings.Contains(turn, "You MUST execute") ||
+		!strings.Contains(turn, "not a standing command") ||
+		!strings.Contains(turn, "Print the current directory.") {
+		t.Fatalf("turn prompt=%q", turn)
 	}
 }
 

@@ -199,7 +199,9 @@ See [Optional integrations](INTEGRATIONS.md).
 
 The configured home must be an absolute local path. Follow OpenMontage's
 upstream setup and ensure its Python, Node, FFmpeg, and selected agentic CLI
-requirements are satisfied. Midden does not install those dependencies.
+requirements are satisfied. Tools → OpenMontage can browse for the repository
+and **Save & test** reports the first missing prerequisite. Midden does not
+silently install those dependencies.
 
 ## Reporting a problem safely
 

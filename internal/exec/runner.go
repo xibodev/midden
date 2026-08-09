@@ -21,10 +21,13 @@ package exec
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 	"time"
 )
@@ -44,6 +47,11 @@ type Runner struct {
 	Model   string
 	Dir     string
 	Timeout time.Duration
+
+	// AllowedDirs bounds Copilot's filesystem access for tool-capable runs.
+	// An empty list preserves the legacy all-paths behavior used by existing
+	// non-workspace callers.
+	AllowedDirs []string
 
 	// Pure strips MCP servers and plugins. On by default for salvage.
 	Pure bool
@@ -103,7 +111,7 @@ type Result struct {
 func (r *Runner) argv(prompt string) []string {
 	switch r.Backend {
 	case Copilot:
-		a := []string{"--prompt", prompt, "--allow-all-tools", "--allow-all-paths"}
+		a := r.copilotRuntimeArgs()
 		if r.Model != "" {
 			a = append(a, "--model", r.Model)
 		}
@@ -112,7 +120,7 @@ func (r *Runner) argv(prompt string) []string {
 			// are loaded into context.
 			a = append(a, "--additional-mcp-config", emptyMCPConfig)
 		}
-		return a
+		return append(a, "--prompt", prompt)
 
 	case Claude:
 		a := []string{"--print", prompt}
@@ -137,6 +145,60 @@ func (r *Runner) argv(prompt string) []string {
 	return nil
 }
 
+func (r *Runner) copilotRuntimeArgs() []string {
+	args := []string{
+		"--allow-all-tools", "--no-ask-user", "--silent", "--no-color",
+		"--output-format", "json", "--no-custom-instructions",
+	}
+	if r.Pure {
+		args = append(args, "--disable-builtin-mcps")
+		for _, name := range configuredCopilotMCPServers() {
+			args = append(args, "--disable-mcp-server", name)
+		}
+	}
+	if r.Dir != "" {
+		args = append(args, "-C", r.Dir)
+	}
+	if len(r.AllowedDirs) == 0 {
+		return append(args, "--allow-all-paths")
+	}
+	seen := map[string]bool{}
+	for _, dir := range r.AllowedDirs {
+		dir = strings.TrimSpace(dir)
+		if dir == "" || seen[dir] {
+			continue
+		}
+		seen[dir] = true
+		args = append(args, "--add-dir", dir)
+	}
+	return args
+}
+
+func configuredCopilotMCPServers() []string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return nil
+	}
+	body, err := os.ReadFile(filepath.Join(home, ".copilot", "mcp-config.json"))
+	if err != nil || len(body) > 1<<20 {
+		return nil
+	}
+	var config struct {
+		Servers map[string]json.RawMessage `json:"mcpServers"`
+	}
+	if json.Unmarshal(body, &config) != nil {
+		return nil
+	}
+	names := make([]string, 0, len(config.Servers))
+	for name := range config.Servers {
+		if name = strings.TrimSpace(name); name != "" {
+			names = append(names, name)
+		}
+	}
+	sort.Strings(names)
+	return names
+}
+
 // maxInlinePrompt bounds how much prompt text is passed as a command-line
 // argument.
 //
@@ -145,11 +207,13 @@ func (r *Runner) argv(prompt string) []string {
 // is written to a file and referenced instead, which every backend can read.
 const maxInlinePrompt = 5000
 
-// stage writes an oversized prompt to a file and returns a short instruction
-// that points at it, plus a cleanup function.
+// stage writes an oversized or multiline prompt to a file and returns a short
+// instruction that points at it, plus a cleanup function. Windows command
+// wrappers can truncate an argv value at the first newline even when the total
+// prompt is small.
 func (r *Runner) stage(prompt string) (string, func(), error) {
 	noop := func() {}
-	if len(prompt) <= maxInlinePrompt {
+	if len(prompt) <= maxInlinePrompt && !strings.ContainsAny(prompt, "\r\n") {
 		return prompt, noop, nil
 	}
 
@@ -222,6 +286,9 @@ func (r *Runner) Run(ctx context.Context, prompt string) (*Result, error) {
 		Command: display,
 		Elapsed: time.Since(start),
 	}
+	if r.Backend == Copilot {
+		res.Output = copilotFinalAnswer(res.Output)
+	}
 
 	if err != nil {
 		if ee, ok := err.(*exec.ExitError); ok {
@@ -238,6 +305,35 @@ func (r *Runner) Run(ctx context.Context, prompt string) (*Result, error) {
 		// was produced rather than discarding useful work.
 	}
 	return res, nil
+}
+
+func copilotFinalAnswer(output string) string {
+	final := ""
+	for _, line := range strings.Split(output, "\n") {
+		line = strings.TrimSpace(line)
+		if !strings.HasPrefix(line, "{") {
+			continue
+		}
+		var event struct {
+			Type string `json:"type"`
+			Data struct {
+				Content string `json:"content"`
+				Phase   string `json:"phase"`
+			} `json:"data"`
+		}
+		if json.Unmarshal([]byte(line), &event) != nil {
+			continue
+		}
+		if event.Type == "assistant.message" &&
+			(event.Data.Phase == "" || event.Data.Phase == "final_answer") &&
+			strings.TrimSpace(event.Data.Content) != "" {
+			final = strings.TrimSpace(event.Data.Content)
+		}
+	}
+	if final != "" {
+		return final
+	}
+	return strings.TrimSpace(output)
 }
 
 // summarise renders an argv for display without dumping an entire prompt.
