@@ -86,6 +86,24 @@ func TestSniffingIsDisabled(t *testing.T) {
 	}
 }
 
+func TestLoopbackResponsesDenyFramesAndInlineInjection(t *testing.T) {
+	h := localOnly(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusNoContent) }))
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.RemoteAddr = "127.0.0.1:1"
+	req.Host = "127.0.0.1:7777"
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if got := rec.Header().Get("X-Frame-Options"); got != "DENY" {
+		t.Fatalf("X-Frame-Options=%q", got)
+	}
+	csp := rec.Header().Get("Content-Security-Policy")
+	for _, want := range []string{"default-src 'self'", "frame-ancestors 'none'", "object-src 'none'", "connect-src 'self'"} {
+		if !strings.Contains(csp, want) {
+			t.Errorf("CSP=%q missing %q", csp, want)
+		}
+	}
+}
+
 func TestUIAssetsAreEmbedded(t *testing.T) {
 	// The UI ships inside the binary; a missing asset would only show up at
 	// runtime otherwise.
@@ -521,5 +539,29 @@ func TestSessionsHandlerPaginatesSearchesAndSortsByConsequence(t *testing.T) {
 	}
 	if stats["target"].(float64) != 1 {
 		t.Fatalf("stats=%#v", stats)
+	}
+}
+
+func TestCompactDesktopKeepsPersistentNavigation(t *testing.T) {
+	css, err := uiFS.ReadFile("ui/app.css")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"min-width: 821px", "max-width: 1180px", "max-width: 820px"} {
+		if !strings.Contains(string(css), want) {
+			t.Errorf("compact desktop CSS missing %q", want)
+		}
+	}
+}
+
+func TestEmbeddedUIUsesPagedLiveActivityJobs(t *testing.T) {
+	js, err := uiFS.ReadFile("ui/app.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"/api/jobs?limit=40", "activityJobs", "jobsTotal"} {
+		if !strings.Contains(string(js), want) {
+			t.Errorf("Activity UI missing %q", want)
+		}
 	}
 }

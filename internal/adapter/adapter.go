@@ -6,9 +6,11 @@
 package adapter
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 
 	"github.com/mekjr1/midden/internal/core"
 )
@@ -41,6 +43,64 @@ func Find(t core.Tool) core.Adapter {
 		}
 	}
 	return nil
+}
+
+// CollectExact resolves composite tool:id selections without collecting every
+// installed adapter. The caller gets only the requested tool stores and exact
+// IDs; a missing or ambiguous selection is an error rather than a widened
+// recovery scope.
+func CollectExact(keys []string) ([]core.Session, []error) {
+	return collectExactFrom(keys, All())
+}
+
+func collectExactFrom(keys []string, adapters []core.Adapter) ([]core.Session, []error) {
+	wanted := map[core.Tool]map[string]bool{}
+	for _, key := range keys {
+		parts := strings.SplitN(strings.TrimSpace(key), ":", 2)
+		if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
+			return nil, []error{fmt.Errorf("invalid exact session key %q", key)}
+		}
+		tool := core.Tool(parts[0])
+		if tool != core.ToolCopilot && tool != core.ToolClaude && tool != core.ToolOpencode {
+			return nil, []error{fmt.Errorf("unknown session tool %q", parts[0])}
+		}
+		if wanted[tool] == nil {
+			wanted[tool] = map[string]bool{}
+		}
+		wanted[tool][parts[1]] = true
+	}
+
+	found := map[string]bool{}
+	var out []core.Session
+	var errs []error
+	for _, adapter := range adapters {
+		ids := wanted[adapter.Tool()]
+		if len(ids) == 0 {
+			continue
+		}
+		requested := make([]string, 0, len(ids))
+		for id := range ids {
+			requested = append(requested, id)
+		}
+		sessions, err := adapter.Sessions(core.Scope{Tools: []core.Tool{adapter.Tool()}, IDs: requested, IncludeNoise: true})
+		if err != nil {
+			errs = append(errs, err)
+		}
+		for _, session := range sessions {
+			if ids[session.ID] {
+				out = append(out, session)
+				found[string(adapter.Tool())+":"+session.ID] = true
+			}
+		}
+	}
+	for tool, ids := range wanted {
+		for id := range ids {
+			if !found[string(tool)+":"+id] {
+				errs = append(errs, fmt.Errorf("exact session not found: %s:%s", tool, id))
+			}
+		}
+	}
+	return out, errs
 }
 
 // Collect gathers sessions from every available adapter in scope, newest

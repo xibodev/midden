@@ -98,7 +98,7 @@ func (c *Claude) Sessions(sc core.Scope) ([]core.Session, error) {
 		}
 
 		id := strings.TrimSuffix(d.Name(), ".jsonl")
-		if strings.HasPrefix(id, "agent-") || id == "journal" {
+		if strings.HasPrefix(id, "agent-") || id == "journal" || !sc.WantsID(id) {
 			return nil
 		}
 

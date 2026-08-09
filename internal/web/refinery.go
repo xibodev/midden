@@ -739,6 +739,16 @@ func mineScope(req actionRequest) core.Scope {
 	return scope
 }
 
+func collectMineSessions(req actionRequest, scope core.Scope) ([]core.Session, []error) {
+	if len(req.SessionKeys) > 0 {
+		// Exact keys carry the tool identity, so never enumerate every
+		// installed adapter just to filter the selection afterward.
+		return adapter.CollectExact(req.SessionKeys)
+	}
+	sessions, collected := adapter.CollectDetailed(scope)
+	return req.filterExactSessions(sessions), collected.Errors
+}
+
 func (s *Server) doMine(id string, req actionRequest) (any, error) {
 	scope := mineScope(req)
 	lock, err := s.acquireScanLockForJob(id, 2*time.Minute)
@@ -748,10 +758,9 @@ func (s *Server) doMine(id string, req actionRequest) (any, error) {
 	defer lock.Release()
 
 	s.jobs.update(id, func(job *Job) { job.Progress = "reading session sources" })
-	sessions, collected := adapter.CollectDetailed(scope)
-	sessions = req.filterExactSessions(sessions)
-	if len(sessions) == 0 && len(collected.Errors) > 0 {
-		return nil, collected.Errors[0]
+	sessions, collectionErrors := collectMineSessions(req, scope)
+	if (len(req.SessionKeys) > 0 || len(sessions) == 0) && len(collectionErrors) > 0 {
+		return nil, collectionErrors[0]
 	}
 	generation, err := s.db.NextScanGeneration()
 	if err != nil {
@@ -803,7 +812,7 @@ func (s *Server) doMine(id string, req actionRequest) (any, error) {
 		result.Assayed++
 		result.Bytes += manifest.TotalBytes
 	}
-	for _, err := range collected.Errors {
+	for _, err := range collectionErrors {
 		result.Errors = append(result.Errors, err.Error())
 	}
 	s.cache.invalidate()

@@ -216,3 +216,38 @@ func TestRoDSNIsReadOnly(t *testing.T) {
 		t.Error("DSN must escape spaces")
 	}
 }
+
+type exactSpyAdapter struct {
+	tool     core.Tool
+	sessions []core.Session
+	calls    int
+}
+
+func (a *exactSpyAdapter) Tool() core.Tool { return a.tool }
+func (*exactSpyAdapter) Available() bool   { return true }
+func (a *exactSpyAdapter) Sessions(scope core.Scope) ([]core.Session, error) {
+	a.calls++
+	var out []core.Session
+	for _, session := range a.sessions {
+		if scope.Match(session) {
+			out = append(out, session)
+		}
+	}
+	return out, nil
+}
+func (*exactSpyAdapter) ResumeCmd(core.Session, string) string { return "" }
+func (*exactSpyAdapter) Footprint() int64                      { return 0 }
+
+func TestCollectExactOnlyReadsSelectedToolAndIDs(t *testing.T) {
+	claude := &exactSpyAdapter{tool: core.ToolClaude, sessions: []core.Session{
+		{Tool: core.ToolClaude, ID: "selected"}, {Tool: core.ToolClaude, ID: "other"},
+	}}
+	copilot := &exactSpyAdapter{tool: core.ToolCopilot, sessions: []core.Session{{Tool: core.ToolCopilot, ID: "unselected"}}}
+	got, errs := collectExactFrom([]string{"claude:selected"}, []core.Adapter{copilot, claude})
+	if len(errs) != 0 || len(got) != 1 || got[0].ID != "selected" {
+		t.Fatalf("sessions=%#v errors=%v", got, errs)
+	}
+	if claude.calls != 1 || copilot.calls != 0 {
+		t.Fatalf("selected calls=%d unselected calls=%d", claude.calls, copilot.calls)
+	}
+}

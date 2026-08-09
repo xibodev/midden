@@ -86,6 +86,9 @@ func (c *Copilot) Sessions(sc core.Scope) ([]core.Session, error) {
 		if err := rows.Scan(&id, &cwd, &title, &repo, &createdS, &updatedS, &turns); err != nil {
 			return nil, err
 		}
+		if !sc.WantsID(id) {
+			continue
+		}
 
 		s := core.Session{
 			Tool:           core.ToolCopilot,

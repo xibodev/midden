@@ -100,6 +100,9 @@ func (o *Opencode) Sessions(sc core.Scope) ([]core.Session, error) {
 		if err := rows.Scan(&id, &dir, &title, &createdMS, &updatedMS, &archivedMS, &msgs); err != nil {
 			return nil, err
 		}
+		if !sc.WantsID(id) {
+			continue
+		}
 
 		display := core.CleanTitle(title)
 		if archivedMS > 0 {

@@ -18,6 +18,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -65,9 +66,11 @@ type Job struct {
 
 // Jobs tracks running and finished work.
 type Jobs struct {
-	mu   sync.RWMutex
-	jobs map[string]*Job
-	db   *index.DB
+	mu           sync.RWMutex
+	jobs         map[string]*Job
+	db           *index.DB
+	lease        *jobLeaseManager
+	startupError error
 }
 
 func NewJobs(dbs ...*index.DB) *Jobs {
@@ -75,10 +78,25 @@ func NewJobs(dbs ...*index.DB) *Jobs {
 	if len(dbs) > 0 {
 		jobs.db = dbs[0]
 		if jobs.db != nil {
-			_ = jobs.db.InterruptBackgroundJobs()
+			lease, err := newJobLeaseManager(jobs.db)
+			if err != nil {
+				jobs.startupError = err
+			} else {
+				jobs.lease = lease
+				if err := lease.recoverStaleJobs(); err != nil {
+					jobs.startupError = err
+				}
+			}
 		}
 	}
 	return jobs
+}
+
+// Close stops this instance heartbeat during orderly server shutdown.
+func (j *Jobs) Close() {
+	if j.lease != nil {
+		j.lease.Close()
+	}
 }
 
 func (j *Jobs) create(op, scope string) *Job {
@@ -93,7 +111,13 @@ func (j *Jobs) create(op, scope string) *Job {
 	j.jobs[job.ID] = job
 	copy := *job
 	j.mu.Unlock()
-	j.persist(copy)
+	if err := j.persist(copy); err != nil {
+		j.markPersistenceFailure(job.ID, err)
+	} else if j.lease != nil {
+		if err := j.lease.Claim(job.ID); err != nil {
+			j.markOwnershipFailure(job.ID, err)
+		}
+	}
 	return job
 }
 
@@ -107,7 +131,49 @@ func (j *Jobs) update(id string, fn func(*Job)) {
 	fn(job)
 	copy := *job
 	j.mu.Unlock()
-	j.persist(copy)
+	if err := j.persist(copy); err != nil {
+		j.markPersistenceFailure(id, err)
+		return
+	}
+	if (copy.Status == Done || copy.Status == Failed) && j.lease != nil {
+		j.lease.Release(id)
+	}
+}
+
+func (j *Jobs) markPersistenceFailure(id string, err error) {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	job, ok := j.jobs[id]
+	if !ok {
+		return
+	}
+	job.Status = Failed
+	job.Progress = "persistence failed"
+	if job.Error == "" {
+		job.Error = fmt.Sprintf("could not persist job state: %v", err)
+	} else if !strings.Contains(job.Error, "could not persist job state") {
+		job.Error += fmt.Sprintf("; could not persist job state: %v", err)
+	}
+	if job.Ended.IsZero() {
+		job.Ended = time.Now()
+	}
+}
+
+func (j *Jobs) markOwnershipFailure(id string, err error) {
+	j.mu.Lock()
+	job, ok := j.jobs[id]
+	var copy Job
+	if ok {
+		job.Status = Failed
+		job.Progress = "ownership unavailable"
+		job.Error = fmt.Sprintf("could not establish job ownership: %v", err)
+		job.Ended = time.Now()
+		copy = *job
+	}
+	j.mu.Unlock()
+	if ok {
+		_ = j.persist(copy)
+	}
 }
 
 func (j *Jobs) get(id string) (*Job, bool) {
@@ -131,44 +197,128 @@ func (j *Jobs) get(id string) (*Job, bool) {
 }
 
 func (j *Jobs) list() []*Job {
-	if j.db != nil {
-		stored, err := j.db.BackgroundJobs(40)
-		if err == nil {
-			out := make([]*Job, 0, len(stored))
-			for _, job := range stored {
-				out = append(out, jobFromStored(job))
-			}
-			return out
-		}
+	jobs, _ := j.page(40, 0)
+	return jobs
+}
+
+// page overlays live state over durable history. A running operation can move
+// through several progress updates before SQLite returns the latest row; the
+// operator must see the owned in-memory state rather than a stale durable copy.
+func (j *Jobs) page(limit, offset int) ([]*Job, int) {
+	if limit <= 0 {
+		limit = 40
+	}
+	if limit > 50 {
+		limit = 50
+	}
+	if offset < 0 {
+		offset = 0
 	}
 
 	j.mu.RLock()
-	defer j.mu.RUnlock()
-	out := make([]*Job, 0, len(j.jobs))
-	for _, job := range j.jobs {
-		c := *job
-		out = append(out, &c)
+	startupError := j.startupError
+	live := make(map[string]Job, len(j.jobs))
+	for id, job := range j.jobs {
+		live[id] = *job
+	}
+	j.mu.RUnlock()
+
+	if j.db == nil {
+		return j.memoryPage(live, startupError, limit, offset)
+	}
+	stored, total, err := j.db.BackgroundJobsPage(limit, offset)
+	if err != nil {
+		return j.memoryPage(live, fmt.Errorf("load durable jobs: %w", err), limit, offset)
+	}
+
+	out := make([]*Job, 0, len(stored)+1)
+	seen := make(map[string]bool, len(stored))
+	for _, row := range stored {
+		job := jobFromStored(row)
+		if current, ok := live[job.ID]; ok && (current.Status == Queued || current.Status == Running) {
+			job = &current
+		}
+		seen[job.ID] = true
+		out = append(out, job)
+	}
+
+	// A failed durable write has no row to overlay. Keep that active (or
+	// queued) job visible on the first page instead of silently dropping it.
+	extra := 0
+	if offset == 0 {
+		for id, current := range live {
+			if seen[id] || (current.Status != Queued && current.Status != Running) {
+				continue
+			}
+			out = append(out, &current)
+			extra++
+		}
+	}
+	if startupError != nil && offset == 0 {
+		out = append(out, persistenceFailureJob("startup", startupError))
+		extra++
 	}
 	sort.Slice(out, func(a, b int) bool { return out[a].Started.After(out[b].Started) })
-	if len(out) > 40 {
-		out = out[:40]
+	if len(out) > limit {
+		out = out[:limit]
 	}
-	return out
+	return out, total + extra
 }
 
-func (j *Jobs) persist(job Job) {
-	if j.db == nil {
-		return
+func (j *Jobs) memoryPage(live map[string]Job, startupError error, limit, offset int) ([]*Job, int) {
+	out := make([]*Job, 0, len(live)+1)
+	for _, job := range live {
+		copy := job
+		out = append(out, &copy)
 	}
-	result, _ := json.Marshal(durableJobResult(job.Result))
-	estimate, _ := json.Marshal(job.Estimate)
-	costRun, _ := json.Marshal(job.Cost)
-	_ = j.db.PutBackgroundJob(index.StoredJob{
+	if startupError != nil {
+		out = append(out, persistenceFailureJob("startup", startupError))
+	}
+	sort.Slice(out, func(a, b int) bool { return out[a].Started.After(out[b].Started) })
+	total := len(out)
+	if offset >= total {
+		return []*Job{}, total
+	}
+	end := offset + limit
+	if end > total {
+		end = total
+	}
+	return out[offset:end], total
+}
+
+func persistenceFailureJob(scope string, err error) *Job {
+	return &Job{
+		ID: "persistence-" + scope, Op: "recovery", Scope: scope,
+		Status: Failed, Progress: "persistence failed", Started: time.Now(),
+		Ended: time.Now(), Error: fmt.Sprintf("could not restore durable job state: %v", err),
+	}
+}
+
+func (j *Jobs) persist(job Job) error {
+	if j.db == nil {
+		return nil
+	}
+	result, err := json.Marshal(durableJobResult(job.Result))
+	if err != nil {
+		return fmt.Errorf("encode durable result: %w", err)
+	}
+	estimate, err := json.Marshal(job.Estimate)
+	if err != nil {
+		return fmt.Errorf("encode estimate: %w", err)
+	}
+	costRun, err := json.Marshal(job.Cost)
+	if err != nil {
+		return fmt.Errorf("encode cost: %w", err)
+	}
+	if err := j.db.PutBackgroundJob(index.StoredJob{
 		ID: job.ID, Op: job.Op, Scope: job.Scope, Status: string(job.Status),
 		Progress: job.Progress, Result: normalizedJobJSON(result),
 		Error: job.Error, Estimate: normalizedJobJSON(estimate),
 		Cost: normalizedJobJSON(costRun), Started: job.Started, Ended: job.Ended,
-	})
+	}); err != nil {
+		return fmt.Errorf("write durable job: %w", err)
+	}
+	return nil
 }
 
 func durableJobResult(value any) any {
@@ -417,7 +567,16 @@ func (s *Server) handleJobs(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, job)
 		return
 	}
-	writeJSON(w, s.jobs.list())
+	limit := 40
+	if parsed, err := strconv.Atoi(r.URL.Query().Get("limit")); err == nil && parsed > 0 {
+		limit = parsed
+	}
+	if limit > 50 {
+		limit = 50
+	}
+	offset, _ := strconv.Atoi(r.URL.Query().Get("offset"))
+	items, total := s.jobs.page(limit, offset)
+	writeJSON(w, map[string]any{"items": items, "total": total, "limit": limit, "offset": maxInt(offset, 0)})
 }
 
 // runJob dispatches to the operation implementations.
@@ -426,7 +585,17 @@ func (s *Server) runJob(id string, req actionRequest) {
 		j.Status = Running
 		j.Progress = "starting"
 	})
-	recoveryRun := s.startRecoveryRun(id, req)
+	recoveryRun, recoveryErr := s.startRecoveryRun(id, req)
+	if recoveryErr != nil {
+		s.auditRecoveryOperation(req, recoveryErr)
+		s.jobs.update(id, func(j *Job) {
+			j.Status = Failed
+			j.Progress = "recovery persistence failed"
+			j.Error = fmt.Sprintf("could not persist recovery run: %v", recoveryErr)
+			j.Ended = time.Now()
+		})
+		return
+	}
 
 	var (
 		result any
@@ -458,7 +627,10 @@ func (s *Server) runJob(id string, req actionRequest) {
 	case "work_chat":
 		result, err = s.doWorkChat(id, req)
 	}
-	s.finishRecoveryRun(recoveryRun, result, err)
+	if finishErr := s.finishRecoveryRun(recoveryRun, result, err); finishErr != nil && err == nil {
+		err = fmt.Errorf("could not persist recovery completion: %w", finishErr)
+	}
+	s.auditRecoveryOperation(req, err)
 
 	s.jobs.update(id, func(j *Job) {
 		j.Ended = time.Now()
@@ -473,9 +645,30 @@ func (s *Server) runJob(id string, req actionRequest) {
 	})
 }
 
-func (s *Server) startRecoveryRun(jobID string, req actionRequest) *index.RecoveryRun {
+// auditRecoveryOperation records Mine/Reclaim outcomes without retaining
+// prompts, evidence bodies, or model responses in the operator audit trail.
+func (s *Server) auditRecoveryOperation(req actionRequest, runErr error) {
 	if req.Op != "mine" && req.Op != "reclaim" {
-		return nil
+		return
+	}
+	scope := "all indexed sessions"
+	if len(req.SessionKeys) > 0 {
+		scope = fmt.Sprintf("%d exact session(s)", len(req.SessionKeys))
+	} else if len(req.SessionIDs) > 0 {
+		scope = fmt.Sprintf("%d selected session(s)", len(req.SessionIDs))
+	} else if req.Days > 0 {
+		scope = fmt.Sprintf("last %d day(s)", req.Days)
+	}
+	state := "completed"
+	if runErr != nil {
+		state = "failed"
+	}
+	_ = s.db.RecordOp(req.Op, req.Tool, "", 0, 0, "status="+state+" scope="+scope, runErr == nil)
+}
+
+func (s *Server) startRecoveryRun(jobID string, req actionRequest) (*index.RecoveryRun, error) {
+	if req.Op != "mine" && req.Op != "reclaim" {
+		return nil, nil
 	}
 	scope, _ := json.Marshal(map[string]any{
 		"session_id":   req.SessionID,
@@ -493,21 +686,23 @@ func (s *Server) startRecoveryRun(jobID string, req actionRequest) *index.Recove
 		Backend: req.Backend, Model: req.Model, Depth: req.Depth,
 	}
 	if err := s.db.PutRecoveryRun(run); err != nil {
-		return nil
+		return nil, fmt.Errorf("start recovery run: %w", err)
 	}
-	return run
+	return run, nil
 }
 
-func (s *Server) finishRecoveryRun(run *index.RecoveryRun, result any, runErr error) {
+func (s *Server) finishRecoveryRun(run *index.RecoveryRun, result any, runErr error) error {
 	if run == nil {
-		return
+		return nil
 	}
 	run.Ended = time.Now()
 	if runErr != nil {
 		run.Status = "failed"
 		run.Error = runErr.Error()
-		_ = s.db.PutRecoveryRun(run)
-		return
+		if err := s.db.PutRecoveryRun(run); err != nil {
+			return fmt.Errorf("mark failed recovery run: %w", err)
+		}
+		return nil
 	}
 	run.Status = "done"
 	body, _ := json.Marshal(result)
@@ -524,7 +719,10 @@ func (s *Server) finishRecoveryRun(run *index.RecoveryRun, result any, runErr er
 	run.Failed = summary.Failed
 	run.Evidence = summary.Count
 	run.Bytes = summary.Bytes
-	_ = s.db.PutRecoveryRun(run)
+	if err := s.db.PutRecoveryRun(run); err != nil {
+		return fmt.Errorf("complete recovery run: %w", err)
+	}
+	return nil
 }
 
 func (s *Server) handleRecoveryRuns(w http.ResponseWriter, r *http.Request) {
@@ -969,8 +1167,10 @@ func moveArchiveFile(source, target string) error {
 
 // doReclaim mines sessions for nuggets.
 func (s *Server) doReclaim(id string, req actionRequest) (any, error) {
-	sessions, _ := adapter.Collect(req.scope())
-	sessions = req.filterExactSessions(sessions)
+	sessions, collectionErrors := collectMineSessions(req, req.scope())
+	if (len(req.SessionKeys) > 0 || len(sessions) == 0) && len(collectionErrors) > 0 {
+		return nil, collectionErrors[0]
+	}
 	if len(sessions) == 0 {
 		return nil, fmt.Errorf("no sessions in scope")
 	}

@@ -3,6 +3,7 @@ package index
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -150,22 +151,39 @@ func (d *DB) BackgroundJob(id string) (StoredJob, error) {
 }
 
 func (d *DB) BackgroundJobs(limit int) ([]StoredJob, error) {
-	query := `
+	jobs, _, err := d.BackgroundJobsPage(limit, 0)
+	return jobs, err
+}
+
+// BackgroundJobsPage returns a bounded durable job page and its full count.
+// Activity uses the denominator to keep history navigable without loading an
+// unbounded collection into the browser.
+func (d *DB) BackgroundJobsPage(limit, offset int) ([]StoredJob, int, error) {
+	if limit <= 0 {
+		limit = 40
+	}
+	if limit > 50 {
+		limit = 50
+	}
+	if offset < 0 {
+		offset = 0
+	}
+	var total int
+	if err := d.sql.QueryRow(`SELECT COUNT(*) FROM background_jobs`).Scan(&total); err != nil {
+		return nil, 0, err
+	}
+	rows, err := d.sql.Query(`
 		SELECT id,op,COALESCE(scope,''),status,COALESCE(progress,''),
 		       COALESCE(result_json,''),COALESCE(error,''),
 		       COALESCE(estimate_json,''),COALESCE(cost_json,''),
 		       started_at,updated_at,COALESCE(ended_at,0)
-		FROM background_jobs ORDER BY started_at DESC`
-	if limit > 0 {
-		query += fmt.Sprintf(" LIMIT %d", limit)
-	}
-	rows, err := d.sql.Query(query)
+		FROM background_jobs ORDER BY started_at DESC LIMIT ? OFFSET ?`, limit, offset)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	defer rows.Close()
 
-	jobs := make([]StoredJob, 0)
+	jobs := make([]StoredJob, 0, limit)
 	for rows.Next() {
 		var job StoredJob
 		var result, estimate, cost string
@@ -173,7 +191,7 @@ func (d *DB) BackgroundJobs(limit int) ([]StoredJob, error) {
 		if err := rows.Scan(&job.ID, &job.Op, &job.Scope, &job.Status,
 			&job.Progress, &result, &job.Error, &estimate, &cost,
 			&started, &updated, &ended); err != nil {
-			return nil, err
+			return nil, 0, err
 		}
 		job.Result = rawJSON(result)
 		job.Estimate = rawJSON(estimate)
@@ -185,7 +203,7 @@ func (d *DB) BackgroundJobs(limit int) ([]StoredJob, error) {
 		}
 		jobs = append(jobs, job)
 	}
-	return jobs, rows.Err()
+	return jobs, total, rows.Err()
 }
 
 // InterruptBackgroundJobs closes the durable state of work that could not
@@ -198,6 +216,50 @@ func (d *DB) InterruptBackgroundJobs() error {
 		SET status='failed', progress='interrupted', ended_at=?, updated_at=?,
 		    error='Midden restarted before this job completed'
 		WHERE status IN ('queued','running')`, now, now)
+	return err
+}
+
+// InterruptBackgroundJobsByID only closes work whose owning instance lease is stale.
+func (d *DB) InterruptBackgroundJobsByID(ids []string, detail string) error {
+	if len(ids) == 0 {
+		return nil
+	}
+	if detail == "" {
+		detail = "Midden job owner stopped heartbeating"
+	}
+	placeholders := strings.TrimRight(strings.Repeat("?,", len(ids)), ",")
+	args := make([]any, 0, len(ids)+3)
+	now := time.Now().Unix()
+	args = append(args, now, now, detail)
+	for _, id := range ids {
+		args = append(args, id)
+	}
+	_, err := d.sql.Exec(`
+		UPDATE background_jobs
+		SET status='failed', progress='interrupted', ended_at=?, updated_at=?, error=?
+		WHERE id IN (`+placeholders+`) AND status IN ('queued','running')`, args...)
+	return err
+}
+
+// InterruptRecoveryRunsByJobID marks only runs linked to stale job owners.
+func (d *DB) InterruptRecoveryRunsByJobID(ids []string, detail string) error {
+	if len(ids) == 0 {
+		return nil
+	}
+	if detail == "" {
+		detail = "Midden job owner stopped heartbeating"
+	}
+	placeholders := strings.TrimRight(strings.Repeat("?,", len(ids)), ",")
+	args := make([]any, 0, len(ids)+3)
+	now := time.Now().Unix()
+	args = append(args, now, now, detail)
+	for _, id := range ids {
+		args = append(args, id)
+	}
+	_, err := d.sql.Exec(`
+		UPDATE recovery_runs
+		SET status='failed', ended_at=?, updated_at=?, error=?
+		WHERE job_id IN (`+placeholders+`) AND status IN ('queued','running')`, args...)
 	return err
 }
 

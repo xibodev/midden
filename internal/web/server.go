@@ -73,6 +73,13 @@ func NewServer(db *index.DB) *Server {
 	return s
 }
 
+// Close releases process-local job ownership before the owned database closes.
+func (s *Server) Close() {
+	if s != nil && s.jobs != nil {
+		s.jobs.Close()
+	}
+}
+
 // Handler builds the route table.
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
@@ -138,6 +145,10 @@ func localOnly(next http.Handler) http.Handler {
 			return
 		}
 		w.Header().Set("X-Content-Type-Options", "nosniff")
+		w.Header().Set("X-Frame-Options", "DENY")
+		w.Header().Set("Referrer-Policy", "no-referrer")
+		w.Header().Set("Cross-Origin-Opener-Policy", "same-origin")
+		w.Header().Set("Content-Security-Policy", "default-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'; object-src 'none'; connect-src 'self'; img-src 'self' data:; media-src 'self'; style-src 'self'; script-src 'self'")
 		next.ServeHTTP(w, r)
 	})
 }

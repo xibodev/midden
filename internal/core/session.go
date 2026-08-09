@@ -152,11 +152,14 @@ type Adapter interface {
 // Scoping is mandatory for any expensive operation: nobody salvages 36 GB
 // blind. It exists on read commands so the same filters compose downstream.
 type Scope struct {
-	Tools        []Tool
-	Days         int    // 0 = unbounded; calendar days, not exact hours
-	Workspace    string // substring match against Dir
-	Repo         string
-	IDPrefix     string
+	Tools     []Tool
+	Days      int    // 0 = unbounded; calendar days, not exact hours
+	Workspace string // substring match against Dir
+	Repo      string
+	IDPrefix  string
+	// IDs selects exact session identifiers. It composes with IDPrefix for
+	// callers that have one authoritative composite tool:id selection.
+	IDs          []string
 	IncludeNoise bool
 	Limit        int
 
@@ -211,7 +214,23 @@ func (sc Scope) Match(s Session) bool {
 	if sc.IDPrefix != "" && !strings.HasPrefix(s.ID, sc.IDPrefix) {
 		return false
 	}
+	if len(sc.IDs) > 0 && !sc.WantsID(s.ID) {
+		return false
+	}
 	return true
+}
+
+// WantsID reports whether an exact-id scope includes id.
+func (sc Scope) WantsID(id string) bool {
+	if len(sc.IDs) == 0 {
+		return true
+	}
+	for _, want := range sc.IDs {
+		if want == id {
+			return true
+		}
+	}
+	return false
 }
 
 func containsFold(haystack, needle string) bool {

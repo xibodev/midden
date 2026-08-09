@@ -45,8 +45,10 @@ func cmdUI(args []string) error {
 		return fmt.Errorf("bind %s: %w (try --port)", addr, err)
 	}
 
+	application := web.NewServer(db)
+	defer application.Close()
 	srv := &http.Server{
-		Handler:           web.NewServer(db).Handler(),
+		Handler:           application.Handler(),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 

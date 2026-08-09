@@ -8,6 +8,8 @@ const state = {
   sessionStats: null,
   recoveryRuns: [],
   jobs: [],
+  jobsTotal: 0,
+  activityJobs: [],
   jobsInitialized: false,
   jobCallbacks: new Map(),
   completedJobs: new Set(),
@@ -495,8 +497,9 @@ async function startJob(requestBody, options = {}) {
 }
 
 async function refreshJobs() {
-  const jobs = await get('/api/jobs');
-  state.jobs = jobs || [];
+  const response = await get('/api/jobs?limit=40');
+  state.jobs = Array.isArray(response) ? response : (response.items || []);
+  state.jobsTotal = Number(Array.isArray(response) ? state.jobs.length : (response.total ?? state.jobs.length));
   const active = state.jobs.filter((job) => ['queued', 'running'].includes(job.status));
   $('#nav-activity-count').textContent = String(active.length);
   renderTaskDock();
@@ -2012,9 +2015,13 @@ function openCleanupCandidate(candidate) {
 }
 
 async function renderActivity() {
-  const [runs, costData, operations] = await Promise.all([
+  const jobOffset = state.activityJobPage * state.activityJobPageSize;
+  const [jobResponse, runs, costData, operations] = await Promise.all([
+    get(`/api/jobs?limit=${state.activityJobPageSize}&offset=${jobOffset}`),
     get('/api/recovery-runs'), get('/api/cost'), get('/api/ops'),
   ]);
+  state.activityJobs = Array.isArray(jobResponse) ? jobResponse : (jobResponse.items || []);
+  state.jobsTotal = Number(Array.isArray(jobResponse) ? state.activityJobs.length : (jobResponse.total ?? state.activityJobs.length));
   state.recoveryRuns = runs || [];
   const root = clear($('#activity-content'));
   append(root, pageHead('Activity', 'Long work continues without owning the screen.',
@@ -2033,18 +2040,25 @@ async function renderActivity() {
   jobsInner.append(panelHead('Jobs', 'Recent and running work',
     'Inspect progress, completion, or failure without returning to the originating page.'));
   const list = el('div', 'job-list');
-  const jobPage = pageSlice(state.jobs, state.activityJobPage, state.activityJobPageSize);
-  state.activityJobPage = jobPage.page;
-  jobPage.items.forEach((job) => {
-    const card = el('article', 'job-card');
+  state.activityJobs.forEach((job) => {
+    const active = ['queued', 'running'].includes(job.status);
+    const card = el('article', `job-card activity-job ${active ? 'is-active' : ''}`.trim());
     const copy = el('div');
-    append(copy, el('h3', null, `${humanStatus(job.op)} Â· ${job.scope || 'all'}`),
-      el('p', null, job.error || job.progress || 'Waiting'));
+    append(copy, el('div', 'job-kicker', active ? 'Live background work' : 'Recorded outcome'),
+      el('h3', null, `${humanStatus(job.op)} · ${job.scope || 'all'}`),
+      el('p', null, job.error || job.progress || 'Waiting'),
+      el('span', 'job-timestamp', active ? `Started ${relativeAge(job.started)}` : `Finished ${relativeAge(job.ended)}`));
     append(card, copy, badge(humanStatus(job.status), statusKind(job.status)));
+    if (active) {
+      const progress = el('progress', 'job-progress');
+      progress.max = 100;
+      progress.removeAttribute('value');
+      card.append(progress);
+    }
     list.append(card);
   });
   if (!list.children.length) list.append(emptyState('No jobs yet', 'Start a mine, chat turn, or production.'));
-  append(jobsInner, list, pager(state.jobs.length, state.activityJobPage,
+  append(jobsInner, list, pager(state.jobsTotal, state.activityJobPage,
     state.activityJobPageSize, (nextPage) => {
       state.activityJobPage = nextPage;
       renderActivity().catch(showError);
