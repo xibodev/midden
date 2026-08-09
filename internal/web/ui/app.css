@@ -540,18 +540,37 @@ progress::-moz-progress-bar { background: var(--blue); border-radius: 999px; }
   .taxonomy-grid { grid-template-columns: repeat(3,minmax(0,1fr)); }
 }
 
-/* Compact desktop keeps its persistent navigation and dense Studio rail.
-   Only the preview moves below the conversation once three columns no longer fit. */
-@media (min-width: 821px) and (max-width: 1180px) {
-  .studio-shell { min-height: auto; grid-template-columns: 205px minmax(0,1fr); }
-  .preview-pane { grid-column: 1 / -1; min-height: 520px; border-top: 1px solid var(--line); }
-  .conversation-pane { border-right: 0; }
-  .content-grid, .split-grid { grid-template-columns: minmax(0,1.25fr) minmax(270px,.75fr); }
+/* Compact desktop keeps persistent navigation and the complete three-pane
+   Studio. General data panels stack so tables retain a usable desktop width. */
+@media (min-width: 980px) and (max-width: 1180px) {
+  .studio-shell {
+    min-height: calc(100vh - 150px);
+    grid-template-columns: 175px minmax(255px,.9fr) minmax(295px,1.1fr);
+  }
+  .work-item { padding-inline: 8px; }
+  .conversation-head, .preview-head { padding-inline: 9px; }
+  .messages { padding: 10px; }
+  .message { max-width: 94%; }
+  .preview-toolbar { padding-inline: 7px; }
+  .preview-toolbar .button.compact { padding-inline: 7px; }
+  .content-grid, .split-grid { grid-template-columns: 1fr; }
+  .table-wrap table { min-width: 700px; }
   .form-grid { grid-template-columns: repeat(3,minmax(0,1fr)); }
   .topbar { padding-inline: 18px; }
   main { padding-inline: 18px; }
   .page-head h1 { font-size: clamp(28px,3.1vw,34px); }
   .page-head { gap: 16px; }
+}
+
+@media (min-width: 821px) and (max-width: 979px) {
+  .studio-shell { min-height: auto; grid-template-columns: 190px minmax(0,1fr); }
+  .preview-pane { grid-column: 1 / -1; min-height: 520px; border-top: 1px solid var(--line); }
+  .conversation-pane { border-right: 0; }
+  .content-grid, .split-grid { grid-template-columns: 1fr; }
+  .table-wrap table { min-width: 680px; }
+  .form-grid { grid-template-columns: repeat(2,minmax(0,1fr)); }
+  .topbar, main { padding-inline: 16px; }
+  .page-head h1 { font-size: 30px; }
 }
 
 @media (max-width: 820px) {
