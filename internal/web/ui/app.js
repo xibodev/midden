@@ -32,6 +32,7 @@ const state = {
   messagePages: new Map(),
   conversationMode: 'chat',
   consoleHistory: new Map(),
+  consoleFeedback: new Map(),
   selectedOutput: '',
   previewMode: 'rendered',
   outputDetail: null,
@@ -58,6 +59,10 @@ const state = {
   connections: null,
   integrations: null,
   plugins: null,
+  serviceAvailable: true,
+  serviceError: '',
+  jobsSignature: '',
+  activityRefreshPending: false,
 };
 
 const viewMeta = {
@@ -262,14 +267,21 @@ function escapeHTML(value) {
 }
 
 async function request(path, options = {}) {
-  const response = await fetch(path, {
-    ...options,
-    headers: {
-      ...(options.body ? {'Content-Type': 'application/json'} : {}),
-      ...(options.method && options.method !== 'GET' ? {'X-Midden-Request': '1'} : {}),
-      ...(options.headers || {}),
-    },
-  });
+  let response;
+  try {
+    response = await fetch(path, {
+      ...options,
+      headers: {
+        ...(options.body ? {'Content-Type': 'application/json'} : {}),
+        ...(options.method && options.method !== 'GET' ? {'X-Midden-Request': '1'} : {}),
+        ...(options.headers || {}),
+      },
+    });
+  } catch (error) {
+    setServiceStatus(false, 'Local Midden service is unavailable');
+    throw error;
+  }
+  setServiceStatus(true);
   if (!response.ok) {
     const body = (await response.text()).trim();
     throw new Error(body || `${response.status} ${response.statusText}`);
@@ -309,8 +321,48 @@ function clearNotice() {
 }
 
 function showError(error) {
-  console.error(error);
+  console.warn(error);
   notice(error?.message || String(error), 'bad');
+}
+
+function setServiceStatus(available, message = '') {
+  const changed = state.serviceAvailable !== available;
+  state.serviceAvailable = available;
+  state.serviceError = message;
+  const card = $('.local-card');
+  if (card) {
+    card.classList.toggle('offline', !available);
+    const strong = $('strong', card);
+    const detail = $('span:not(.status-dot)', card);
+    clear(strong);
+    append(strong, el('span', 'status-dot'), document.createTextNode(
+      available ? 'Local service ready' : 'Local service unavailable'));
+    if (detail) {
+      detail.textContent = available
+        ? 'Source stores remain read-only. Jobs, chat, previews, and exports stay on this machine.'
+        : 'The browser cannot reach the loopback service. Restart Midden, then retry.';
+    }
+  }
+  if (!available) {
+    const badges = clear($('#global-badges'));
+    badges.append(badge('service unavailable', 'danger'));
+  } else if (changed) {
+    if (state.overview) {
+      updateGlobalUI();
+    } else {
+      const badges = clear($('#global-badges'));
+      badges.append(badge('service ready', 'free'));
+    }
+  }
+}
+
+function showViewLoading(view) {
+  const root = $(`#${view}-content`);
+  if (!root) return;
+  clear(root);
+  const shell = el('div', 'loading-shell');
+  append(shell, el('span', 'loading-spinner'), el('p', 'loading-label', `Loading ${view}â€¦`));
+  root.append(shell);
 }
 
 let modalReturnFocus = null;
@@ -428,8 +480,8 @@ function configurePrimaryAction(view) {
     };
     break;
   case 'activity':
-    action.textContent = 'Show job dock';
-    action.onclick = () => $('#task-dock').classList.add('open');
+    action.textContent = 'Refresh Activity';
+    action.onclick = () => refreshActivity().catch(showError);
     break;
   case 'tools':
     action.textContent = 'Check tools';
@@ -447,6 +499,7 @@ function configurePrimaryAction(view) {
 function activateView(view) {
   clearNotice();
   state.activeView = view;
+  if (state.jobsInitialized) renderTaskDock();
   $$('.nav-item[data-view]').forEach((item) => item.classList.toggle('active', item.dataset.view === view));
   $$('.view').forEach((section) => section.classList.toggle('active', section.id === view));
   const meta = viewMeta[view];
@@ -455,7 +508,23 @@ function activateView(view) {
   configurePrimaryAction(view);
   closeNavigation();
   window.scrollTo({top: 0, behavior: 'instant'});
-  renderActiveView().catch(showError);
+  showViewLoading(view);
+  renderViewWithError(view);
+}
+
+async function renderViewWithError(view) {
+  try {
+    await renderActiveView();
+  } catch (error) {
+    showError(error);
+    const root = clear($(`#${view}-content`));
+    root.append(emptyState(`${humanStatus(view)} could not load`,
+      error?.message || 'The local service did not respond.',
+      button('Retry', 'button', () => {
+        showViewLoading(view);
+        renderViewWithError(view);
+      })));
+  }
 }
 
 async function loadOverview(force = false) {
@@ -468,6 +537,10 @@ function updateGlobalUI() {
   const overview = state.overview;
   if (!overview) return;
   const badges = clear($('#global-badges'));
+  if (!state.serviceAvailable) {
+    badges.append(badge('service unavailable', 'danger'));
+    return;
+  }
   const readySources = (overview.sources || []).filter((source) => source.ready).length;
   append(badges, badge(`${readySources} sources ready`, 'free'),
     badge(`${formatCount(overview.stats?.nuggets)} evidence`),
@@ -493,6 +566,7 @@ const jobCallbacks = new Map();
 async function startJob(requestBody, options = {}) {
   const job = await post('/api/action', requestBody);
   if (options.onDone || options.onFailed) jobCallbacks.set(job.id, options);
+  $('#task-dock').hidden = false;
   $('#task-dock').classList.add('open');
   await refreshJobs();
   if (options.message) toast(options.message);
@@ -501,7 +575,12 @@ async function startJob(requestBody, options = {}) {
 
 async function refreshJobs() {
   const response = await get('/api/jobs?limit=40');
-  state.jobs = Array.isArray(response) ? response : (response.items || []);
+  const nextJobs = Array.isArray(response) ? response : (response.items || []);
+  const signature = nextJobs.map((job) =>
+    `${job.id}:${job.status}:${job.progress}:${job.ended || ''}`).join('|');
+  const changed = signature !== state.jobsSignature;
+  state.jobsSignature = signature;
+  state.jobs = nextJobs;
   state.jobsTotal = Number(Array.isArray(response) ? state.jobs.length : (response.total ?? state.jobs.length));
   const active = state.jobs.filter((job) => ['queued', 'running'].includes(job.status));
   $('#nav-activity-count').textContent = String(active.length);
@@ -534,11 +613,28 @@ async function refreshJobs() {
       else notice(job.error || `${humanStatus(job.op)} failed`, 'bad');
     }
   }
+  if (changed && state.activeView === 'activity') scheduleActivityRefresh();
+}
+
+function scheduleActivityRefresh() {
+  if (state.activityRefreshPending) return;
+  state.activityRefreshPending = true;
+  setTimeout(() => {
+    state.activityRefreshPending = false;
+    if (state.activeView === 'activity') renderActivity().catch(showError);
+  }, 250);
 }
 
 function renderTaskDock() {
+  const dock = $('#task-dock');
   const body = clear($('#task-dock-body'));
   const active = state.jobs.filter((job) => ['queued', 'running'].includes(job.status));
+  if (state.activeView === 'activity' || active.length === 0) {
+    dock.classList.remove('open');
+    dock.hidden = true;
+  } else {
+    dock.hidden = false;
+  }
   $('#task-dock-title').textContent = active.length
     ? `${active.length} background job${active.length === 1 ? '' : 's'}`
     : 'Background jobs';
@@ -571,7 +667,7 @@ function renderTaskDock() {
 
 $('#task-dock-toggle').addEventListener('click', () => $('#task-dock').classList.toggle('open'));
 setInterval(() => {
-  if (!document.hidden) refreshJobs().catch(console.error);
+  if (!document.hidden) refreshJobs().catch(() => {});
 }, 1400);
 
 function workspaceOptions(includeAll = true) {
@@ -1259,6 +1355,14 @@ function renderConsole(detail) {
     '',
   ];
   output.textContent = history.join('\n');
+  const feedback = el('div', 'console-feedback');
+  const previousFeedback = state.consoleFeedback.get(detail.recipe.uid);
+  if (previousFeedback) {
+    feedback.textContent = previousFeedback.text;
+    feedback.classList.add(previousFeedback.kind);
+  } else {
+    feedback.hidden = true;
+  }
   const form = el('form', 'terminal-input');
   const prompt = el('span', null, '>');
   const input = textInput('', 'status');
@@ -1276,14 +1380,24 @@ function renderConsole(detail) {
         recipe_id: detail.recipe.uid, command,
       });
       history.push(result.output || '(no output)', '');
+      state.consoleFeedback.set(detail.recipe.uid, {
+        kind: 'success', text: `Command completed: ${command}`,
+      });
     } catch (error) {
       history.push(`error: ${error.message}`, '');
+      state.consoleFeedback.set(detail.recipe.uid, {
+        kind: 'error', text: `Command rejected: ${error.message}`,
+      });
     }
     state.consoleHistory.set(detail.recipe.uid, history);
     output.textContent = history.join('\n');
     output.scrollTop = output.scrollHeight;
+    const currentFeedback = state.consoleFeedback.get(detail.recipe.uid);
+    feedback.hidden = false;
+    feedback.textContent = currentFeedback.text;
+    feedback.className = `console-feedback ${currentFeedback.kind}`;
   });
-  append(panel, output, form);
+  append(panel, output, feedback, form);
   return panel;
 }
 
@@ -2041,7 +2155,7 @@ async function renderActivity() {
   const root = clear($('#activity-content'));
   append(root, pageHead('Activity', 'Long work continues without owning the screen.',
     'Jobs are durable, navigable, and independent from the page that started them.',
-    [button('Open job dock', 'button', () => $('#task-dock').classList.add('open'))]));
+    [button('Refresh now', 'button ghost', () => refreshActivity().catch(showError))]));
   append(root, metricGrid([
     {label: 'Active jobs', value: state.jobs.filter((job) => ['queued','running'].includes(job.status)).length, copy: 'currently executing'},
     {label: 'Recovery runs', value: state.recoveryRunsTotal, copy: 'durable scopes'},
@@ -2060,7 +2174,7 @@ async function renderActivity() {
     const card = el('article', `job-card activity-job ${active ? 'is-active' : ''}`.trim());
     const copy = el('div');
     append(copy, el('div', 'job-kicker', active ? 'Live background work' : 'Recorded outcome'),
-      el('h3', null, `${humanStatus(job.op)} · ${job.scope || 'all'}`),
+      el('h3', null, `${humanStatus(job.op)} ï¿½ ${job.scope || 'all'}`),
       el('p', null, job.error || job.progress || 'Waiting'),
       el('span', 'job-timestamp', active ? `Started ${relativeAge(job.started)}` : `Finished ${relativeAge(job.ended)}`));
     append(card, copy, badge(humanStatus(job.status), statusKind(job.status)));
@@ -2132,6 +2246,11 @@ async function renderActivity() {
   append(right, costPanel, recoveryPanel, auditPanel);
   append(layout, jobsPanel, right);
   root.append(layout);
+}
+
+async function refreshActivity() {
+  await refreshJobs();
+  if (state.activeView === 'activity') await renderActivity();
 }
 
 async function loadTools(force = false) {

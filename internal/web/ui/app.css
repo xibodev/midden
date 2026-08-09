@@ -108,6 +108,10 @@ a { color: var(--blue); }
 }
 .local-card strong { display: flex; align-items: center; gap: 7px; font-size: 11px; }
 .local-card > span { display: block; margin-top: 6px; color: #718ba3; font-size: 10px; }
+.local-card.offline { border-color: #75434c; background: #2d171d; }
+.local-card.offline strong { color: #ffc4cc; }
+.local-card.offline > span { color: #d99ca6; }
+.local-card.offline .status-dot { background: var(--red); box-shadow: 0 0 0 4px rgba(240,120,136,.12); }
 .status-dot {
   width: 7px; height: 7px; flex: 0 0 auto; border-radius: 50%;
   background: var(--green); box-shadow: 0 0 0 4px rgba(59,211,161,.11);
@@ -359,6 +363,12 @@ progress::-moz-progress-bar { background: var(--blue); border-radius: 999px; }
 }
 .terminal-input span { color: var(--green); font: 750 11px var(--mono); }
 .terminal-input input { min-height: 32px; padding: 4px 6px; border: 0; background: transparent; color: #e6f4e9; font: 11px var(--mono); }
+.console-feedback {
+  padding: 9px 12px; border-top: 1px solid #29445d;
+  font: 10px/1.4 var(--mono);
+}
+.console-feedback.success { background: #103128; color: #9ce7cb; }
+.console-feedback.error { background: #3a1f27; color: #ffc0ca; }
 .conversation-tabs { padding: 7px 10px; border-top: 1px solid var(--line); background: #0a1725; }
 
 .preview-pane { display: flex; flex-direction: column; background: #101d2b; }
@@ -515,8 +525,13 @@ progress::-moz-progress-bar { background: var(--blue); border-radius: 999px; }
 .drawer-card h2 { margin: 0 44px 8px 0; }
 .review-tabs { margin: 12px 0; }
 
-.loading-shell { min-height: 340px; place-items: center; color: var(--muted); }
+.loading-shell { min-height: 340px; display: grid; align-content: center; justify-items: center; gap: 12px; color: var(--muted); }
 .loading-label { font: 10px var(--mono); text-transform: uppercase; }
+.loading-spinner {
+  width: 28px; height: 28px; border: 3px solid #29445d; border-top-color: var(--blue);
+  border-radius: 50%; animation: loading-spin .8s linear infinite;
+}
+@keyframes loading-spin { to { transform: rotate(360deg); } }
 
 @media (max-width: 1280px) {
   .studio-shell { grid-template-columns: 218px minmax(330px,.9fr) minmax(380px,1.1fr); }
