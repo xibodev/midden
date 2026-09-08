@@ -110,8 +110,14 @@ func Describe() Descriptor {
 				RequestSchema:   SchemaContentProduceRequest,
 				ResultSchema:    SchemaContentProduceResult,
 				ArtifactSchemas: []string{ArtifactContentOutput},
-				Effects:         Effects{Local: true, CostKnown: true},
-				Skills:          []string{SkillEvidenceSelection, SkillContentSeed},
+				// CostKnown is FALSE because it depends on the kind asked for.
+				// Deterministic packs are free; narrative documents spend
+				// through the user's own AI CLI subscription and Midden never
+				// sees a bill, so it cannot price them. Under the host's rule
+				// an unknown cost requires approval, which is correct: a user
+				// should approve before a module drives their subscription.
+				Effects: Effects{Local: true, CostKnown: false},
+				Skills:  []string{SkillEvidenceSelection, SkillContentSeed},
 			},
 		},
 		RequestSchemas: map[string]json.RawMessage{
@@ -138,9 +144,17 @@ func Describe() Descriptor {
 			FilesystemRead: []string{RootCopilot, RootClaude, RootOpencode},
 			// Midden's own state is the only thing it writes.
 			FilesystemWrite: []string{RootMiddenHome},
-			// Deterministic capabilities need nothing else. Model-backed
-			// capabilities will declare Subprocess when they are added; they
-			// shell out to an authenticated CLI rather than calling an API.
+			// Model-backed content shells out to an AI CLI the user is
+			// already signed in to. Midden holds no API key and never calls a
+			// provider directly, so this is SUBPROCESS authority rather than
+			// network or credential authority — modelling it as network would
+			// be both wrong and insufficient.
+			//
+			// Declaring a binary is a request, not a grant: the host decides
+			// which of these it authorizes per invocation, and supplies the
+			// absolute path. Naming all three lets the host grant whichever
+			// the user actually has.
+			Subprocess: []string{"copilot", "claude", "opencode"},
 		},
 		AgentOverlays: overlays(),
 		Skills:        skills(),

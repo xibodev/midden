@@ -175,6 +175,16 @@ type Request struct {
 	Roots      map[string]Root `json:"roots"`
 	Grants     Grants          `json:"grants"`
 
+	// Binaries maps a declared subprocess NAME to the absolute path the host
+	// resolved for it.
+	//
+	// A module never searches PATH: under the host's empty environment there
+	// is none, and a PATH a module searches is ambient authority while an
+	// absolute path the host supplies is a grant. An unresolvable binary is
+	// ABSENT from this map rather than present-and-empty, so "not installed"
+	// and "not permitted" stay distinguishable.
+	Binaries map[string]string `json:"binaries"`
+
 	DeadlineMS     int `json:"deadline_ms"`
 	MaxOutputBytes int `json:"max_output_bytes"`
 }
@@ -341,6 +351,9 @@ func (e *Envelope) Normalize() {
 func (r *Request) Normalize() {
 	if r.Roots == nil {
 		r.Roots = map[string]Root{}
+	}
+	if r.Binaries == nil {
+		r.Binaries = map[string]string{}
 	}
 	r.Grants.Normalize()
 }

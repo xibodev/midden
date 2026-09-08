@@ -160,8 +160,15 @@ func TestDescriptorDeclaresHonestEffects(t *testing.T) {
 		if c.Effects.ExternalWrites {
 			t.Errorf("%s declares external writes; source stores are read-only", c.ID)
 		}
-		if !c.Effects.CostKnown {
-			t.Errorf("%s must declare cost_known: it is deterministic and free", c.ID)
+		// cost_known is per-capability, not global. A capability that can
+		// spend through the user's own AI CLI cannot price the call — Midden
+		// never sees a bill — so declaring cost_known:false is the honest
+		// answer and makes the host require approval.
+		if !c.Effects.CostKnown && !capabilityMaySpend(c.ID) {
+			t.Errorf("%s declares cost_known:false but cannot spend; a free capability must say so", c.ID)
+		}
+		if c.Effects.CostKnown && capabilityMaySpend(c.ID) {
+			t.Errorf("%s can invoke a model but claims its cost is known; Midden never sees the bill", c.ID)
 		}
 		if c.RequestSchema == "" || c.ResultSchema == "" {
 			t.Errorf("%s must reference both a request and a result schema", c.ID)
@@ -182,6 +189,10 @@ func TestDescriptorDeclaresHonestEffects(t *testing.T) {
 // TestPermissionsRequestNothingBeyondFilesystem records the claim made to the
 // host: installing Midden grants nothing, and the deterministic set needs no
 // network, credential, provider, publish or subprocess authority.
+// capabilityMaySpend reports whether a capability can invoke a model through
+// an authenticated CLI, and therefore cannot know its own cost.
+func capabilityMaySpend(id string) bool { return id == CapContentProduce }
+
 func TestPermissionsRequestNothingBeyondFilesystem(t *testing.T) {
 	p := Describe().Permissions
 	if len(p.Network) != 0 {
@@ -193,8 +204,19 @@ func TestPermissionsRequestNothingBeyondFilesystem(t *testing.T) {
 	if len(p.PaidProviders) != 0 {
 		t.Errorf("declared paid providers %v", p.PaidProviders)
 	}
-	if len(p.Subprocess) != 0 {
-		t.Errorf("declared subprocess permissions %v", p.Subprocess)
+	// Subprocess IS declared, because content.produce shells out to an AI CLI
+	// the user is already signed in to. Midden holds no API key and never
+	// calls a provider directly, so this is subprocess authority rather than
+	// network or credential authority — the distinction the host's permission
+	// model depends on.
+	want := map[string]bool{"copilot": true, "claude": true, "opencode": true}
+	for _, b := range p.Subprocess {
+		if !want[b] {
+			t.Errorf("declared subprocess %q, which no capability invokes", b)
+		}
+		if strings.ContainsAny(b, `/\`) {
+			t.Errorf("subprocess %q is a path, not a bare name; a module must not nominate an arbitrary executable", b)
+		}
 	}
 	if p.Publish {
 		t.Error("declared publish authority")
@@ -326,16 +348,29 @@ func TestNestedCollectionsAreNeverNull(t *testing.T) {
 // declaration is empty. When a model-backed capability is added it must declare
 // the CLI names it actually invokes, and this test must be extended alongside
 // it rather than deleted.
+// TestDeclaredSubprocessMatchesReality guards the declared-vs-actual gap found
+// live in a sibling lane, where a renderer invoked `node` while the descriptor
+// — derived from a probe table — never mentioned it.
+//
+// The declaration must be derived from what the code INVOKES. Midden's
+// model-backed content path runs exactly the three AI CLIs the exec runner
+// knows about, so those three and no others.
 func TestDeclaredSubprocessMatchesReality(t *testing.T) {
-	p := Describe().Permissions
-	if len(p.Subprocess) != 0 {
-		t.Errorf("descriptor declares subprocess %v, but no capability in this set invokes a binary; "+
-			"a declaration that over-reaches is as dishonest as one that under-reports", p.Subprocess)
+	declared := map[string]bool{}
+	for _, b := range Describe().Permissions.Subprocess {
+		declared[b] = true
 	}
-	for _, c := range Describe().Capabilities {
-		if c.Effects.Provider != "" {
-			t.Errorf("%s names provider %q while permissions declare no subprocess authority", c.ID, c.Effects.Provider)
+	// The exec layer's backends are the ground truth for what can be run.
+	for _, b := range []string{"copilot", "claude", "opencode"} {
+		if !declared[b] {
+			t.Errorf("the exec runner can invoke %q but the descriptor does not declare it; "+
+				"a host would refuse to grant a binary the module never asked for", b)
 		}
+		delete(declared, b)
+	}
+	for b := range declared {
+		t.Errorf("descriptor declares subprocess %q that no code path invokes; "+
+			"over-declaring is as dishonest as under-reporting", b)
 	}
 }
 

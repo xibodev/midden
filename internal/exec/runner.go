@@ -58,6 +58,37 @@ type Runner struct {
 
 	// DryRun prints what would run without invoking anything.
 	DryRun bool
+
+	// StageDir is where an oversized prompt is written before invocation.
+	//
+	// When empty the OS temp directory is used, which is what the human CLI
+	// has always done. A module host runs modules with an EMPTY environment,
+	// so TMP and TEMP are unset and Go falls back to C:\WINDOWS on Windows —
+	// a directory an unprivileged process cannot write. The caller supplies a
+	// directory it was actually granted instead.
+	StageDir string
+
+	// BinaryPath is the ABSOLUTE path of the backend executable.
+	//
+	// When empty the backend name is resolved against PATH, which is what the
+	// human CLI has always done. A module host runs modules with an EMPTY
+	// environment and grants each declared binary as an absolute path, so
+	// there is no PATH to search: a bare name would fail to resolve for a CLI
+	// that is genuinely installed.
+	//
+	// It is also the safer form. A PATH a module searches is ambient
+	// authority; an absolute path the host supplies is a grant, and the host
+	// decides exactly which executable runs rather than trusting search order.
+	BinaryPath string
+}
+
+// command returns the executable to invoke: the host-granted absolute path
+// when one was supplied, otherwise the backend name for PATH resolution.
+func (r *Runner) command() string {
+	if strings.TrimSpace(r.BinaryPath) != "" {
+		return r.BinaryPath
+	}
+	return string(r.Backend)
 }
 
 // Available reports which backends are installed.
@@ -217,7 +248,7 @@ func (r *Runner) stage(prompt string) (string, func(), error) {
 		return prompt, noop, nil
 	}
 
-	f, err := os.CreateTemp("", "midden-prompt-*.md")
+	f, err := os.CreateTemp(r.StageDir, "midden-prompt-*.md")
 	if err != nil {
 		return "", noop, fmt.Errorf("stage prompt: %w", err)
 	}
@@ -267,7 +298,7 @@ func (r *Runner) Run(ctx context.Context, prompt string) (*Result, error) {
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	cmd := exec.CommandContext(ctx, string(r.Backend), args...)
+	cmd := exec.CommandContext(ctx, r.command(), args...)
 	if r.Dir != "" && r.Backend != Opencode {
 		cmd.Dir = r.Dir
 	}
