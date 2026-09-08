@@ -137,3 +137,38 @@ func TestSkillsAreSeparateDocuments(t *testing.T) {
 		}
 	}
 }
+
+// TestDeclaredDigestsMatchPublishedFilesOnDisk is the guard for a failure the
+// host hit in production: the descriptor declared a digest for content that had
+// since been edited, so the host refused the overlay at load and the module ran
+// without its guidance — silently, because the capabilities still worked.
+//
+// TestEmbeddedContentMatchesPublishedFiles compares the two COPIES of each
+// document. This compares the DECLARED DIGEST against the published file, which
+// is the thing a host actually verifies. They fail on different mistakes:
+// editing one copy trips the first; editing both without rebuilding trips
+// neither, but a host reading the published tree would still refuse.
+func TestDeclaredDigestsMatchPublishedFilesOnDisk(t *testing.T) {
+	root := filepath.Join("..", "..")
+	d := Describe()
+
+	check := func(kind, id, path, declared string) {
+		published, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(path)))
+		if err != nil {
+			t.Errorf("%s %s: published file %s missing: %v", kind, id, path, err)
+			return
+		}
+		if got := DigestSHA256(published); got != declared {
+			t.Errorf("%s %s: descriptor declares %s but %s hashes to %s.\n"+
+				"A host verifies the declared digest against the file it reads and REFUSES a mismatch, "+
+				"so this content would never enter agent context. Rebuild after editing.",
+				kind, id, declared, path, got)
+		}
+	}
+	for _, o := range d.AgentOverlays {
+		check("overlay", o.ID, o.Path, o.Digest)
+	}
+	for _, s := range d.Skills {
+		check("skill", s.ID, s.Path, s.Digest)
+	}
+}
