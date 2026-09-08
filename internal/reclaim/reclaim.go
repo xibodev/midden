@@ -194,11 +194,43 @@ func extractJSONArray(s string) string {
 	}
 
 	start := strings.Index(s, "[")
-	end := strings.LastIndex(s, "]")
-	if start < 0 || end <= start {
+	if start < 0 {
 		return ""
 	}
-	return s[start : end+1]
+
+	// Find where the array actually CLOSES by tracking bracket depth, rather
+	// than taking the last "]" in the output.
+	//
+	// A model that returns a valid array and then explains itself — "…] These
+	// are the highest-value items." — puts a bracket in that trailing prose,
+	// and LastIndex swallowed everything between into the parse. The error
+	// read "invalid character 'S' after top-level value", which names a
+	// symptom and hides a perfectly good array sitting in front of it.
+	//
+	// Brackets inside strings do not count, so a body containing "[1]" cannot
+	// close the array early.
+	depth, inString, escaped := 0, false, false
+	for i := start; i < len(s); i++ {
+		c := s[i]
+		switch {
+		case escaped:
+			escaped = false
+		case c == '\\' && inString:
+			escaped = true
+		case c == '"':
+			inString = !inString
+		case inString:
+			// brackets inside a string are content
+		case c == '[':
+			depth++
+		case c == ']':
+			depth--
+			if depth == 0 {
+				return s[start : i+1]
+			}
+		}
+	}
+	return ""
 }
 
 func cleanTags(in []string) []string {

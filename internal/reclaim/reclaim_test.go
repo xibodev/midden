@@ -160,3 +160,39 @@ func TestSliceEstimateIsNonZero(t *testing.T) {
 		t.Errorf("estimate should be positive, got %d", got)
 	}
 }
+
+// TestParseIgnoresTrailingProse guards a failure that cost a real extraction.
+//
+// A model returned a valid array and then explained itself. extractJSONArray
+// took the LAST "]" in the output, which was inside that trailing prose, so
+// everything between was swallowed into the parse and the error read "invalid
+// character 'S' after top-level value" — a symptom that hid a perfectly good
+// array sitting in front of it.
+func TestParseIgnoresTrailingProse(t *testing.T) {
+	out := `[{"kind":"gotcha","title":"t","body":"b","confidence":0.9}]
+
+These are the highest-value items [the rest were routine].`
+
+	ns, err := Parse(out, core.Session{ID: "s1", Tool: core.ToolClaude}, "claude")
+	if err != nil {
+		t.Fatalf("trailing prose broke the parse: %v", err)
+	}
+	if len(ns) != 1 {
+		t.Fatalf("got %d nuggets, want 1", len(ns))
+	}
+}
+
+// TestParseKeepsBracketsInsideStrings proves the depth scan does not close the
+// array early on a bracket that is part of a body.
+func TestParseKeepsBracketsInsideStrings(t *testing.T) {
+	out := `[{"kind":"command","title":"t","body":"run cmd [1] then cmd [2]","confidence":0.8},
+{"kind":"gotcha","title":"u","body":"second","confidence":0.7}]`
+
+	ns, err := Parse(out, core.Session{ID: "s1", Tool: core.ToolClaude}, "claude")
+	if err != nil {
+		t.Fatalf("brackets inside a string broke the parse: %v", err)
+	}
+	if len(ns) != 2 {
+		t.Errorf("got %d nuggets, want 2 — the array closed early on a bracket in a body", len(ns))
+	}
+}

@@ -378,7 +378,7 @@ const evidenceExtractResultSchema = `{
   "title": "Evidence extraction result",
   "type": "object",
   "additionalProperties": false,
-  "required": ["sessions", "extracted", "failed", "stored", "by_kind", "model_used"],
+  "required": ["sessions", "extracted", "failed", "stored", "empty", "by_kind", "model_used"],
   "properties": {
     "sessions": {
       "type": "array",
@@ -399,6 +399,7 @@ const evidenceExtractResultSchema = `{
     "extracted": {"type": "integer"},
     "failed": {"type": "integer"},
     "stored": {"type": "integer", "description": "Evidence items written to the index."},
+    "empty": {"type": "integer", "description": "Sessions the model read and found nothing reusable in. Separate from failed: stored=0 with failed=0 is otherwise indistinguishable from a broken extraction."},
     "by_kind": {
       "type": "object",
       "additionalProperties": {"type": "integer"},

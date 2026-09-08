@@ -65,6 +65,13 @@ type EvidenceExtractResult struct {
 	Failed    int `json:"failed"`
 	Stored    int `json:"stored"`
 
+	// Empty counts sessions the model read and found nothing reusable in.
+	//
+	// It is separate from Failed on purpose: stored=0 with failed=0 is
+	// otherwise indistinguishable from a broken extraction, and a caller
+	// cannot tell "these sessions had nothing" from "the model never ran".
+	Empty int `json:"empty"`
+
 	// ByKind counts what was found: decision, gotcha, error_fix, command,
 	// artifact, dead_end. A reader deciding whether extraction was worthwhile
 	// needs the composition, not just a total.
@@ -80,6 +87,16 @@ type EvidenceExtractResult struct {
 func (r *EvidenceExtractResult) Normalize() {
 	r.Sessions = emptySlice(r.Sessions)
 	r.ByKind = emptyIntMap(r.ByKind)
+}
+
+// firstBytes returns a bounded, single-line preview of model output for a
+// diagnostic warning. Newlines are collapsed so one warning stays one line.
+func firstBytes(s string, n int) string {
+	s = strings.Join(strings.Fields(s), " ")
+	if len(s) <= n {
+		return s
+	}
+	return s[:n] + "…"
 }
 
 func emptyIntMap(m map[string]int) map[string]int {
@@ -172,12 +189,26 @@ func EvidenceExtract(db *index.DB, req EvidenceExtractRequest, roots adapter.Roo
 		nuggets, err := reclaim.Parse(out, s, string(grant.Backend))
 		if err != nil {
 			result.Failed++
-			warnings = append(warnings, fmt.Sprintf("parse %s: %v", shortID(s.ID), err))
+			// Include what the model actually said. "invalid character 'S'"
+			// names a symptom and hides the cause; a caller cannot tell a
+			// refusal from a preamble from a truncated reply without seeing
+			// the shape of the output. Bounded, because the wire envelope is.
+			warnings = append(warnings, fmt.Sprintf(
+				"parse %s: %v — the model returned %d bytes beginning: %q",
+				shortID(s.ID), err, len(out), firstBytes(out, 160)))
 			continue
 		}
 		if len(nuggets) == 0 {
+			// A model that read the slice and found nothing reusable is a
+			// LEGITIMATE outcome, not a failure — a short or exploratory
+			// session genuinely has nothing worth keeping. It is reported
+			// distinctly so a reader can tell "nothing there" from "something
+			// broke", which the caller cannot do from stored=0 alone.
+			result.Empty++
 			warnings = append(warnings, fmt.Sprintf(
-				"%s yielded no evidence; the model found nothing reusable", shortID(s.ID)))
+				"%s: the model read the evidence and found nothing reusable. That is a "+
+					"legitimate result for a short or exploratory session, not a failure.",
+				shortID(s.ID)))
 			continue
 		}
 
@@ -211,9 +242,12 @@ func EvidenceExtract(db *index.DB, req EvidenceExtractRequest, roots adapter.Roo
 		return result.Sessions[i].SessionID < result.Sessions[j].SessionID
 	})
 
-	if result.Stored == 0 && result.Failed == 0 {
-		warnings = append(warnings,
-			"nothing was stored: the sessions in scope carried no reusable evidence")
+	if result.Stored == 0 && result.Failed == 0 && result.Empty > 0 {
+		warnings = append(warnings, fmt.Sprintf(
+			"nothing was stored: all %d session(s) in scope were read and carried no reusable "+
+				"evidence. Widen the scope or pick sessions by exact id — an inferred scope "+
+				"picks whichever session sorts first, which changes as new sessions appear.",
+			result.Empty))
 	}
 
 	// Every session that reached the model cost something, whether or not it
