@@ -56,6 +56,20 @@ type SeedCreateRequest struct {
 	// able to name a location outside the granted root.
 	Name string `json:"name,omitempty"`
 
+	// Attach names produced documents to copy into the seed, as paths
+	// RELATIVE to the midden_home root — the same `path` content.produce
+	// returns.
+	//
+	// This is what makes the richer journey possible: mine sessions, write a
+	// video brief from the evidence, then hand a consumer the brief AND the
+	// evidence behind it rather than evidence alone. Without it a seed carries
+	// a goal and raw evidence, and the document written for the consumer is
+	// left behind.
+	//
+	// Paths are confined to the granted root and copied by basename into
+	// attachments/, so a seed can never reference a location outside it.
+	Attach []string `json:"attach,omitempty"`
+
 	// MaxEvidence bounds how many evidence records the seed carries.
 	MaxEvidence int `json:"max_evidence,omitempty"`
 }
@@ -83,6 +97,22 @@ type SeedCreateResult struct {
 // Normalize satisfies Normalizer. The result carries no collections today;
 // the method exists so adding one cannot silently reintroduce a null.
 func (r *SeedCreateResult) Normalize() {}
+
+// pathEscapesRoot reports whether an absolute path resolves outside a root.
+//
+// Both sides are symlink-resolved before comparison. A lexical check alone is
+// defeated by a link that is relative, traversal-free, and inside the root by
+// name while pointing elsewhere — which is exactly how a confined path becomes
+// unconfined.
+func pathEscapesRoot(abs, root string) bool {
+	if resolved, err := filepath.EvalSymlinks(abs); err == nil {
+		abs = resolved
+	}
+	if resolved, err := filepath.EvalSymlinks(root); err == nil {
+		root = resolved
+	}
+	return !strings.HasPrefix(filepath.Clean(abs), filepath.Clean(root)+string(filepath.Separator))
+}
 
 // validSeedName reports whether name is a single safe path segment.
 //
@@ -186,7 +216,46 @@ func invokeSeedCreate(req Request) Envelope {
 		warnings = append(warnings, fmt.Sprintf("scope matched more sessions than the bound; used the first %d", maxSessions))
 	}
 
+	// Attachments are resolved against the granted root and confined to it.
+	// A caller supplies a relative path — the one content.produce returned —
+	// and anything escaping the root is refused rather than silently clamped,
+	// because a silently-corrected path hides a caller that believed it could
+	// reach outside.
+	var attach []string
+	for _, rel := range in.Attach {
+		clean := filepath.Clean(strings.TrimSpace(rel))
+		if clean == "" || filepath.IsAbs(clean) || strings.HasPrefix(clean, "..") {
+			return NewErrorEnvelope(OpInvoke, req.RequestID, Error{
+				Code:      ErrInvalidRequest,
+				Message:   fmt.Sprintf("attachment %q must be a relative path inside the %q root", rel, RootMiddenHome),
+				Retryable: false,
+			}, LocalFree())
+		}
+		abs := filepath.Join(root.Path, clean)
+		// Resolve symlinks before the confinement check: a lexical check alone
+		// is defeated by a link pointing outside the root.
+		if resolved, err := filepath.EvalSymlinks(abs); err == nil {
+			abs = resolved
+		}
+		if pathEscapesRoot(abs, root.Path) {
+			return NewErrorEnvelope(OpInvoke, req.RequestID, Error{
+				Code:      ErrPathOutsideRoot,
+				Message:   fmt.Sprintf("attachment %q resolves outside the %q root", rel, RootMiddenHome),
+				Retryable: false,
+			}, LocalFree())
+		}
+		if _, err := os.Stat(abs); err != nil {
+			return NewErrorEnvelope(OpInvoke, req.RequestID, Error{
+				Code:      ErrInvalidRequest,
+				Message:   fmt.Sprintf("attachment %q does not exist under the %q root", rel, RootMiddenHome),
+				Retryable: true,
+			}, LocalFree())
+		}
+		attach = append(attach, abs)
+	}
+
 	input := SeedInput{
+		Attach:               attach,
 		Goal:                 in.Goal,
 		Title:                in.Title,
 		Summary:              in.Summary,

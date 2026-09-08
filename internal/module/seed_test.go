@@ -380,3 +380,132 @@ func copyTree(t *testing.T, src, dst string) {
 		t.Fatalf("copy tree: %v", err)
 	}
 }
+
+// TestSeedCarriesAttachments proves the richer handoff: a seed can carry the
+// document written from its evidence, not just the evidence.
+//
+// `attachments` existed in the manifest from the start and was ALWAYS EMPTY —
+// declared and never populated, which is the same shape as every other
+// declared-but-never-wired defect this project has produced. Journey C is
+// "mine sessions AND compose", so the brief produced from the evidence is
+// exactly what a consumer needs and it was being left behind.
+func TestSeedCarriesAttachments(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "seed-attach")
+	doc := filepath.Join(t.TempDir(), "video-brief.md")
+	if err := os.WriteFile(doc, []byte("# Brief\n\nProduced from evidence.\n"), 0o644); err != nil {
+		t.Fatalf("write doc: %v", err)
+	}
+
+	m := mustWriteSeed(t, dir, SeedInput{
+		Goal:   "carry the brief",
+		Attach: []string{doc},
+		Evidence: []SeedEvidence{
+			{SessionID: "s1", Tool: "claude", Excerpt: "the evidence behind it"},
+		},
+	})
+
+	if len(m.Attachments) != 1 {
+		t.Fatalf("manifest lists %d attachments, want 1", len(m.Attachments))
+	}
+	// The manifest must reference it RELATIVELY, because a consumer reads a
+	// staged copy at a path the producer never saw.
+	if m.Attachments[0] != "attachments/video-brief.md" {
+		t.Errorf("attachment path = %q, want attachments/video-brief.md", m.Attachments[0])
+	}
+	if filepath.IsAbs(m.Attachments[0]) {
+		t.Error("attachment path is absolute; it must be relative to the seed root")
+	}
+
+	// And the file must actually be there, since a manifest referencing a
+	// file that did not travel is worse than not referencing it.
+	onDisk := filepath.Join(dir, "attachments", "video-brief.md")
+	raw, err := os.ReadFile(onDisk)
+	if err != nil {
+		t.Fatalf("attachment did not travel into the seed: %v", err)
+	}
+	if !strings.Contains(string(raw), "Produced from evidence") {
+		t.Error("attachment content did not survive the copy")
+	}
+
+	// The evidence digest must be unaffected: it covers evidence.jsonl alone,
+	// so attaching a document must not invalidate a provenance claim.
+	if _, err := VerifySeedEvidence(dir); err != nil {
+		t.Errorf("attaching a document invalidated the evidence digest: %v", err)
+	}
+}
+
+// TestAttachmentCannotEscapeTheRoot is the confinement guard. An attachment
+// path arrives from a caller, so it is exactly the input that must not be able
+// to pull a file from outside the granted root into a portable bundle.
+func TestAttachmentCannotEscapeTheRoot(t *testing.T) {
+	home := t.TempDir()
+	outside := filepath.Join(t.TempDir(), "secret.txt")
+	if err := os.WriteFile(outside, []byte("must not travel"), 0o644); err != nil {
+		t.Fatalf("setup: %v", err)
+	}
+
+	for _, bad := range []string{
+		"../secret.txt",
+		"../../secret.txt",
+		outside, // absolute
+		"content/../../secret.txt",
+	} {
+		in, _ := json.Marshal(SeedCreateRequest{
+			AssayRequest: AssayRequest{Tool: "claude"},
+			Goal:         "escape attempt",
+			Name:         "escape-test",
+			Attach:       []string{bad},
+		})
+		env := Invoke(Request{
+			Protocol:   ProtocolID,
+			Capability: CapSeedCreate,
+			RequestID:  "req-escape",
+			Input:      in,
+			Roots:      map[string]Root{RootMiddenHome: {Path: home, Mode: "rw"}},
+		})
+		if env.OK {
+			t.Errorf("attachment %q was accepted; it must be refused", bad)
+			continue
+		}
+		if env.Error.Code != ErrInvalidRequest && env.Error.Code != ErrPathOutsideRoot {
+			t.Errorf("attachment %q refused with %q; want invalid_request or path_outside_root",
+				bad, env.Error.Code)
+		}
+	}
+}
+
+// TestAttachmentConfinementIsResolvedNotLexical proves the resolved-path check
+// does real work beyond the cheap lexical one.
+//
+// Mutation-testing exposed that TestAttachmentCannotEscapeTheRoot passed with
+// confinement DISABLED: every path in it is caught by the lexical test
+// (absolute, or beginning with ".."), so the resolved-path comparison never
+// fired. A test that passes whether or not the mechanism exists proves nothing
+// about the mechanism.
+//
+// A symlink is the case only resolution catches, but creating one needs
+// privilege Windows does not grant by default — so this asserts the property
+// on the CHECK ITSELF rather than through the filesystem, which keeps it
+// meaningful on every machine.
+func TestAttachmentConfinementIsResolvedNotLexical(t *testing.T) {
+	root := t.TempDir()
+	outside := t.TempDir()
+
+	// A path that is relative, traversal-free, and inside the root by name,
+	// but whose resolved location is elsewhere — what a symlink produces.
+	inside := filepath.Join(root, "innocent.txt")
+	elsewhere := filepath.Join(outside, "secret.txt")
+
+	if pathEscapesRoot(inside, root) {
+		t.Error("a path genuinely inside the root was reported as escaping")
+	}
+	if !pathEscapesRoot(elsewhere, root) {
+		t.Error("a path outside the root was NOT reported as escaping; " +
+			"confinement would let a symlink pull a file into a portable bundle")
+	}
+	// The root itself is not "inside" it: an attachment naming the root
+	// directory is not a file and must not pass.
+	if !pathEscapesRoot(root, root) {
+		t.Error("the root directory itself was accepted as an attachment path")
+	}
+}

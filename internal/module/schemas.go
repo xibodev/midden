@@ -210,6 +210,11 @@ const seedCreateRequestSchema = `{
       "maxLength": 100,
       "pattern": "^[A-Za-z0-9_-]+$",
       "description": "Seed directory name, a single safe path segment. Generated when absent."
+    },
+    "attach": {
+      "type": "array",
+      "items": {"type": "string"},
+      "description": "Documents to carry into the seed, as paths RELATIVE to the midden_home root — the same path value content.produce returns. This is how a seed carries the brief written from its evidence rather than the evidence alone. Paths escaping the root are refused, and files are copied by basename into attachments/."
     }
   }
 }`

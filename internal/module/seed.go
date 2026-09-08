@@ -173,6 +173,11 @@ type SeedInput struct {
 	Brief                string
 	Evidence             []SeedEvidence
 	Sources              []SeedSource
+
+	// Attach are absolute paths to files copied into attachments/. The caller
+	// resolves and authorizes them; WriteSeed copies by basename so nothing
+	// in the manifest can point outside the seed.
+	Attach []string
 }
 
 // WriteSeed materializes a seed bundle under dir and returns its manifest.
@@ -193,6 +198,25 @@ func WriteSeed(dir string, in SeedInput) (*SeedManifest, error) {
 	}
 
 	now := time.Now().UTC().Format(time.RFC3339)
+
+	// attachments/ — copied by BASENAME so a manifest entry is always a
+	// relative path inside the seed, whatever the source location was.
+	var attached []string
+	for _, src := range in.Attach {
+		raw, err := os.ReadFile(src)
+		if err != nil {
+			return nil, fmt.Errorf("attachment %s could not be read: %w", filepath.Base(src), err)
+		}
+		name := filepath.Base(src)
+		if name == "." || name == string(filepath.Separator) {
+			return nil, fmt.Errorf("attachment %q has no filename", src)
+		}
+		if err := os.WriteFile(filepath.Join(dir, SeedAttachmentsDir, name), raw, 0o644); err != nil {
+			return nil, fmt.Errorf("write attachment %s: %w", name, err)
+		}
+		attached = append(attached, SeedAttachmentsDir+"/"+name)
+	}
+	sort.Strings(attached)
 
 	// evidence.jsonl — written first, because the manifest carries its digest.
 	//
@@ -269,7 +293,7 @@ func WriteSeed(dir string, in SeedInput) (*SeedManifest, error) {
 		Summary:              in.Summary,
 		KeyPoints:            in.KeyPoints,
 		SuggestedOutputTypes: in.SuggestedOutputTypes,
-		Attachments:          []string{},
+		Attachments:          attached,
 		EvidenceDigest:       hex.EncodeToString(sum[:]),
 		EvidenceCount:        len(in.Evidence),
 		CreatedAt:            now,
