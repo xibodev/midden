@@ -55,6 +55,7 @@ func Describe() Descriptor {
 		Module:           ModuleID,
 		Name:             "Midden",
 		Version:          Version,
+		Build:            BuildVariant,
 		ProtocolVersions: []string{ProtocolID},
 		Capabilities: []Capability{
 			{

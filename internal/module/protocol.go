@@ -75,9 +75,15 @@ func ValidDigest(s string) bool {
 //
 // The field set is closed: all three lane prompts specify this exact list.
 type Descriptor struct {
-	Module           string                     `json:"module"`
-	Name             string                     `json:"name"`
-	Version          string                     `json:"version"`
+	Module  string `json:"module"`
+	Name    string `json:"name"`
+	Version string `json:"version"`
+
+	// Build names the artifact variant ("standalone", "headless"). Two builds
+	// of the same version can legitimately include different faces, so a
+	// consumer pinning a surface must be able to tell them apart from the
+	// descriptor rather than by calling something and finding it missing.
+	Build            string                     `json:"build,omitempty"`
 	ProtocolVersions []string                   `json:"protocol_versions"`
 	Capabilities     []Capability               `json:"capabilities"`
 	RequestSchemas   map[string]json.RawMessage `json:"request_schemas"`
