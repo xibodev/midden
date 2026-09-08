@@ -197,7 +197,12 @@ func (c *Conversation) invoke(ctx context.Context, argv func(string) []string, p
 	cctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	cmd := exec.CommandContext(cctx, string(c.runner.Backend), args...)
+	// Use the runner's resolved command, not the bare backend name. A module
+	// host runs modules with an EMPTY environment and grants each binary as an
+	// absolute path, so a bare name resolves against a PATH that does not
+	// exist — for a CLI that is genuinely installed. Runner.Run was fixed for
+	// this; Conversation has its own exec path and was missed.
+	cmd := exec.CommandContext(cctx, c.runner.command(), args...)
 	if c.runner.Dir != "" && c.runner.Backend != Opencode {
 		cmd.Dir = c.runner.Dir
 	}

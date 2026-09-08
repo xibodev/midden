@@ -288,7 +288,10 @@ func ContentProduce(db *index.DB, req ContentProduceRequest, dir string, grant M
 			scopeLabel(kind, req.Workspace, fmt.Sprintf("%d evidence", len(nuggets))),
 			string(grant.Backend), 0)
 
-		out, err := runModelOutput(spec, recipe, nuggets, grant)
+		out, sid, err := runModelOutput(spec, recipe, nuggets, grant)
+		if sid != "" {
+			run.CLISessions = []string{sid}
+		}
 		if err != nil {
 			// Record the failure too: a model that was invoked and errored may
 			// still have billed, and a ledger that only shows successes hides
@@ -592,7 +595,7 @@ func deadlineOf(req Request) time.Duration {
 // The prompt carries the evidence and the output's own requirements, both from
 // the refinery that the human `midden refine` path already uses — so a module
 // run and a terminal run produce the same shape from the same evidence.
-func runModelOutput(spec index.RecipeOutputSpec, recipe index.Recipe, nuggets []index.Nugget, grant ModelGrant) (string, error) {
+func runModelOutput(spec index.RecipeOutputSpec, recipe index.Recipe, nuggets []index.Nugget, grant ModelGrant) (string, string, error) {
 	prompt := refinery.EvidencePreamble(recipe, nuggets) + "\n" + refinery.OutputRequest(spec)
 
 	runner := &exec.Runner{
@@ -602,17 +605,20 @@ func runModelOutput(spec index.RecipeOutputSpec, recipe index.Recipe, nuggets []
 		Timeout:    grant.Timeout,
 		Pure:       true,
 	}
+	// A conversation assigns the CLI session id up front, which is what
+	// reconciliation needs to resolve real usage afterwards.
+	conv := runner.NewConversation()
 
 	ctx, cancel := context.WithTimeout(context.Background(), grant.Timeout)
 	defer cancel()
 
-	res, err := runner.Run(ctx, prompt)
+	res, err := conv.Prime(ctx, prompt)
 	if err != nil {
-		return "", fmt.Errorf("%s could not produce %s: %w", grant.Backend, spec.Kind, err)
+		return "", conv.SessionID(), fmt.Errorf("%s could not produce %s: %w", grant.Backend, spec.Kind, err)
 	}
 	out := strings.TrimSpace(exec.CleanOutput(res.Output))
 	if out == "" {
-		return "", fmt.Errorf("%s returned no content for %s", grant.Backend, spec.Kind)
+		return "", conv.SessionID(), fmt.Errorf("%s returned no content for %s", grant.Backend, spec.Kind)
 	}
-	return out, nil
+	return out, conv.SessionID(), nil
 }

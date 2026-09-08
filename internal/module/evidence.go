@@ -159,7 +159,10 @@ func EvidenceExtract(db *index.DB, req EvidenceExtractRequest, roots adapter.Roo
 			continue
 		}
 
-		out, err := runExtraction(slice, grant)
+		out, sid, err := runExtraction(slice, grant)
+		if sid != "" {
+			run.CLISessions = append(run.CLISessions, sid)
+		}
 		if err != nil {
 			result.Failed++
 			warnings = append(warnings, fmt.Sprintf("extract %s: %v", shortID(s.ID), err))
@@ -227,7 +230,12 @@ func EvidenceExtract(db *index.DB, req EvidenceExtractRequest, roots adapter.Roo
 }
 
 // runExtraction sends one bounded slice to the granted CLI.
-func runExtraction(slice reclaim.Slice, grant ModelGrant) (string, error) {
+//
+// It uses a CONVERSATION rather than a bare Run so the CLI session id is
+// known. Reconciliation resolves real token usage by looking that id up in the
+// backend's own accounting, so a run recorded without one can report that it
+// happened and never what it cost.
+func runExtraction(slice reclaim.Slice, grant ModelGrant) (string, string, error) {
 	runner := &exec.Runner{
 		Backend:    grant.Backend,
 		BinaryPath: grant.Path,
@@ -235,17 +243,21 @@ func runExtraction(slice reclaim.Slice, grant ModelGrant) (string, error) {
 		Timeout:    grant.Timeout,
 		Pure:       true,
 	}
+	conv := runner.NewConversation()
 	ctx, cancel := context.WithTimeout(context.Background(), grant.Timeout)
 	defer cancel()
-	res, err := runner.Run(ctx, slice.Prompt())
+	res, err := conv.Prime(ctx, slice.Prompt())
 	if err != nil {
-		return "", err
+		return "", conv.SessionID(), err
 	}
-	out := strings.TrimSpace(exec.CleanOutput(res.Output))
+	// Return the RAW output. reclaim.Parse does its own fence and prose
+	// handling, and CleanOutput mangles the JSON it is looking for — the CLI
+	// reclaim path parses res.Output directly for exactly this reason.
+	out := strings.TrimSpace(res.Output)
 	if out == "" {
-		return "", fmt.Errorf("%s returned no output", grant.Backend)
+		return "", conv.SessionID(), fmt.Errorf("%s returned no output", grant.Backend)
 	}
-	return out, nil
+	return out, conv.SessionID(), nil
 }
 
 // ---------------------------------------------------------------------------
