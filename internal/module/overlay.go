@@ -2,6 +2,8 @@ package module
 
 import (
 	"embed"
+	"encoding/json"
+	"fmt"
 	"strings"
 )
 
@@ -134,4 +136,117 @@ func OverlayContent(path string) ([]byte, bool) {
 		return raw, true
 	}
 	return nil, false
+}
+
+// SelfCheck reports problems in Midden's own descriptor.
+//
+// It exists because of a question a host could not answer from outside: a
+// module that reports nothing because it checked, and one that reports nothing
+// because it does not look, are indistinguishable on a page listing warnings.
+// Midden was the second kind. Silence is only meaningful if something looked.
+//
+// Every check here is about what THIS BINARY declares versus what it can
+// actually serve, so it needs no filesystem, no roots, and no host — it is
+// answerable at describe time and cannot fail for an environmental reason.
+func SelfCheck() []string { return selfCheckOf(Describe()) }
+
+// selfCheckOf is the testable seam: it takes a descriptor rather than building
+// one, so a test can mutate a field and prove the check detects it.
+func selfCheckOf(d Descriptor) []string {
+	var out []string
+
+	declaredSkills := map[string]bool{}
+	for _, s := range d.Skills {
+		declaredSkills[s.ID] = true
+	}
+
+	for _, c := range d.Capabilities {
+		// A capability referencing a schema the descriptor does not declare
+		// leaves a host with nothing to validate its requests against. The
+		// reference resolves in the code and dangles on the wire.
+		if _, ok := d.RequestSchemas[c.RequestSchema]; c.RequestSchema != "" && !ok {
+			out = append(out, fmt.Sprintf(
+				"capability %s references request schema %q that the descriptor does not declare",
+				c.ID, c.RequestSchema))
+		}
+		if _, ok := d.ResultSchemas[c.ResultSchema]; c.ResultSchema != "" && !ok {
+			out = append(out, fmt.Sprintf(
+				"capability %s references result schema %q that the descriptor does not declare",
+				c.ID, c.ResultSchema))
+		}
+		for _, k := range c.ArtifactSchemas {
+			if _, ok := d.ArtifactSchemas[k]; !ok {
+				out = append(out, fmt.Sprintf(
+					"capability %s may produce artifact %q that the descriptor does not declare, "+
+						"so a host has no schema to validate or render it", c.ID, k))
+			}
+		}
+		for _, id := range c.Skills {
+			if !declaredSkills[id] {
+				out = append(out, fmt.Sprintf(
+					"capability %s references skill %q that the descriptor does not declare", c.ID, id))
+			}
+		}
+		// A capability that is not long-running must not name a poll target:
+		// a host would offer polling for something that never returns a handle.
+		if !c.LongRunning && c.PollCapability != "" {
+			out = append(out, fmt.Sprintf(
+				"capability %s is not long-running but names poll capability %q", c.ID, c.PollCapability))
+		}
+	}
+
+	// Overlay and skill content must be servable and match its declared digest.
+	// A host refuses a mismatch, so this is the module reporting the same
+	// refusal before the host has to.
+	check := func(kind, id, path, digest string) {
+		raw, ok := OverlayContent(path)
+		if !ok {
+			out = append(out, fmt.Sprintf("%s %s declares path %q that this binary cannot serve", kind, id, path))
+			return
+		}
+		if got := DigestSHA256(raw); got != digest {
+			out = append(out, fmt.Sprintf(
+				"%s %s at %s does not match its declared digest and would be REFUSED when loaded "+
+					"into agent context (declared %s, embedded %s)", kind, id, path, digest, got))
+		}
+	}
+	for _, o := range d.AgentOverlays {
+		check("overlay", o.ID, o.Path, o.Digest)
+	}
+	for _, s := range d.Skills {
+		check("skill", s.ID, s.Path, s.Digest)
+	}
+
+	// Every embedded schema must be valid JSON with an $id that agrees with
+	// its map key, or a reference resolves to a schema describing something
+	// else. An ABSENT $id is legal — the key is the identity.
+	for name, raw := range allSchemas(d) {
+		var doc map[string]any
+		if err := json.Unmarshal(raw, &doc); err != nil {
+			out = append(out, fmt.Sprintf("schema %q is not valid JSON: %v", name, err))
+			continue
+		}
+		if id, present := doc["$id"]; present {
+			if s, _ := id.(string); s != name {
+				out = append(out, fmt.Sprintf(
+					"schema %q declares $id %q; when both are present they must agree", name, s))
+			}
+		}
+	}
+
+	return out
+}
+
+func allSchemas(d Descriptor) map[string]json.RawMessage {
+	all := map[string]json.RawMessage{}
+	for k, v := range d.RequestSchemas {
+		all[k] = v
+	}
+	for k, v := range d.ResultSchemas {
+		all[k] = v
+	}
+	for k, v := range d.ArtifactSchemas {
+		all[k] = v
+	}
+	return all
 }

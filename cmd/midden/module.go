@@ -52,6 +52,10 @@ func cmdModuleDescribe(args []string) error {
 	if err != nil {
 		return err
 	}
+	// Report the descriptor's own defects. A host cannot distinguish a module
+	// that reports nothing because it checked from one that never looked, so
+	// silence here is only meaningful because something looked.
+	env.Warnings = module.SelfCheck()
 	return emitEnvelope(env)
 }
 

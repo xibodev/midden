@@ -3,6 +3,7 @@ package module
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -170,5 +171,74 @@ func TestDeclaredDigestsMatchPublishedFilesOnDisk(t *testing.T) {
 	}
 	for _, s := range d.Skills {
 		check("skill", s.ID, s.Path, s.Digest)
+	}
+}
+
+// TestSelfCheckIsCleanOnAShippedDescriptor proves Midden's own descriptor has
+// nothing to report — and, with the mutation guards below, that the silence
+// means something.
+func TestSelfCheckIsCleanOnAShippedDescriptor(t *testing.T) {
+	if problems := SelfCheck(); len(problems) != 0 {
+		t.Errorf("descriptor self-check found problems:\n  %s", strings.Join(problems, "\n  "))
+	}
+}
+
+// TestSelfCheckCanActuallyFail is the guard that makes the clean result
+// meaningful. A check that cannot fail reports nothing for the same reason a
+// missing check does, and the two are indistinguishable from outside.
+func TestSelfCheckCanActuallyFail(t *testing.T) {
+	cases := []struct {
+		name    string
+		mutate  func(*Descriptor)
+		wantSub string
+	}{
+		{
+			"dangling request schema",
+			func(d *Descriptor) { d.Capabilities[0].RequestSchema = "does.not.exist/v1" },
+			"does not declare",
+		},
+		{
+			"undeclared artifact schema",
+			func(d *Descriptor) { d.Capabilities[0].ArtifactSchemas = []string{"ghost.artifact/v1"} },
+			"no schema to validate or render it",
+		},
+		{
+			"dangling skill reference",
+			func(d *Descriptor) { d.Capabilities[0].Skills = []string{"midden.no-such-skill"} },
+			"does not declare",
+		},
+		{
+			"poll target on a synchronous capability",
+			func(d *Descriptor) { d.Capabilities[0].PollCapability = "jobs.status" },
+			"not long-running but names poll capability",
+		},
+		{
+			"schema key disagrees with its $id",
+			func(d *Descriptor) {
+				d.RequestSchemas["renamed.key/v1"] = d.RequestSchemas[SchemaSessionsListRequest]
+			},
+			"when both are present they must agree",
+		},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			d := Describe()
+			c.mutate(&d)
+			problems := selfCheckOf(d)
+			if len(problems) == 0 {
+				t.Fatalf("mutation %q produced no warning; the check cannot detect it", c.name)
+			}
+			var found bool
+			for _, p := range problems {
+				if strings.Contains(p, c.wantSub) {
+					found = true
+				}
+			}
+			if !found {
+				t.Errorf("mutation %q failed for the wrong reason.\nwant substring %q\ngot:\n  %s",
+					c.name, c.wantSub, strings.Join(problems, "\n  "))
+			}
+		})
 	}
 }
