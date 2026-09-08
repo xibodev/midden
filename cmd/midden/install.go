@@ -23,11 +23,24 @@ func cmdInstall(args []string) error {
 	dryRun := fs.Bool("dry-run", false, "show what would happen and change nothing")
 	uninstall := fs.Bool("uninstall", false, "remove Midden's skills from detected targets")
 	only := fs.String("only", "", "act on one target by id (claude-code, copilot-cli, opencode, facet-studio)")
+	hostPath := fs.String("host", "", "absolute path to a module host binary that is not on PATH")
 	if err := fs.Parse(reorderArgs(fs, args)); err != nil {
 		return err
 	}
 
 	targets := install.Detect()
+	// A host installed outside PATH and outside the user profile — a
+	// development checkout, say — cannot be found by probing. Guessing at
+	// repository locations would make this a scanner for other people's
+	// checkouts, which is the line between an installer and a package
+	// manager. An explicit path is the honest alternative.
+	if *hostPath != "" {
+		var err error
+		targets, err = install.WithHostPath(targets, *hostPath)
+		if err != nil {
+			return err
+		}
+	}
 	detected := 0
 	for _, t := range targets {
 		if t.Detected {

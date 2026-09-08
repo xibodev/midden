@@ -192,6 +192,39 @@ func Detect() []Target {
 	return targets
 }
 
+// WithHostPath overrides a module host's location with an explicit path.
+//
+// Detection probes PATH and a few known install locations. A host built in its
+// own source tree is in neither, and probing for repository checkouts would
+// turn this into a scanner for other people's projects rather than an
+// installer for Midden. Naming the path is the honest alternative: the user
+// states where their host is instead of Midden guessing.
+func WithHostPath(targets []Target, path string) ([]Target, error) {
+	abs, err := filepath.Abs(strings.TrimSpace(path))
+	if err != nil {
+		return nil, fmt.Errorf("host path %q could not be resolved: %w", path, err)
+	}
+	fi, err := os.Stat(abs)
+	if err != nil {
+		return nil, fmt.Errorf("no host binary at %s: %w", abs, err)
+	}
+	if fi.IsDir() {
+		return nil, fmt.Errorf("%s is a directory; supply the host executable itself", abs)
+	}
+
+	out := make([]Target, len(targets))
+	copy(out, targets)
+	for i := range out {
+		if out[i].Kind == KindModule {
+			out[i].BinaryPath = abs
+			out[i].Detected = true
+			out[i].Note = "location supplied explicitly rather than detected"
+			return out, nil
+		}
+	}
+	return nil, fmt.Errorf("no module host target to point at %s", abs)
+}
+
 // DetectedTargets returns only the targets actually present.
 func DetectedTargets() []Target {
 	var out []Target
