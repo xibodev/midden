@@ -324,7 +324,7 @@ const contentProduceResultSchema = `{
   "title": "Produced content",
   "type": "object",
   "additionalProperties": false,
-  "required": ["kind", "title", "format", "media_type", "root", "path", "bytes", "evidence_count", "model_used", "review"],
+  "required": ["kind", "title", "format", "media_type", "root", "path", "bytes", "evidence_count", "empty", "model_used", "review"],
   "properties": {
     "kind": {"type": "string"},
     "title": {"type": "string"},
@@ -334,6 +334,7 @@ const contentProduceResultSchema = `{
     "path": {"type": "string", "description": "RELATIVE to the named root."},
     "bytes": {"type": "integer"},
     "evidence_count": {"type": "integer", "description": "How many evidence items the document was derived from."},
+    "empty": {"type": "boolean", "description": "The document was written and has no content, because the evidence in scope contains nothing this kind can use. Distinct from success: a preference pack needs dead_end items to pair against."},
     "model_used": {"type": "boolean", "description": "A fact about this production, not a promise about the capability."},
     "review": {"type": "string", "description": "Always draft. Producing a document is not approving it."}
   }

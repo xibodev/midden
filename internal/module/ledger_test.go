@@ -116,3 +116,25 @@ func contains(s, sub string) bool {
 			return false
 		}())
 }
+
+// TestEmptyOutputIsReportedDistinctly guards a misleading success found by
+// running every free content kind rather than the two already exercised.
+//
+// preference_pack needs dead_end evidence to pair against. A corpus without
+// any yields no pairs, so the document is written, valid, and one byte long —
+// and it was reported as a plain success. A caller could not tell a finished
+// output from an inapplicable one without opening the file, which is the same
+// shape as a filtered count stated without its denominator.
+func TestEmptyOutputIsReportedDistinctly(t *testing.T) {
+	// The result type must carry the distinction at all: a bytes count alone
+	// cannot express "written but inapplicable".
+	r := &ContentProduceResult{Kind: "preference_pack", Bytes: 1, Empty: true}
+	if !r.Empty {
+		t.Fatal("ContentProduceResult cannot express an empty document")
+	}
+
+	full := &ContentProduceResult{Kind: "retrieval_pack", Bytes: 8075, Empty: false}
+	if full.Empty {
+		t.Error("a document with content was marked empty")
+	}
+}

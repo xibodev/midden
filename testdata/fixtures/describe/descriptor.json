@@ -451,6 +451,7 @@
           "path",
           "bytes",
           "evidence_count",
+          "empty",
           "model_used",
           "review"
         ],
@@ -480,6 +481,10 @@
           "evidence_count": {
             "type": "integer",
             "description": "How many evidence items the document was derived from."
+          },
+          "empty": {
+            "type": "boolean",
+            "description": "The document was written and has no content, because the evidence in scope contains nothing this kind can use. Distinct from success: a preference pack needs dead_end items to pair against."
           },
           "model_used": {
             "type": "boolean",

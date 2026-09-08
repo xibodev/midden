@@ -128,6 +128,12 @@ type ContentProduceResult struct {
 	Bytes         int64  `json:"bytes"`
 	EvidenceCount int    `json:"evidence_count"`
 
+	// Empty reports that the document was written and has no content. A kind
+	// can be inapplicable to the evidence available — a preference pack needs
+	// dead_end items to pair against — and a caller must be able to tell that
+	// from a finished output without inspecting the file.
+	Empty bool `json:"empty"`
+
 	// ModelUsed is a fact about THIS production, not a promise about the
 	// capability: the same capability produces free packs and model-backed
 	// documents depending on the kind asked for.
@@ -318,6 +324,19 @@ func ContentProduce(db *index.DB, req ContentProduceRequest, dir string, grant M
 		}
 	}
 
+	// An output whose body is empty is a REAL result — a preference pack needs
+	// dead_end evidence to pair against, and a corpus without any yields no
+	// pairs. But reporting it as a plain success hands back a document with
+	// nothing in it and no indication why, which is the same misleading-answer
+	// shape as a filtered count stated alone.
+	if strings.TrimSpace(body) == "" {
+		warnings = append(warnings, fmt.Sprintf(
+			"%s produced an EMPTY document: the %d evidence items in scope contain nothing this "+
+				"kind can use. It is written and valid, but has no content — widen the scope or "+
+				"extract more evidence rather than treating this as a finished output.",
+			kind, len(nuggets)))
+	}
+
 	wrapped := refinery.WrapOutput(spec, recipe, body, modelName, len(nuggets))
 
 	name := strings.TrimSpace(req.Name)
@@ -347,6 +366,7 @@ func ContentProduce(db *index.DB, req ContentProduceRequest, dir string, grant M
 		Path:          rel,
 		Bytes:         int64(len(wrapped)),
 		EvidenceCount: len(nuggets),
+		Empty:         strings.TrimSpace(body) == "",
 		ModelUsed:     modelUsed,
 		ModelBackend:  modelName,
 		Review:        "draft",
