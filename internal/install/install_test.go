@@ -39,7 +39,12 @@ func TestInstallWritesTheDeclaredBundle(t *testing.T) {
 		}
 		// The installed file must be usable as a skill: frontmatter the
 		// harness can read, and a command an agent can actually run.
-		if !strings.HasPrefix(string(raw), "---\n") {
+		//
+		// Check the DELIMITER rather than an exact "---\n" prefix. A CRLF
+		// checkout is still valid YAML frontmatter and the harness parses it
+		// fine, so asserting the byte sequence fails for a reason unrelated to
+		// the property being protected.
+		if !strings.HasPrefix(strings.TrimLeft(string(raw), "\ufeff"), "---") {
 			t.Errorf("%s has no frontmatter; the harness cannot list it", b.dir)
 		}
 		if !strings.Contains(string(raw), "midden module") {
