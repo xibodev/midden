@@ -323,6 +323,14 @@ func cmdArtifacts(args []string) error {
 	}
 	defer db.Close()
 
+	// Adopt any content on disk that predates artifact recording, so the
+	// listing matches what a user can actually see in the folder. A library
+	// that silently omits paid-for documents is worse than one that admits
+	// it knows little about them.
+	if n, err := db.BackfillArtifacts(index.Dir()); err == nil && n > 0 {
+		fmt.Fprintln(os.Stderr, "adopted", n, "existing document(s) into the library")
+	}
+
 	as, err := db.Artifacts(*limit)
 	if err != nil {
 		return err
