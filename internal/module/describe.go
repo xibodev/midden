@@ -22,7 +22,15 @@ const (
 
 // Schema IDs referenced by capabilities.
 const (
-	SchemaSessionsListRequest  = "xibodev.midden.sessions.list.request/v1"
+	SchemaSessionsListRequest = "xibodev.midden.sessions.list.request/v1"
+
+	// SchemaContentTypesRequest is an EMPTY request. content.types reads no
+	// input at all, so it previously borrowed sessions.list's schema — which
+	// told a consumer to send scope fields the capability silently ignores.
+	// A declared surface that does not match behaviour is worse than none: it
+	// is the same class of defect as the seed digest disagreement, found by
+	// reading the descriptor rather than by anything failing.
+	SchemaContentTypesRequest  = "xibodev.midden.content.types.request/v1"
 	SchemaSessionsListResult   = "xibodev.midden.sessions.list.result/v1"
 	SchemaSessionsAssayRequest = "xibodev.midden.sessions.assay.request/v1"
 	SchemaSessionsAssayResult  = "xibodev.midden.sessions.assay.result/v1"
@@ -109,7 +117,7 @@ func Describe() Descriptor {
 				ID:            CapContentTypes,
 				Title:         "List producible content types",
 				Summary:       "List the document types Midden can produce from mined evidence, which need a model and which are free, and how much stored evidence exists. Call this before content.produce.",
-				RequestSchema: SchemaSessionsListRequest,
+				RequestSchema: SchemaContentTypesRequest,
 				ResultSchema:  SchemaContentTypesResult,
 				Effects:       Effects{Local: true, CostKnown: true},
 				Skills:        []string{SkillEvidenceSelection},
@@ -133,6 +141,7 @@ func Describe() Descriptor {
 		},
 		RequestSchemas: map[string]json.RawMessage{
 			SchemaSessionsListRequest:    json.RawMessage(scopeRequestSchema),
+			SchemaContentTypesRequest:    json.RawMessage(noInputRequestSchema),
 			SchemaSessionsAssayRequest:   json.RawMessage(assayRequestSchema),
 			SchemaSeedCreateRequest:      json.RawMessage(seedCreateRequestSchema),
 			SchemaContentProduceRequest:  json.RawMessage(contentProduceRequestSchema),

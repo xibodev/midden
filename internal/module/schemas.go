@@ -410,3 +410,19 @@ const evidenceExtractResultSchema = `{
     "model_backend": {"type": "string"}
   }
 }`
+
+// noInputRequestSchema describes a capability that reads no input.
+//
+// Declaring this explicitly, rather than reusing an unrelated request schema,
+// is what makes the surface testable from outside: a consumer can see that
+// sending fields is meaningless here instead of building a request that is
+// accepted and ignored.
+const noInputRequestSchema = `{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "xibodev.midden.content.types.request/v1",
+  "title": "content.types request",
+  "description": "content.types takes no input. Any properties supplied are ignored.",
+  "type": "object",
+  "properties": {},
+  "additionalProperties": false
+}`

@@ -97,7 +97,7 @@
         "id": "content.types",
         "title": "List producible content types",
         "summary": "List the document types Midden can produce from mined evidence, which need a model and which are free, and how much stored evidence exists. Call this before content.produce.",
-        "request_schema": "xibodev.midden.sessions.list.request/v1",
+        "request_schema": "xibodev.midden.content.types.request/v1",
         "result_schema": "xibodev.midden.content.types.result/v1",
         "artifact_schemas": [],
         "effects": {
@@ -178,6 +178,15 @@
             "description": "Output filename stem, a single safe path segment."
           }
         }
+      },
+      "xibodev.midden.content.types.request/v1": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$id": "xibodev.midden.content.types.request/v1",
+        "title": "content.types request",
+        "description": "content.types takes no input. Any properties supplied are ignored.",
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
       },
       "xibodev.midden.evidence.extract.request/v1": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
