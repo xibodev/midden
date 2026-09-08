@@ -1,4 +1,14 @@
-package module
+// Package seed builds portable xibodev.midden.seed/v1 bundles.
+//
+// It lives in the core rather than in the module layer because a capability
+// implemented in one delivery channel is reachable only from that channel. The
+// module face, the CLI, and the standalone UI must all be able to build a seed;
+// a seed that only facet-studio can produce would fork the product by how it
+// was launched.
+//
+// Nothing here imports the module protocol: this package knows about evidence,
+// digests and files, not about envelopes or roots.
+package seed
 
 import (
 	"crypto/sha256"
@@ -11,6 +21,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mekjr1/midden/internal/core"
 	"github.com/mekjr1/midden/internal/redact"
 )
 
@@ -31,6 +42,11 @@ import (
 // path Midden wrote. Every internal reference is therefore relative to the seed
 // root, and the DIGEST rather than the path is the stable identity.
 const SeedSchemaID = "xibodev.midden.seed/v1"
+
+// digestPrefix is the "sha256:" form a module boundary may use. A seed manifest
+// carries the bare hex form, but a consumer handed the prefixed one must not be
+// broken by the difference.
+const digestPrefix = "sha256:"
 
 // Seed file names. Fixed by the contract: a consumer resolves the entry file
 // by name relative to the seed root.
@@ -267,8 +283,8 @@ func WriteSeed(dir string, in SeedInput) (*SeedManifest, error) {
 
 	prov := SeedProvenance{
 		Schema:      SeedSchemaID,
-		Module:      ModuleID,
-		ModuleVer:   Version,
+		Module:      core.ModuleID,
+		ModuleVer:   core.Version,
 		CreatedAt:   now,
 		Sources:     sources,
 		Redaction:   "secret-shape redaction applied to excerpts and brief; not a privacy filter for prose",
@@ -356,7 +372,7 @@ func VerifySeedEvidence(seedDir string) (*SeedManifest, error) {
 	// Accept a prefixed digest as well: the bare form is the manifest
 	// convention, the prefixed form is the module-boundary convention, and a
 	// consumer should not be broken by which one it was handed.
-	expected := strings.TrimPrefix(strings.ToLower(strings.TrimSpace(m.EvidenceDigest)), DigestPrefix)
+	expected := strings.TrimPrefix(strings.ToLower(strings.TrimSpace(m.EvidenceDigest)), digestPrefix)
 	if expected != actual {
 		return m, fmt.Errorf("seed evidence digest mismatch: manifest claims %s, computed %s", expected, actual)
 	}
@@ -400,4 +416,18 @@ func defaultBrief(in SeedInput) string {
 		}
 	}
 	return b.String()
+}
+
+// emptySlice coerces a nil slice to an empty one.
+//
+// Deliberately duplicated from the module layer rather than imported: the core
+// must not depend on the protocol package, or the dependency runs backwards and
+// the CLI and UI would pull in envelope types they never use. A seed manifest
+// is read by other tools, so a nil serialising as null is a wire defect here
+// exactly as it is on the protocol boundary.
+func emptySlice[T any](s []T) []T {
+	if s == nil {
+		return []T{}
+	}
+	return s
 }
