@@ -827,8 +827,8 @@
         "id": "midden.recovery",
         "title": "Midden session recovery",
         "path": "agents/midden-recovery.md",
-        "digest": "sha256:70e9391f0d7fc06432322b6f3354641a41a3673d6b43b5636f8b1ac84338017e",
-        "tokens": 1561
+        "digest": "sha256:efb835a228894206a19ee185c04623cef92888b14889504aaeee208bf5d47d25",
+        "tokens": 1528
       }
     ],
     "skills": [
@@ -845,8 +845,8 @@
         "title": "Selecting evidence",
         "summary": "Reading assay classes and choosing the bounded slice worth keeping.",
         "path": "skills/evidence-selection/SKILL.md",
-        "digest": "sha256:5545b19f88bf1df971d034c512ef649e0667369711530f0a04e2cf3ecf52d784",
-        "tokens": 1134
+        "digest": "sha256:ec633bb4f2df9c03000bf16ce6728c2f97a8a7a8b762201edfcfaa05a7863748",
+        "tokens": 1107
       },
       {
         "id": "midden.content-seed",
