@@ -38,6 +38,13 @@ needs a different plan from one that is 70% signal.
 scope matched nothing. A `no_source_stores` error means Midden could not see the
 stores at all. Never report the second as "you have no sessions."
 
+**Never report a session count without its denominator.** `sessions.list`
+excludes automated and trivial sessions unless `include_noise` is set, so
+`total` is a filtered figure rather than everything on disk. The result carries
+`excluded_noise` and `matched` — report them together. "93 sessions" invites a
+user who counts 218 files to conclude Midden lost 125 of them; "93 of 215, 122
+automated excluded" is the same fact and cannot be misread.
+
 **Source stores are read-only.** Midden never writes to Copilot, Claude, or
 OpenCode data. If a user asks to delete or edit a session through Midden, that
 is out of scope — say so.

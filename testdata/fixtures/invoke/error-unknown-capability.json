@@ -12,7 +12,9 @@
       "known": [
         "sessions.list",
         "sessions.assay",
-        "seed.create"
+        "seed.create",
+        "content.types",
+        "content.produce"
       ]
     }
   },

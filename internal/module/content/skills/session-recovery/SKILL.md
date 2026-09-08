@@ -53,6 +53,12 @@ they reclaim it is not your call.
 sessions than the bound. Say so plainly and offer to narrow the scope, rather
 than presenting a partial list as complete.
 
+**A count is never reported alone.** `sessions.list` hides automated and
+trivial sessions by default, so `total` is filtered. Read `excluded_noise` and
+`matched` from the same result and state all three: "93 of 215 matched, 122
+automated excluded". A bare total is indistinguishable from a complete one, and
+a user counting their own files will conclude sessions were lost.
+
 ## Invoking Midden
 
 Midden is a local binary. Every capability is one command; stdout carries a

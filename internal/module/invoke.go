@@ -300,7 +300,10 @@ func Invoke(req Request) Envelope {
 	// Reporting an empty success when the stores are merely invisible would be
 	// a lie the host cannot detect. seed.create runs its own checks in order:
 	// it must report a missing write root before it reports missing stores.
-	if req.Capability != CapSeedCreate && !sourceStoresVisible(sourceRootsFrom(req)) {
+	needsStores := req.Capability != CapSeedCreate &&
+		req.Capability != CapContentTypes &&
+		req.Capability != CapContentProduce
+	if needsStores && !sourceStoresVisible(sourceRootsFrom(req)) {
 		return noSourceStoresEnvelope(req)
 	}
 
@@ -311,12 +314,16 @@ func Invoke(req Request) Envelope {
 		return invokeAssay(req)
 	case CapSeedCreate:
 		return invokeSeedCreate(req)
+	case CapContentTypes:
+		return invokeContentTypes(req)
+	case CapContentProduce:
+		return invokeContentProduce(req)
 	default:
 		return NewErrorEnvelope(OpInvoke, req.RequestID, Error{
 			Code:      ErrUnknownCapability,
 			Message:   fmt.Sprintf("unknown capability %q", req.Capability),
 			Retryable: false,
-			Details:   map[string]any{"known": []string{CapSessionsList, CapSessionsAssay, CapSeedCreate}},
+			Details:   map[string]any{"known": []string{CapSessionsList, CapSessionsAssay, CapSeedCreate, CapContentTypes, CapContentProduce}},
 		}, UnknownCost())
 	}
 }

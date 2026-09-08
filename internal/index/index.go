@@ -42,12 +42,25 @@ func Dir() string {
 func Path() string { return filepath.Join(Dir(), "index.db") }
 
 // Open creates or opens the index, applying the schema.
-func Open() (*DB, error) {
-	if err := os.MkdirAll(Dir(), 0o755); err != nil {
-		return nil, fmt.Errorf("create %s: %w", Dir(), err)
+func Open() (*DB, error) { return OpenAt(Dir()) }
+
+// OpenAt opens the index under an EXPLICIT directory rather than resolving one
+// from the environment.
+//
+// The module protocol requires this: a host runs modules with an empty
+// environment and supplies every path in the request, so Dir() would resolve
+// to a relative ".midden" and quietly read an index that is not the user's.
+// Open() is OpenAt(Dir()), so every existing caller is unchanged.
+func OpenAt(dir string) (*DB, error) {
+	if strings.TrimSpace(dir) == "" {
+		return nil, fmt.Errorf("index directory is empty")
+	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return nil, fmt.Errorf("create %s: %w", dir, err)
 	}
 
-	p := filepath.ToSlash(Path())
+	dbPath := filepath.Join(dir, "index.db")
+	p := filepath.ToSlash(dbPath)
 	// WAL keeps reads working while a scan writes.
 	dsn := "file:" + p + "?_pragma=journal_mode(WAL)&_pragma=busy_timeout(10000)&_pragma=foreign_keys(1)"
 
@@ -60,7 +73,7 @@ func Open() (*DB, error) {
 		return nil, err
 	}
 
-	db := &DB{sql: sdb, path: Path()}
+	db := &DB{sql: sdb, path: dbPath}
 	if err := db.migrate(); err != nil {
 		sdb.Close()
 		return nil, err

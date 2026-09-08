@@ -264,3 +264,85 @@ const seedManifestSchema = `{
     "created_at": {"type": "string", "format": "date-time"}
   }
 }`
+
+const contentTypesResultSchema = `{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "xibodev.midden.content.types.result/v1",
+  "title": "Producible content types",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["types", "evidence_count", "free_kinds"],
+  "properties": {
+    "types": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["kind", "title", "format", "media_type", "requires_model"],
+        "properties": {
+          "kind": {"type": "string"},
+          "title": {"type": "string"},
+          "audience": {"type": "string"},
+          "format": {"type": "string"},
+          "media_type": {"type": "string", "description": "Every output is SOURCE TEXT. A d2 file is a diagram's source, not a rendered diagram."},
+          "requires_model": {"type": "boolean"},
+          "maker": {"type": "string", "description": "The tool a person runs NEXT on this source. A handoff target, not a dependency Midden invokes."}
+        }
+      }
+    },
+    "evidence_count": {"type": "integer", "description": "Stored evidence available. Zero means nothing can be produced regardless of type."},
+    "free_kinds": {"type": "array", "items": {"type": "string"}, "description": "Kinds producible with no model call."}
+  }
+}`
+
+const contentProduceRequestSchema = `{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "xibodev.midden.content.produce.request/v1",
+  "title": "Content production request",
+  "description": "Write one document from stored evidence. Deterministic; calls no model. Requires the midden_home root.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["kind"],
+  "properties": {
+    "kind": {"type": "string", "description": "Output type from content.types. Model-backed kinds are refused rather than produced weakly."},
+    "title": {"type": "string"},
+    "workspace": {"type": "string", "description": "Narrow evidence to one project."},
+    "evidence_kinds": {"type": "array", "items": {"type": "string"}, "description": "Narrow to evidence kinds: decision, gotcha, error_fix, command, artifact, dead_end."},
+    "max_evidence": {"type": "integer", "minimum": 0, "maximum": 300, "description": "Bound on evidence used. 0 selects the default of 40."},
+    "name": {"type": "string", "maxLength": 100, "pattern": "^[A-Za-z0-9_-]+$", "description": "Output filename stem, a single safe path segment."}
+  }
+}`
+
+const contentProduceResultSchema = `{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "xibodev.midden.content.produce.result/v1",
+  "title": "Produced content",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["kind", "title", "format", "media_type", "root", "path", "bytes", "evidence_count", "model_used", "review"],
+  "properties": {
+    "kind": {"type": "string"},
+    "title": {"type": "string"},
+    "format": {"type": "string"},
+    "media_type": {"type": "string"},
+    "root": {"type": "string"},
+    "path": {"type": "string", "description": "RELATIVE to the named root."},
+    "bytes": {"type": "integer"},
+    "evidence_count": {"type": "integer", "description": "How many evidence items the document was derived from."},
+    "model_used": {"type": "boolean", "description": "A fact about this production, not a promise about the capability."},
+    "review": {"type": "string", "description": "Always draft. Producing a document is not approving it."}
+  }
+}`
+
+const contentOutputSchema = `{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "xibodev.midden.content.output/v1",
+  "title": "Midden content output",
+  "description": "A document produced from mined evidence. Always SOURCE TEXT: markdown, jsonl, json, tsv, d2 source or a diff. Midden renders nothing.",
+  "type": "object",
+  "properties": {
+    "kind": {"type": "string"},
+    "format": {"type": "string"},
+    "review": {"type": "string"}
+  }
+}`
