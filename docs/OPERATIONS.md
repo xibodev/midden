@@ -27,7 +27,7 @@ the product owns. Two tests, both mechanical:
 |---|---|---|---|
 | `assay_session` | session scope -> evidence manifest | yes | false |
 | `mine_evidence` | session scope -> stored evidence set | no (model) | true |
-| `produce_content` | evidence set + kind -> document | per kind | conditional on `kind` |
+| `produce_content` | evidence set + kind -> written output | per kind | conditional on `kind` |
 | `build_seed` | session scope + goal -> portable seed bundle | yes | false |
 
 Four Operations. Six module capabilities, twenty-nine CLI verbs and nineteen
@@ -77,8 +77,10 @@ validates the artifact RECORD, not the bytes of the file. Declaring the json
 output `document` on the strength of that schema would name a validator that
 does not validate the thing being declared.
 
-RFC v2 §9 requires a `document` to name a validator that RESOLVES, and fails
-conformance otherwise. TSV, NDJSON and JSON become `document` only when a
+RFC v2 §9 requires a `document` to name a validator that validates the
+ARTIFACT'S OWN CONTENT, not a record about it, and to fail conformance
+otherwise. A name-resolution check passes the declaration above; the intent
+fails. TSV, NDJSON and JSON become `document` only when a
 validator for their CONTENT is written and named.
 
 A shape that looks validatable is not a validation contract, and neither is a
