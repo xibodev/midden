@@ -36,9 +36,30 @@ type SessionSummary struct {
 
 // ListResult is the sessions.list payload.
 type ListResult struct {
-	Sessions  []SessionSummary `json:"sessions"`
-	Total     int              `json:"total"`
-	Truncated bool             `json:"truncated"`
+	Sessions []SessionSummary `json:"sessions"`
+
+	// Total is how many sessions the scope matched AFTER filtering.
+	Total int `json:"total"`
+
+	// ExcludedNoise is how many sessions the scope matched but the noise
+	// filter removed, and Matched is the two combined.
+	//
+	// These exist because `total` alone is a number that cannot carry its own
+	// caveat. Midden hides automated and trivial sessions by default, so a
+	// user who counts 218 files on disk and is told "93" concludes Midden lost
+	// 125 of them. The count was right and the ANSWER was misleading, which is
+	// worse than being wrong: nothing about it invites checking.
+	//
+	// Reporting the denominator alongside the figure means an agent cannot
+	// state the total without the context that qualifies it.
+	ExcludedNoise int `json:"excluded_noise"`
+	Matched       int `json:"matched"`
+
+	// NoiseFilterApplied states plainly that a default did work here, so an
+	// agent does not have to infer it from two numbers differing.
+	NoiseFilterApplied bool `json:"noise_filter_applied"`
+
+	Truncated bool `json:"truncated"`
 }
 
 // Normalize satisfies Normalizer.
@@ -53,14 +74,42 @@ func SessionsList(req AssayRequest, roots adapter.Roots) (*ListResult, []string,
 	}
 	max := clamp(req.MaxSessions, DefaultMaxSessions, MaxSessionsCeiling)
 
-	sessions, errs := adapter.CollectWithRoots(sc, roots)
+	// Collect WIDE, then filter here, so the number excluded is known rather
+	// than invisible. Asking the adapter for a filtered set would make the
+	// denominator unrecoverable.
+	wide := sc
+	wide.IncludeNoise = true
+	all, errs := adapter.CollectWithRoots(wide, roots)
 
 	var warnings []string
 	for _, e := range errs {
 		warnings = append(warnings, "source store: "+e.Error())
 	}
 
-	result := &ListResult{Total: len(sessions)}
+	sessions := all
+	excluded := 0
+	if !req.IncludeNoise {
+		sessions = sessions[:0:0]
+		for _, s := range all {
+			if s.Noise {
+				excluded++
+				continue
+			}
+			sessions = append(sessions, s)
+		}
+	}
+
+	result := &ListResult{
+		Total:              len(sessions),
+		Matched:            len(all),
+		ExcludedNoise:      excluded,
+		NoiseFilterApplied: !req.IncludeNoise,
+	}
+	if excluded > 0 {
+		warnings = append(warnings, fmt.Sprintf(
+			"%d automated or trivial sessions were excluded; %d of %d matched the scope. Pass include_noise to see them all.",
+			excluded, len(sessions), len(all)))
+	}
 	if len(sessions) > max {
 		sessions = sessions[:max]
 		result.Truncated = true

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -287,5 +288,128 @@ func TestNoRootsFailsClosedUnderEmptyEnvironment(t *testing.T) {
 	}
 	if env.Error.Code != ErrMissingRoot {
 		t.Errorf("code = %q, want %q", env.Error.Code, ErrMissingRoot)
+	}
+}
+
+// TestListReportsItsOwnDenominator guards a presentation defect found through
+// a real cockpit, not a test: the agent asked how many Claude sessions existed,
+// Midden answered 93, and 218 files were on disk. The count was arithmetically
+// right and the ANSWER was misleading — a filtered total stated alone reads as
+// a complete one, and nothing about it invites checking.
+//
+// The fix is that the number carries its own caveat. An agent cannot report
+// total without also having excluded_noise and matched in hand.
+func TestListReportsItsOwnDenominator(t *testing.T) {
+	root := writeSyntheticClaudeStore(t)
+
+	// A second session that the noise filter removes: one turn, no real
+	// exchange. It must be counted as excluded rather than vanish.
+	proj := filepath.Join(root, "projects", "E--noise-workspace")
+	if err := os.MkdirAll(proj, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	const nid = "99999999-8888-7777-6666-555555555555"
+	line := `{"type":"user","uuid":"n1","timestamp":"2026-01-01T00:00:00.000Z","cwd":"E:\noise-workspace","sessionId":"` + nid + `","userType":"external","message":{"role":"user","content":"hi"}}` + "\n"
+	body := line
+	for len(body) < 4<<10 {
+		body += line
+	}
+	if err := os.WriteFile(filepath.Join(proj, nid+".jsonl"), []byte(body), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	call := func(includeNoise bool) ListResult {
+		t.Helper()
+		in, _ := json.Marshal(AssayRequest{Tool: "claude", IncludeNoise: includeNoise, MaxSessions: 100})
+		env := Invoke(Request{
+			Protocol: ProtocolID, Capability: CapSessionsList, RequestID: "r",
+			Input: in, Roots: map[string]Root{RootClaude: {Path: root, Mode: "ro"}},
+		})
+		if !env.OK {
+			t.Fatalf("sessions.list failed: %+v", env.Error)
+		}
+		var res ListResult
+		if err := json.Unmarshal(env.Result, &res); err != nil {
+			t.Fatalf("decode: %v", err)
+		}
+		return res
+	}
+
+	filtered := call(false)
+	if filtered.Matched != filtered.Total+filtered.ExcludedNoise {
+		t.Errorf("matched (%d) must equal total (%d) + excluded_noise (%d)",
+			filtered.Matched, filtered.Total, filtered.ExcludedNoise)
+	}
+	if !filtered.NoiseFilterApplied {
+		t.Error("noise_filter_applied must be true when the default filter ran")
+	}
+	if filtered.ExcludedNoise == 0 {
+		t.Error("the noise session was not counted as excluded; the denominator is invisible again")
+	}
+
+	wide := call(true)
+	if wide.NoiseFilterApplied {
+		t.Error("noise_filter_applied must be false when include_noise was set")
+	}
+	if wide.ExcludedNoise != 0 {
+		t.Errorf("nothing is excluded when include_noise is set, got %d", wide.ExcludedNoise)
+	}
+	if wide.Total != filtered.Matched {
+		t.Errorf("unfiltered total (%d) must equal the filtered run's matched (%d); "+
+			"the two runs must agree about how many sessions exist", wide.Total, filtered.Matched)
+	}
+}
+
+// TestFilteringEmitsAWarning proves the caveat reaches an agent even if it
+// reads only the warnings and the headline number, rather than noticing that
+// two integers differ.
+func TestFilteringEmitsAWarning(t *testing.T) {
+	root := writeSyntheticClaudeStore(t)
+
+	// A session the noise filter removes. The Claude adapter calls
+	// core.IsNoise with a HARDCODED turns=2 (claude.go:131), so the "turns<=1
+	// and short title" rule is unreachable there — noise depends entirely on
+	// the title or directory pattern. An earlier version of this fixture aimed
+	// at the turns rule and could never have tripped it.
+	// "ping" matches noiseTitlePatterns: ^(hi|hey|hello|test|ping|yo)$.
+	proj := filepath.Join(root, "projects", "E--noise2")
+	if err := os.MkdirAll(proj, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	const nid = "11112222-3333-4444-5555-666677778888"
+	body := `{"type":"user","uuid":"n1","timestamp":"2026-01-01T00:00:00.000Z","cwd":"E:\noise2","sessionId":"` + nid + `","userType":"external","message":{"role":"user","content":"ping"}}` + "\n"
+	pad := `{"type":"assistant","uuid":"n2","timestamp":"2026-01-01T00:00:01.000Z","cwd":"E:\noise2","sessionId":"` + nid + `","message":{"role":"assistant","content":"acknowledged"}}` + "\n"
+	for len(body) < 4<<10 {
+		body += pad
+	}
+	if err := os.WriteFile(filepath.Join(proj, nid+".jsonl"), []byte(body), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	in, _ := json.Marshal(AssayRequest{Tool: "claude", MaxSessions: 100})
+	env := Invoke(Request{
+		Protocol: ProtocolID, Capability: CapSessionsList, RequestID: "r",
+		Input: in, Roots: map[string]Root{RootClaude: {Path: root, Mode: "ro"}},
+	})
+	if !env.OK {
+		t.Fatalf("failed: %+v", env.Error)
+	}
+
+	var res ListResult
+	if err := json.Unmarshal(env.Result, &res); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if res.ExcludedNoise == 0 {
+		t.Fatal("fixture did not trip the noise filter; this test would prove nothing")
+	}
+
+	var found bool
+	for _, w := range env.Warnings {
+		if strings.Contains(w, "excluded") && strings.Contains(w, "include_noise") {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("no warning names the exclusion or the way to see everything: %v", env.Warnings)
 	}
 }

@@ -32,7 +32,7 @@ const scopeRequestSchema = `{
       "description": "Exact session identifiers. Preferred over inferred scope."
     },
     "id_prefix": {"type": "string", "description": "Match a session id prefix."},
-    "include_noise": {"type": "boolean", "description": "Include automated or trivial sessions."},
+    "include_noise": {"type": "boolean", "description": "Include automated or trivial sessions. They are EXCLUDED by default, so total is a filtered count; the result reports excluded_noise and matched so the figure carries its own denominator."},
     "max_sessions": {
       "type": "integer",
       "minimum": 0,
@@ -48,7 +48,7 @@ const sessionsListResultSchema = `{
   "title": "Midden session inventory",
   "type": "object",
   "additionalProperties": false,
-  "required": ["sessions", "total", "truncated"],
+  "required": ["sessions", "total", "excluded_noise", "matched", "noise_filter_applied", "truncated"],
   "properties": {
     "sessions": {
       "type": "array",
@@ -71,8 +71,11 @@ const sessionsListResultSchema = `{
         }
       }
     },
-    "total": {"type": "integer"},
-    "truncated": {"type": "boolean"}
+    "total": {"type": "integer", "description": "Sessions matching the scope AFTER the noise filter. This is not the number of files on disk."},
+    "excluded_noise": {"type": "integer", "description": "Sessions the scope matched but the noise filter removed. Report this alongside total: a filtered count stated alone reads as a complete one."},
+    "matched": {"type": "integer", "description": "total + excluded_noise: everything the scope matched before filtering."},
+    "noise_filter_applied": {"type": "boolean", "description": "Whether automated and trivial sessions were excluded. True unless include_noise was set."},
+    "truncated": {"type": "boolean", "description": "The scope matched more than max_sessions; the list is partial while total remains the full filtered count."}
   }
 }`
 

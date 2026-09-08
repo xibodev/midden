@@ -15,7 +15,7 @@
       {
         "id": "sessions.list",
         "title": "List sessions",
-        "summary": "Inventory past agentic-CLI sessions from read-only source stores, filtered by an exact scope.",
+        "summary": "Inventory past agentic-CLI sessions from read-only source stores, filtered by an exact scope. Automated and trivial sessions are EXCLUDED by default: the result reports excluded_noise and matched alongside total, and total is a filtered count rather than everything on disk. Pass include_noise for the full set.",
         "request_schema": "xibodev.midden.sessions.list.request/v1",
         "result_schema": "xibodev.midden.sessions.list.result/v1",
         "artifact_schemas": [],
@@ -260,7 +260,7 @@
           },
           "include_noise": {
             "type": "boolean",
-            "description": "Include automated or trivial sessions."
+            "description": "Include automated or trivial sessions. They are EXCLUDED by default, so total is a filtered count; the result reports excluded_noise and matched so the figure carries its own denominator."
           },
           "max_sessions": {
             "type": "integer",
@@ -459,6 +459,9 @@
         "required": [
           "sessions",
           "total",
+          "excluded_noise",
+          "matched",
+          "noise_filter_applied",
           "truncated"
         ],
         "properties": {
@@ -516,10 +519,24 @@
             }
           },
           "total": {
-            "type": "integer"
+            "type": "integer",
+            "description": "Sessions matching the scope AFTER the noise filter. This is not the number of files on disk."
+          },
+          "excluded_noise": {
+            "type": "integer",
+            "description": "Sessions the scope matched but the noise filter removed. Report this alongside total: a filtered count stated alone reads as a complete one."
+          },
+          "matched": {
+            "type": "integer",
+            "description": "total + excluded_noise: everything the scope matched before filtering."
+          },
+          "noise_filter_applied": {
+            "type": "boolean",
+            "description": "Whether automated and trivial sessions were excluded. True unless include_noise was set."
           },
           "truncated": {
-            "type": "boolean"
+            "type": "boolean",
+            "description": "The scope matched more than max_sessions; the list is partial while total remains the full filtered count."
           }
         }
       }

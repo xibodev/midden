@@ -52,7 +52,7 @@ func Describe() Descriptor {
 			{
 				ID:            CapSessionsList,
 				Title:         "List sessions",
-				Summary:       "Inventory past agentic-CLI sessions from read-only source stores, filtered by an exact scope.",
+				Summary:       "Inventory past agentic-CLI sessions from read-only source stores, filtered by an exact scope. Automated and trivial sessions are EXCLUDED by default: the result reports excluded_noise and matched alongside total, and total is a filtered count rather than everything on disk. Pass include_noise for the full set.",
 				RequestSchema: SchemaSessionsListRequest,
 				ResultSchema:  SchemaSessionsListResult,
 				Effects: Effects{
