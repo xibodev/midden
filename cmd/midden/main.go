@@ -70,6 +70,8 @@ func main() {
 		err = cmdMCP(os.Args[2:])
 	case "module":
 		err = cmdModule(os.Args[2:])
+	case "install":
+		err = cmdInstall(os.Args[2:])
 	case "scan":
 		err = cmdScan(os.Args[2:])
 	case "assay":
