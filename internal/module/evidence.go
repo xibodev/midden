@@ -131,6 +131,12 @@ func EvidenceExtract(db *index.DB, req EvidenceExtractRequest, roots adapter.Roo
 		ModelBackend: string(grant.Backend),
 	}
 
+	// Open the ledger entry BEFORE any model runs: a call that fails or is
+	// killed must still leave evidence that it happened and cost something.
+	run := modelRun("evidence.extract",
+		scopeLabel(req.Tool, req.Workspace, fmt.Sprintf("%d sessions", len(sessions))),
+		string(grant.Backend), 0)
+
 	for _, s := range sessions {
 		a := adapter.FindWithRoots(s.Tool, roots)
 		as, ok := a.(adapter.Assayer)
@@ -206,6 +212,17 @@ func EvidenceExtract(db *index.DB, req EvidenceExtractRequest, roots adapter.Roo
 		warnings = append(warnings,
 			"nothing was stored: the sessions in scope carried no reusable evidence")
 	}
+
+	// Every session that reached the model cost something, whether or not it
+	// yielded evidence. Estimated tokens come from the slices actually sent.
+	var est int64
+	for _, s := range result.Sessions {
+		est += s.EstSliceTokens
+	}
+	run.EstTokens = int(est)
+	warnings = append(warnings, recordRun(db, run, result.Stored, result.Extracted > 0,
+		fmt.Sprintf("%d sessions mined, %d evidence items stored", result.Extracted, result.Stored))...)
+
 	return result, warnings, nil
 }
 

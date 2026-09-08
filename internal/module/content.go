@@ -282,11 +282,27 @@ func ContentProduce(db *index.DB, req ContentProduceRequest, dir string, grant M
 		if grant.Backend == "" {
 			return nil, nil, fmt.Errorf("%s", ErrSubprocessDenied)
 		}
+		// Ledger entry opened before the call, so a failed or killed
+		// invocation still leaves a record that it happened.
+		run := modelRun("content.produce",
+			scopeLabel(kind, req.Workspace, fmt.Sprintf("%d evidence", len(nuggets))),
+			string(grant.Backend), 0)
+
 		out, err := runModelOutput(spec, recipe, nuggets, grant)
 		if err != nil {
+			// Record the failure too: a model that was invoked and errored may
+			// still have billed, and a ledger that only shows successes hides
+			// exactly the runs a user is trying to account for.
+			_ = recordRun(db, run, 0, false, "model call failed: "+err.Error())
 			return nil, nil, err
 		}
 		body, modelUsed, modelName = out, true, string(grant.Backend)
+
+		// Roughly four bytes per token, matching how the rest of Midden
+		// estimates. Crude and stated as an estimate rather than a charge.
+		run.EstTokens = len(body) / 4
+		warnings = append(warnings, recordRun(db, run, 1, true,
+			fmt.Sprintf("produced %s from %d evidence items", kind, len(nuggets)))...)
 	} else {
 		var produced bool
 		var err error
