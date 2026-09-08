@@ -69,7 +69,17 @@ formats look:
 |---|---|---|
 | `text/markdown`, `text/plain`, `text/x-diff` | `text` | no validation contract |
 | `application/x-ndjson`, `text/tab-separated-values` | `text` TODAY | structured, but NO validator exists |
-| `application/json` | `document` | JSON Schema declared |
+| `application/json` | `text` TODAY | see below |
 
-TSV and NDJSON become `document` only when a validator is written and named.
-A shape that looks validatable is not a validation contract.
+No output is `document` today. `xibodev.midden.content.output/v1` exists and is
+a real JSON Schema, but its properties are `kind`, `format`, `review` -- it
+validates the artifact RECORD, not the bytes of the file. Declaring the json
+output `document` on the strength of that schema would name a validator that
+does not validate the thing being declared.
+
+RFC v2 §9 requires a `document` to name a validator that RESOLVES, and fails
+conformance otherwise. TSV, NDJSON and JSON become `document` only when a
+validator for their CONTENT is written and named.
+
+A shape that looks validatable is not a validation contract, and neither is a
+schema that validates something adjacent.
