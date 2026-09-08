@@ -357,6 +357,37 @@ func ContentProduce(db *index.DB, req ContentProduceRequest, dir string, grant M
 		return nil, nil, fmt.Errorf("write output: %w", err)
 	}
 
+	// Record the artifact so every face can see what was produced.
+	//
+	// The CLI (brief, refine) and the standalone UI both write an artifact row;
+	// the module face wrote the FILE and nothing else, so content produced
+	// through facet-studio was invisible to `midden ui` -- the same output
+	// reachable or not depending on which face made it. The nugget ids are the
+	// provenance link back to the evidence the document was written from.
+	//
+	// A failure here is reported, not fatal: the document exists and the caller
+	// already holds its path, so losing the work over a bookkeeping error would
+	// be the wrong trade -- but a silent miss is how a library quietly stops
+	// matching the disk.
+	var warnArtifact []string
+	nuggetIDs := make([]string, 0, len(nuggets))
+	for _, n := range nuggets {
+		nuggetIDs = append(nuggetIDs, n.UID)
+	}
+	if err := db.PutArtifact(index.Artifact{
+		Kind:      kind,
+		Title:     title,
+		Path:      abs,
+		Scope:     req.Workspace,
+		NuggetIDs: nuggetIDs,
+		Model:     modelName,
+		CreatedAt: time.Now(),
+	}); err != nil {
+		warnArtifact = append(warnArtifact, "the document was written but not recorded in the library: "+
+			err.Error()+". `midden ui` will not list it.")
+	}
+	warnings = append(warnings, warnArtifact...)
+
 	return &ContentProduceResult{
 		Kind:          kind,
 		Title:         title,
