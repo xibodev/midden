@@ -59,6 +59,39 @@ Deterministic assay and selection are free and involve no model. Say so.
 Model-backed extraction is a separate, explicitly estimated step. Never imply
 a free operation might cost money, or that a paid one might not.
 
+## Turning evidence into a document
+
+`content.types` lists what can be produced and how much evidence exists.
+`content.produce` writes one. Read `free_kinds` first: those need no grant and
+no model.
+
+```bash
+cat > /tmp/types.json <<'EOF'
+{"protocol":"xibodev.module/v1","capability":"content.types",
+ "request_id":"r1","input":{},
+ "roots":{"midden_home":{"path":"/absolute/writable/dir","mode":"rw"}}}
+EOF
+midden module invoke content.types --input /tmp/types.json
+
+cat > /tmp/produce.json <<'EOF'
+{"protocol":"xibodev.module/v1","capability":"content.produce",
+ "request_id":"r2",
+ "input":{"kind":"adr","title":"Why we chose X","max_evidence":20,"name":"adr-x"},
+ "roots":{"midden_home":{"path":"/absolute/writable/dir","mode":"rw"}},
+ "grants":{"subprocess":["claude"]},
+ "binaries":{"claude":"/absolute/path/to/claude"}}
+EOF
+midden module invoke content.produce --input /tmp/produce.json
+```
+
+A model-backed kind without a `grants.subprocess` entry and a matching
+`binaries` path returns `subprocess_denied` — that is a missing authorization,
+not a broken module. The free kinds work with neither.
+
+`no_evidence` means nothing matched the scope. Midden will not write a document
+from nothing, because an invented output carries the same provenance fields as
+a derived one.
+
 ## Invoking Midden
 
 ```bash
