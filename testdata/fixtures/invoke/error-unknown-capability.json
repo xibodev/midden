@@ -14,7 +14,8 @@
         "sessions.assay",
         "seed.create",
         "content.types",
-        "content.produce"
+        "content.produce",
+        "evidence.extract"
       ]
     }
   },

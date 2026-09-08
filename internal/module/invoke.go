@@ -302,7 +302,8 @@ func Invoke(req Request) Envelope {
 	// it must report a missing write root before it reports missing stores.
 	needsStores := req.Capability != CapSeedCreate &&
 		req.Capability != CapContentTypes &&
-		req.Capability != CapContentProduce
+		req.Capability != CapContentProduce &&
+		req.Capability != CapEvidenceExtract
 	if needsStores && !sourceStoresVisible(sourceRootsFrom(req)) {
 		return noSourceStoresEnvelope(req)
 	}
@@ -318,12 +319,14 @@ func Invoke(req Request) Envelope {
 		return invokeContentTypes(req)
 	case CapContentProduce:
 		return invokeContentProduce(req)
+	case CapEvidenceExtract:
+		return invokeEvidenceExtract(req)
 	default:
 		return NewErrorEnvelope(OpInvoke, req.RequestID, Error{
 			Code:      ErrUnknownCapability,
 			Message:   fmt.Sprintf("unknown capability %q", req.Capability),
 			Retryable: false,
-			Details:   map[string]any{"known": []string{CapSessionsList, CapSessionsAssay, CapSeedCreate, CapContentTypes, CapContentProduce}},
+			Details:   map[string]any{"known": []string{CapSessionsList, CapSessionsAssay, CapSeedCreate, CapContentTypes, CapContentProduce, CapEvidenceExtract}},
 		}, UnknownCost())
 	}
 }

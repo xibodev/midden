@@ -95,6 +95,17 @@ func Describe() Descriptor {
 				LongRunning: false,
 			},
 			{
+				ID:            CapEvidenceExtract,
+				Title:         "Extract evidence from sessions",
+				Summary:       "Mine sessions into stored, redacted evidence: decisions, gotchas, error fixes, commands. This is the step between measuring a session and writing anything from it — content.produce draws on what this stores. Always calls a model through an AI CLI the user is already signed in to; there is no deterministic path to evidence.",
+				RequestSchema: SchemaEvidenceExtractRequest,
+				ResultSchema:  SchemaEvidenceExtractResult,
+				// CostKnown is false: the spend happens inside someone's own
+				// subscription and Midden never sees a bill.
+				Effects: Effects{Local: false, CostKnown: false},
+				Skills:  []string{SkillEvidenceSelection, SkillSessionRecovery},
+			},
+			{
 				ID:            CapContentTypes,
 				Title:         "List producible content types",
 				Summary:       "List the document types Midden can produce from mined evidence, which need a model and which are free, and how much stored evidence exists. Call this before content.produce.",
@@ -121,17 +132,19 @@ func Describe() Descriptor {
 			},
 		},
 		RequestSchemas: map[string]json.RawMessage{
-			SchemaSessionsListRequest:   json.RawMessage(scopeRequestSchema),
-			SchemaSessionsAssayRequest:  json.RawMessage(assayRequestSchema),
-			SchemaSeedCreateRequest:     json.RawMessage(seedCreateRequestSchema),
-			SchemaContentProduceRequest: json.RawMessage(contentProduceRequestSchema),
+			SchemaSessionsListRequest:    json.RawMessage(scopeRequestSchema),
+			SchemaSessionsAssayRequest:   json.RawMessage(assayRequestSchema),
+			SchemaSeedCreateRequest:      json.RawMessage(seedCreateRequestSchema),
+			SchemaContentProduceRequest:  json.RawMessage(contentProduceRequestSchema),
+			SchemaEvidenceExtractRequest: json.RawMessage(evidenceExtractRequestSchema),
 		},
 		ResultSchemas: map[string]json.RawMessage{
-			SchemaSessionsListResult:   json.RawMessage(sessionsListResultSchema),
-			SchemaSessionsAssayResult:  json.RawMessage(assayResultSchema),
-			SchemaSeedCreateResult:     json.RawMessage(seedCreateResultSchema),
-			SchemaContentTypesResult:   json.RawMessage(contentTypesResultSchema),
-			SchemaContentProduceResult: json.RawMessage(contentProduceResultSchema),
+			SchemaSessionsListResult:    json.RawMessage(sessionsListResultSchema),
+			SchemaSessionsAssayResult:   json.RawMessage(assayResultSchema),
+			SchemaSeedCreateResult:      json.RawMessage(seedCreateResultSchema),
+			SchemaContentTypesResult:    json.RawMessage(contentTypesResultSchema),
+			SchemaContentProduceResult:  json.RawMessage(contentProduceResultSchema),
+			SchemaEvidenceExtractResult: json.RawMessage(evidenceExtractResultSchema),
 		},
 		ArtifactSchemas: map[string]json.RawMessage{
 			SeedSchemaID:          json.RawMessage(seedManifestSchema),

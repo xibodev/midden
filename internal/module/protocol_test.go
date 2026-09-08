@@ -191,7 +191,9 @@ func TestDescriptorDeclaresHonestEffects(t *testing.T) {
 // network, credential, provider, publish or subprocess authority.
 // capabilityMaySpend reports whether a capability can invoke a model through
 // an authenticated CLI, and therefore cannot know its own cost.
-func capabilityMaySpend(id string) bool { return id == CapContentProduce }
+func capabilityMaySpend(id string) bool {
+	return id == CapContentProduce || id == CapEvidenceExtract
+}
 
 func TestPermissionsRequestNothingBeyondFilesystem(t *testing.T) {
 	p := Describe().Permissions

@@ -346,3 +346,60 @@ const contentOutputSchema = `{
     "review": {"type": "string"}
   }
 }`
+
+const evidenceExtractRequestSchema = `{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "xibodev.midden.evidence.extract.request/v1",
+  "title": "Evidence extraction request",
+  "description": "Mine sessions into stored, redacted evidence. ALWAYS calls a model through an already-authenticated AI CLI: there is no deterministic path to evidence. Requires the midden_home write root and subprocess authority.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "tool": {"type": "string", "enum": ["copilot", "claude", "opencode"]},
+    "days": {"type": "integer", "minimum": 0},
+    "workspace": {"type": "string"},
+    "repo": {"type": "string"},
+    "ids": {"type": "array", "items": {"type": "string"}, "description": "Exact session identifiers. Each session costs a model call, so an exact scope is cheaper as well as more accurate."},
+    "id_prefix": {"type": "string"},
+    "include_noise": {"type": "boolean"},
+    "max_sessions": {"type": "integer", "minimum": 0, "maximum": 25, "description": "Bound on sessions mined. 0 selects the default of 3. Each one is a separate model call."},
+    "max_records": {"type": "integer", "minimum": 0, "maximum": 200, "description": "Bound on candidate records sent per session. 0 selects the default of 40. This governs real cost more than the session count does."}
+  }
+}`
+
+const evidenceExtractResultSchema = `{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "xibodev.midden.evidence.extract.result/v1",
+  "title": "Evidence extraction result",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["sessions", "extracted", "failed", "stored", "by_kind", "model_used"],
+  "properties": {
+    "sessions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["session_id", "tool", "nuggets", "redacted", "slice_bytes", "est_slice_tokens"],
+        "properties": {
+          "session_id": {"type": "string"},
+          "tool": {"type": "string"},
+          "nuggets": {"type": "integer"},
+          "redacted": {"type": "integer", "description": "How many stored items had credential-shaped content replaced."},
+          "slice_bytes": {"type": "integer", "description": "What was actually sent to the model."},
+          "est_slice_tokens": {"type": "integer"}
+        }
+      }
+    },
+    "extracted": {"type": "integer"},
+    "failed": {"type": "integer"},
+    "stored": {"type": "integer", "description": "Evidence items written to the index."},
+    "by_kind": {
+      "type": "object",
+      "additionalProperties": {"type": "integer"},
+      "description": "Composition of what was found: decision, gotcha, error_fix, command, artifact, dead_end. A reader judging whether extraction was worthwhile needs this, not just a total."
+    },
+    "model_used": {"type": "boolean", "description": "Always true on success. There is no deterministic path to evidence."},
+    "model_backend": {"type": "string"}
+  }
+}`
