@@ -219,3 +219,37 @@ func TestDetectReportsWithoutAsserting(t *testing.T) {
 		t.Error("facet-studio must always be a known target, detected or not")
 	}
 }
+
+// TestSpeaksModuleProtocolProbesRatherThanGuesses guards the distinction the
+// PATH warning rests on: a binary named `midden` may be a build too old to
+// know the module verb, and only asking it can tell.
+//
+// This was found on a real machine — a August build sat first on PATH and
+// answered every documented skill command with `unknown command "module"`,
+// which reads as a broken skill rather than a stale binary.
+func TestSpeaksModuleProtocolProbesRatherThanGuesses(t *testing.T) {
+	// Something that exists and is certainly not Midden.
+	for _, notMidden := range []string{"go", "git"} {
+		if p := lookPath(notMidden); p != "" {
+			if speaksModuleProtocol(p) {
+				t.Errorf("%s was reported as speaking the module protocol", p)
+			}
+			return
+		}
+	}
+	t.Skip("no probe binary available")
+}
+
+// TestPathWarningIsSilentWhenCorrect proves the warning is not noise. A
+// warning printed on every install trains people to ignore warnings, so it
+// must say nothing when `midden` on PATH is this binary.
+func TestPathWarningIsSilentWhenCorrect(t *testing.T) {
+	ok, found := OnPath()
+	w := PathWarning()
+	switch {
+	case found == "" && w == "":
+		t.Error("no midden on PATH at all should warn: installed skills would find nothing")
+	case ok && w != "":
+		t.Errorf("PATH already resolves to this binary, but it warned anyway: %s", w)
+	}
+}

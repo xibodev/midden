@@ -1,6 +1,7 @@
 package install
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -186,6 +187,23 @@ func VerifySkillsInstall(t Target) error {
 // at install time is far cheaper than letting them discover it.
 func PathWarning() string {
 	ok, found := OnPath()
+
+	// When a DIFFERENT midden is on PATH, say whether it can actually serve
+	// the skills being installed. "Not this binary" is true and unhelpful; a
+	// build too old to know the `module` verb answers every documented command
+	// with a usage error, which reads to a user as a broken skill rather than
+	// a stale binary.
+	if found != "" && !ok {
+		if !speaksModuleProtocol(found) {
+			return fmt.Sprintf("`midden` on PATH resolves to %s, which does NOT speak the module "+
+				"protocol — it does not recognise the `module` command. Every command in the installed "+
+				"skills will fail against it. Put this binary on PATH, or replace that one.", found)
+		}
+		return fmt.Sprintf("`midden` on PATH resolves to %s, which is not this binary. "+
+			"It does speak the module protocol, but installed skills will invoke that one rather "+
+			"than this build.", found)
+	}
+
 	switch {
 	case found == "":
 		self, err := SelfPath()
@@ -195,11 +213,29 @@ func PathWarning() string {
 		}
 		return fmt.Sprintf("`midden` is not on PATH. The installed skills instruct an agent to run "+
 			"`midden`, and every one of those commands will fail until it resolves. This binary is at %s", self)
-	case !ok:
-		return fmt.Sprintf("`midden` on PATH resolves to %s, which is not this binary. "+
-			"Installed skills will invoke that one instead.", found)
 	}
 	return ""
+}
+
+// speaksModuleProtocol probes a binary rather than trusting its name.
+//
+// Two builds of Midden can sit on the same machine, and only one may know the
+// module verb. Asking it is cheap and definitive; inferring from a path or a
+// version string is neither.
+func speaksModuleProtocol(binary string) bool {
+	cmd := exec.Command(binary, "module", "describe", "--json")
+	out, err := cmd.Output()
+	if err != nil {
+		return false
+	}
+	var env struct {
+		Protocol string `json:"protocol"`
+		OK       bool   `json:"ok"`
+	}
+	if json.Unmarshal(out, &env) != nil {
+		return false
+	}
+	return env.OK && env.Protocol == module.ProtocolID
 }
 
 // Timestamp is used by callers that record when an install happened.
