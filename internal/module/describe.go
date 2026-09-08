@@ -106,7 +106,7 @@ func Describe() Descriptor {
 			{
 				ID:              CapContentProduce,
 				Title:           "Produce content from mined evidence",
-				Summary:         "Write a document from stored evidence: notebook packs, retrieval/eval/training packs, and privacy or provenance manifests. Deterministic and model-free. Model-backed types (tutorial, slides, diagram, adr) are declared by content.types but not yet producible through this capability.",
+				Summary:         "Write a document from mined evidence: tutorials, ADRs, slide decks, diagrams, video briefs, handbooks, and deterministic packs and manifests. Seven kinds are free and model-free; twelve are written by a model through an AI CLI the user is already signed in to, and those need subprocess authority granted for the invocation. Call content.types first for the split.",
 				RequestSchema:   SchemaContentProduceRequest,
 				ResultSchema:    SchemaContentProduceResult,
 				ArtifactSchemas: []string{ArtifactContentOutput},

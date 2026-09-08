@@ -492,3 +492,53 @@ func TestDigestFormat(t *testing.T) {
 		}
 	}
 }
+
+// TestSummariesDoNotDenyWhatTheCodeDoes guards a defect found through a live
+// cockpit: content.produce's summary still said model-backed types were "not
+// yet producible" after they had been shipped and verified with a real ADR.
+//
+// The summary is the ONE line an agent reads before deciding whether to call a
+// capability. A summary that denies a working feature removes it from reach as
+// effectively as deleting the code, and nothing fails — the agent simply never
+// tries. That is the same silent-wrong-answer shape as every other defect this
+// project has produced.
+func TestSummariesDoNotDenyWhatTheCodeDoes(t *testing.T) {
+	// Phrases that assert a capability CANNOT do something. If the code can,
+	// the summary is lying to the only reader that matters.
+	denials := []string{
+		"not yet producible",
+		"not yet exposed",
+		"not yet supported",
+		"cannot currently",
+		"is not implemented",
+	}
+	for _, c := range Describe().Capabilities {
+		lower := strings.ToLower(c.Summary)
+		for _, d := range denials {
+			if strings.Contains(lower, d) {
+				t.Errorf("capability %s summary contains %q. If that is still true, say so; "+
+					"if the code has since gained the ability, the summary is hiding a working "+
+					"feature from the agent that reads it.", c.ID, d)
+			}
+		}
+	}
+}
+
+// TestContentProduceSummaryNamesTheModelSplit is the positive half: an agent
+// choosing a kind needs to know that some cost money before it picks one.
+func TestContentProduceSummaryNamesTheModelSplit(t *testing.T) {
+	for _, c := range Describe().Capabilities {
+		if c.ID != CapContentProduce {
+			continue
+		}
+		lower := strings.ToLower(c.Summary)
+		if !strings.Contains(lower, "free") {
+			t.Error("content.produce summary does not tell an agent that some kinds are free")
+		}
+		if !strings.Contains(lower, "model") {
+			t.Error("content.produce summary does not tell an agent that some kinds call a model")
+		}
+		return
+	}
+	t.Fatal("content.produce is not declared")
+}

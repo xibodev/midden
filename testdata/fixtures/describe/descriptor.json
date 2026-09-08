@@ -95,7 +95,7 @@
       {
         "id": "content.produce",
         "title": "Produce content from mined evidence",
-        "summary": "Write a document from stored evidence: notebook packs, retrieval/eval/training packs, and privacy or provenance manifests. Deterministic and model-free. Model-backed types (tutorial, slides, diagram, adr) are declared by content.types but not yet producible through this capability.",
+        "summary": "Write a document from mined evidence: tutorials, ADRs, slide decks, diagrams, video briefs, handbooks, and deterministic packs and manifests. Seven kinds are free and model-free; twelve are written by a model through an AI CLI the user is already signed in to, and those need subprocess authority granted for the invocation. Call content.types first for the split.",
         "request_schema": "xibodev.midden.content.produce.request/v1",
         "result_schema": "xibodev.midden.content.produce.result/v1",
         "artifact_schemas": [
