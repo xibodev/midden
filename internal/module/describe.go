@@ -109,8 +109,15 @@ func Describe() Descriptor {
 				Summary:       "Mine sessions into stored, redacted evidence: decisions, gotchas, error fixes, commands. This is the step between measuring a session and writing anything from it — content.produce draws on what this stores. Always calls a model through an AI CLI the user is already signed in to; there is no deterministic path to evidence.",
 				RequestSchema: SchemaEvidenceExtractRequest,
 				ResultSchema:  SchemaEvidenceExtractResult,
-				// CostKnown is false: the spend happens inside someone's own
-				// subscription and Midden never sees a bill.
+				// CostKnown is FALSE because the AMOUNT is unknowable: the
+				// spend happens inside someone's own subscription and Midden
+				// never sees a bill, so it cannot price the call.
+				//
+				// Not because "this may spend money" -- that is a separate
+				// fact (operator ruling 4) with no field on the v1 wire. The
+				// two coincide here and diverge on content.produce, where
+				// seven of nineteen kinds spend nothing while the amount stays
+				// unknowable for the rest.
 				Effects: Effects{Local: false, CostKnown: false},
 				Skills:  []string{SkillEvidenceSelection, SkillSessionRecovery},
 			},
