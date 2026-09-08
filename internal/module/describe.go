@@ -130,13 +130,27 @@ func Describe() Descriptor {
 				RequestSchema:   SchemaContentProduceRequest,
 				ResultSchema:    SchemaContentProduceResult,
 				ArtifactSchemas: []string{ArtifactContentOutput},
-				// CostKnown is FALSE because it depends on the kind asked for.
-				// Deterministic packs are free; narrative documents spend
-				// through the user's own AI CLI subscription and Midden never
-				// sees a bill, so it cannot price them. Under the host's rule
-				// an unknown cost requires approval, which is correct: a user
-				// should approve before a module drives their subscription.
-				Effects: Effects{Local: true, CostKnown: false},
+				// Local is FALSE because this code path can spawn an AI CLI.
+				//
+				// It declared Local:true while being able to drive a model
+				// through subprocess, which is the declaration this type's own
+				// doc forbids: Effects must describe what the CODE PATH does,
+				// not what the capability name suggests. Runtime reporting was
+				// already honest (contentExecution sets Local: !r.ModelUsed),
+				// so a host saw the truth AFTER the fact and a wrong answer
+				// BEFORE it -- exactly when a pre-flight decision is made.
+				//
+				// Seven of nineteen kinds are deterministic and spend nothing.
+				// A capability-level declaration cannot express "depends on the
+				// argument", so it declares the WIDER effect and the narrower
+				// truth is reported per kind by content.types. Over-declaring
+				// costs an unnecessary approval; under-declaring spends a
+				// user's subscription without one.
+				//
+				// CostKnown is FALSE because the amount is unknowable before
+				// the kind is chosen, NOT as a proxy for "may spend money":
+				// those are separate facts (operator ruling 4).
+				Effects: Effects{Local: false, CostKnown: false},
 				Skills:  []string{SkillEvidenceSelection, SkillContentSeed},
 			},
 		},

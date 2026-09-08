@@ -6,7 +6,7 @@
   "ok": false,
   "error": {
     "code": "unsupported_protocol",
-    "message": "unsupported protocol \"some.other/v9\", this module speaks xibodev.module/v1",
+    "message": "unsupported protocol \"some.other/v9\", this module speaks [xibodev.module/v1]",
     "retryable": false,
     "details": {
       "supported": [

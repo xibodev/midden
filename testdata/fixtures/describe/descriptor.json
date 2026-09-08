@@ -123,7 +123,7 @@
           "xibodev.midden.content.output/v1"
         ],
         "effects": {
-          "local": true,
+          "local": false,
           "network": false,
           "external_writes": false,
           "provider": "",

@@ -287,12 +287,13 @@ const (
 // a structured error envelope IS the protocol's failure mode, and the host
 // routes on the stable code rather than on message text.
 func Invoke(req Request) Envelope {
-	if req.Protocol != "" && req.Protocol != ProtocolID {
+	if req.Protocol != "" && !speaksProtocol(req.Protocol) {
 		return NewErrorEnvelope(OpInvoke, req.RequestID, Error{
-			Code:      ErrUnsupportedProtocol,
-			Message:   fmt.Sprintf("unsupported protocol %q, this module speaks %s", req.Protocol, ProtocolID),
+			Code: ErrUnsupportedProtocol,
+			Message: fmt.Sprintf("unsupported protocol %q, this module speaks %v",
+				req.Protocol, Describe().ProtocolVersions),
 			Retryable: false,
-			Details:   map[string]any{"supported": []string{ProtocolID}},
+			Details:   map[string]any{"supported": Describe().ProtocolVersions},
 		}, UnknownCost())
 	}
 
@@ -383,4 +384,26 @@ func invalidRequest(req Request, err error) Envelope {
 		Message:   err.Error(),
 		Retryable: false,
 	}, LocalFree())
+}
+
+// speaksProtocol reports whether a protocol id is one this module declares.
+//
+// The descriptor advertises ProtocolVersions as a LIST, but validation compared
+// against a single constant: the module declared a negotiable surface and then
+// implemented exact match. Today the list holds one entry so the two agree, and
+// the divergence would appear only when a second version exists -- at which
+// point a host offering v2 while still supporting v1 would be refused with
+// "unsupported protocol", which reads as a protocol error rather than a
+// negotiation miss.
+//
+// This checks MEMBERSHIP of the declared list, so the declaration and the check
+// cannot drift. It adds no v1 guarantee and negotiates nothing: the host still
+// selects, and this module still speaks exactly what it advertises.
+func speaksProtocol(id string) bool {
+	for _, v := range Describe().ProtocolVersions {
+		if v == id {
+			return true
+		}
+	}
+	return false
 }
