@@ -1,3 +1,8 @@
+---
+name: midden-evidence-selection
+description: Choose what is worth carrying out of a recovered session. Use when reading a Midden assay result, deciding which records to keep, or judging whether recovery is affordable. Explains the signal/exhaust/artifact/bookkeeping classes, the bounded candidate set that governs real cost, and what must never leave the session. Requires the midden binary.
+---
+
 # Evidence selection
 
 Choosing what is worth carrying out of a session.
@@ -53,3 +58,19 @@ work around it by requesting more evidence records to reconstruct a transcript.
 Deterministic assay and selection are free and involve no model. Say so.
 Model-backed extraction is a separate, explicitly estimated step. Never imply
 a free operation might cost money, or that a paid one might not.
+
+## Invoking Midden
+
+```bash
+cat > /tmp/assay.json <<'EOF'
+{"protocol":"xibodev.module/v1","capability":"sessions.assay",
+ "request_id":"r1","input":{"ids":["<session-id>"],"max_candidates":40}}
+EOF
+midden module invoke sessions.assay --input /tmp/assay.json
+```
+
+The result carries `counts`, `bytes`, `by_kind`, `signal_share`,
+`reclaimable_bytes`, `candidate_count`, `slice_bytes` and `est_slice_tokens`.
+Read `slice_bytes`/`est_slice_tokens` for cost, not `signal_bytes`.
+
+Assay is free and calls no model. Say so rather than implying it might cost.

@@ -1,3 +1,8 @@
+---
+name: midden-session-recovery
+description: Recover context from an agentic-CLI session that is too large to resume. Use when a session will not resume, resume "did nothing" and started fresh, or context was lost and work must continue elsewhere. Covers finding the session, measuring what it is made of with a free deterministic assay, and packaging the part worth keeping. Requires the midden binary.
+---
+
 # Session recovery
 
 Recovering a session that cannot be resumed.
@@ -47,3 +52,34 @@ they reclaim it is not your call.
 **Truncation is not failure.** `truncated: true` means the scope matched more
 sessions than the bound. Say so plainly and offer to narrow the scope, rather
 than presenting a partial list as complete.
+
+## Invoking Midden
+
+Midden is a local binary. Every capability is one command; stdout carries a
+single JSON envelope and diagnostics go to stderr, so parse stdout alone.
+
+```bash
+# What can this Midden do?
+midden module describe --json
+
+# Inventory sessions. Write the request to a file first.
+cat > /tmp/req.json <<'EOF'
+{"protocol":"xibodev.module/v1","capability":"sessions.list",
+ "request_id":"r1","input":{"tool":"claude","days":7,"max_sessions":10}}
+EOF
+midden module invoke sessions.list --input /tmp/req.json
+
+# Assay one exact session.
+cat > /tmp/assay.json <<'EOF'
+{"protocol":"xibodev.module/v1","capability":"sessions.assay",
+ "request_id":"r2","input":{"ids":["<session-id>"],"max_candidates":40}}
+EOF
+midden module invoke sessions.assay --input /tmp/assay.json
+```
+
+Read `ok` first. On `ok:false` route on `error.code`, never on message text.
+`no_source_stores` means Midden could not see the stores at all — that is not
+"the user has no sessions".
+
+Midden also has a human-facing CLI (`midden ls`, `midden doctor`,
+`midden brief <id>`) which is often the faster answer for a person.

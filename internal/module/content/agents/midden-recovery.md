@@ -1,3 +1,8 @@
+---
+name: midden-recovery
+description: Midden inventories past agentic-CLI sessions and prepares them for reuse. Use for recovering a session too large to resume, measuring what a transcript is made of, selecting evidence worth keeping, or building a portable content seed. Deterministic and model-free; source stores are read-only. Requires the midden binary.
+---
+
 # Midden: session recovery
 
 Midden inventories past agentic-CLI sessions and prepares them for reuse. It is
@@ -68,3 +73,26 @@ different location is the same seed.
 A seed carries `review_state: "unreviewed"` and `model_used: false`. Midden
 never marks a seed human-approved; technical processing is not editorial
 acceptance.
+
+## Invoking Midden
+
+```bash
+midden module describe --json          # capabilities, schemas, permissions
+midden module invoke <capability> --input <request.json>
+```
+
+stdout carries exactly one JSON envelope; diagnostics go to stderr, so parse
+stdout alone. Read `ok` first, then route on `error.code` rather than message
+text. A minimal request:
+
+```json
+{"protocol":"xibodev.module/v1","capability":"sessions.list",
+ "request_id":"r1","input":{"tool":"claude","days":7}}
+```
+
+`seed.create` writes, so it additionally needs
+`"roots":{"midden_home":{"path":"<absolute writable dir>","mode":"rw"}}`.
+Without it the call returns `missing_root` and writes nothing.
+
+For a person at a terminal, `midden ls`, `midden doctor` and `midden brief <id>`
+are usually the faster answer than the module surface.

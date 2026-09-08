@@ -1,3 +1,8 @@
+---
+name: midden-content-seed
+description: Build a portable content seed from recovered session material. Use when handing recovered work to another tool or a fresh session, or when asked what a Midden seed contains and guarantees. Covers the xibodev.midden.seed/v1 bundle, evidence digests, and the redaction and review limits that must be stated accurately. Requires the midden binary.
+---
+
 # Content seeds
 
 Packaging recovered work so another module can use it.
@@ -65,3 +70,23 @@ credentials, unreviewed."
 A seed is the cross-module handoff. Midden produces it; it never invokes the
 consumer. The host decides when a seed is needed and passes it along — with the
 digest, so the consumer can verify the bytes it actually read.
+
+## Invoking Midden
+
+```bash
+cat > /tmp/seed.json <<'EOF'
+{"protocol":"xibodev.module/v1","capability":"seed.create",
+ "request_id":"r1",
+ "input":{"ids":["<session-id>"],"goal":"Explain how X works",
+          "title":"X","max_evidence":40,"name":"my-seed"},
+ "roots":{"midden_home":{"path":"/absolute/path/to/writable/dir","mode":"rw"}}}
+EOF
+midden module invoke seed.create --input /tmp/seed.json
+```
+
+`seed.create` WRITES, so it needs a writable root. Supply `midden_home` with an
+absolute path and mode `rw`. Without it the call returns `missing_root` and
+writes nothing — it will not guess a location.
+
+The result gives `path` relative to that root, plus `evidence_digest`. Cite the
+digest when referring to the seed; the path changes if the bundle is copied.

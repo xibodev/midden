@@ -589,8 +589,8 @@
         "id": "midden.recovery",
         "title": "Midden session recovery",
         "path": "agents/midden-recovery.md",
-        "digest": "sha256:c04a9942113f0c23c192a276b44f31cd95be01c96e7e9e41bb7df2026f7dc11a",
-        "tokens": 784
+        "digest": "sha256:bd8396943d94fe63be3dea67b08d7cfed3fa5b6ebe60f83ac2bb50fe96592c2e",
+        "tokens": 1075
       }
     ],
     "skills": [
@@ -599,24 +599,24 @@
         "title": "Recovering a session",
         "summary": "Finding, assaying and carrying forward a session that cannot be resumed.",
         "path": "skills/session-recovery/SKILL.md",
-        "digest": "sha256:4d1b486ceda126f8dab15e5b67bbb5940e37e3eee7b28f079e99c8fdf43bbfeb",
-        "tokens": 541
+        "digest": "sha256:ecb4aa86fa24fc0446b0e7cb34e8f778bc2a25e92d56d3f8db0b4afd33cf28fe",
+        "tokens": 920
       },
       {
         "id": "midden.evidence-selection",
         "title": "Selecting evidence",
         "summary": "Reading assay classes and choosing the bounded slice worth keeping.",
         "path": "skills/evidence-selection/SKILL.md",
-        "digest": "sha256:34b6055c17b39e192a66a63540037a6e2e17b13f1c3c06a035e803c1db790afa",
-        "tokens": 548
+        "digest": "sha256:2ca483e39504b27751575f1b0cf755b0b715355ae641b37dac4e2b9c44ac7f64",
+        "tokens": 787
       },
       {
         "id": "midden.content-seed",
         "title": "Content seeds",
         "summary": "Building and describing a portable xibodev.midden.seed/v1 bundle.",
         "path": "skills/content-seed/SKILL.md",
-        "digest": "sha256:d38d85f6782698af979f153a75a24fe7d1ec29c756ae01f43b662c18b0a09049",
-        "tokens": 630
+        "digest": "sha256:83594207a9da4eddc74bf230a63d07e54e2543400f4c91cbf4e342a4b9d6abdd",
+        "tokens": 921
       }
     ],
     "permissions": {
