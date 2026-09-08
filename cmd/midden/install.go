@@ -126,7 +126,7 @@ func reportPlan(t install.Target, uninstall bool) {
 			self = "<this binary>"
 		}
 		fmt.Printf("    %s  %s -> %s\n", verb, t.Name,
-			render.Dim(fmt.Sprintf("%s modules add %s", t.BinaryPath, self)))
+			render.Dim(fmt.Sprintf("%s modules-add %s", t.BinaryPath, self)))
 	}
 }
 

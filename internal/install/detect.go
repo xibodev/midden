@@ -81,6 +81,32 @@ func homeDir() string {
 	return h
 }
 
+// findHost locates a module host that may not be on PATH.
+//
+// A host can be installed and still absent from PATH — facet-studio installs
+// its binary under a private directory and is launched from its own UI, so
+// PATH-only detection reports "not installed" for a host sitting on disk. That
+// reads to a user as "wiring is unavailable" when it is simply unfound.
+//
+// PATH is still preferred: it is what the user's shell would run.
+func findHost(name string, candidates ...string) string {
+	if p := lookPath(name); p != "" {
+		return p
+	}
+	for _, c := range candidates {
+		if c == "" {
+			continue
+		}
+		if fi, err := os.Stat(c); err == nil && !fi.IsDir() {
+			if abs, err := filepath.Abs(c); err == nil {
+				return abs
+			}
+			return c
+		}
+	}
+	return ""
+}
+
 // lookPath reports the absolute path of an executable, or "" if absent.
 func lookPath(name string) string {
 	p, err := exec.LookPath(name)
@@ -141,7 +167,7 @@ func Detect() []Target {
 		},
 		{
 			ID: "facet-studio", Name: "Facet Studio", Kind: KindModule,
-			BinaryPath: lookPath("facet-studio"),
+			BinaryPath: findHost("facet-studio", hostCandidates()...),
 		},
 	}
 
@@ -173,6 +199,24 @@ func DetectedTargets() []Target {
 		if t.Detected {
 			out = append(out, t)
 		}
+	}
+	return out
+}
+
+// hostCandidates are places a module host is known to install itself when it
+// is not on PATH. Each is checked by Stat, never assumed.
+func hostCandidates() []string {
+	var out []string
+	exeName := "facet-studio"
+	if runtime.GOOS == "windows" {
+		exeName += ".exe"
+	}
+	if home := homeDir(); home != "" {
+		out = append(out,
+			filepath.Join(home, ".facet-studio", exeName),
+			filepath.Join(home, ".local", "bin", exeName),
+			filepath.Join(home, ".local", exeName),
+		)
 	}
 	return out
 }

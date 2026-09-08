@@ -132,7 +132,12 @@ func RegisterWithHost(t Target) (*Result, error) {
 		return nil, err
 	}
 
-	cmd := exec.Command(t.BinaryPath, "modules", "add", self)
+	// The subcommand is HYPHENATED. It was written as "modules add" from a
+	// prose description of the host's interface and never run against the
+	// real binary, which exposes `modules-add` and rejects `modules add`
+	// outright. A command built from a description rather than verified
+	// against the thing it invokes is a wrong answer that looks right.
+	cmd := exec.Command(t.BinaryPath, "modules-add", self)
 	// The host owns its own environment; pass ours through rather than
 	// stripping it, because this is a user-initiated command rather than a
 	// sandboxed module invocation.
@@ -140,7 +145,7 @@ func RegisterWithHost(t Target) (*Result, error) {
 
 	res := &Result{
 		Target:  t,
-		Command: fmt.Sprintf("%s modules add %s", t.BinaryPath, self),
+		Command: fmt.Sprintf("%s modules-add %s", t.BinaryPath, self),
 		Output:  strings.TrimSpace(string(out)),
 	}
 	if err != nil {

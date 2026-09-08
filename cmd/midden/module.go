@@ -55,7 +55,11 @@ func cmdModuleDescribe(args []string) error {
 	// Report the descriptor's own defects. A host cannot distinguish a module
 	// that reports nothing because it checked from one that never looked, so
 	// silence here is only meaningful because something looked.
+	// SelfCheck returns nil when the descriptor is clean, and a nil slice
+	// marshals as null — the exact violation this module reports in others.
+	// Normalize AFTER setting it, never before.
 	env.Warnings = module.SelfCheck()
+	env.Normalize()
 	return emitEnvelope(env)
 }
 

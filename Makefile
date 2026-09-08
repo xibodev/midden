@@ -3,7 +3,12 @@
 # GNU Make is optional. The cross-platform source of truth is documented in
 # docs/DEVELOPMENT.md and uses direct Go commands.
 
-BINARY ?= midden
+# Windows will not execute a file without an extension: Go's exec reports
+# "executable file not found in %PATH%" for a real file sitting on disk, which
+# reads as a missing binary rather than an unrunnable name. A module host
+# spawning this binary hits exactly that, so the suffix is not cosmetic.
+EXT     := $(if $(filter Windows_NT,$(OS)),.exe,)
+BINARY ?= midden$(EXT)
 PKG    := ./cmd/midden
 
 .PHONY: all build test vet fmt check clean install start ui sync-content
