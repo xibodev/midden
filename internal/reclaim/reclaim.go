@@ -7,6 +7,8 @@
 package reclaim
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -159,7 +161,7 @@ func Parse(out string, s core.Session, model string) ([]index.Nugget, error) {
 		rt := redact.Text(r.Title)
 
 		out2 = append(out2, index.Nugget{
-			UID:        index.NewUID(),
+			UID:        nuggetUID(s, kind, rt.Text, rb.Text),
 			Tool:       string(s.Tool),
 			SessionID:  s.ID,
 			Kind:       kind,
@@ -255,4 +257,26 @@ func clamp01(f float64) float64 {
 	default:
 		return f
 	}
+}
+
+// nuggetUID derives a stable identity from the evidence itself.
+//
+// It was a random UID, which made every nugget new on every extraction: because
+// uid is the primary key, re-mining a session INSERTed duplicates rather than
+// replacing, so a partially completed extraction could not be safely re-run.
+// Re-execution both re-spent a model call AND grew the store.
+//
+// Deriving the id from (tool, session, kind, title, body) makes re-extraction
+// IDEMPOTENT: identical evidence lands on the same row. That is a recoverability
+// property, and it is the honest fix -- an operation whose re-execution is safe
+// needs no durable-resume facility from any runtime, so the defect is repaired
+// here rather than exported as a requirement.
+//
+// Model output is not deterministic, so re-mining may legitimately produce
+// DIFFERENT nuggets; those are genuinely new and correctly get new ids. This
+// removes accidental duplication, not real variation.
+func nuggetUID(s core.Session, kind, title, body string) string {
+	sum := sha256.Sum256([]byte(string(s.Tool) + "|" + s.ID + "|" +
+		kind + "|" + strings.TrimSpace(title) + "|" + strings.TrimSpace(body)))
+	return hex.EncodeToString(sum[:8])
 }
