@@ -15,24 +15,83 @@ import (
 	"github.com/mekjr1/midden/internal/core"
 )
 
+// Roots names the source-store locations explicitly, so a caller can supply
+// them instead of having them resolved from the user profile.
+//
+// The module protocol requires this: a module host runs modules with an empty
+// environment and passes every path it may touch in the request, so the host
+// can enforce confinement rather than trust the module. Ambient resolution also
+// fails silently under an empty environment — os.UserHomeDir returns an error,
+// home() yields "", and every store path becomes relative and matches nothing.
+//
+// A zero value means "resolve from the user profile", which is what the
+// human-facing CLI has always done. Each field is independent: supplying one
+// root does not change how the others resolve.
+type Roots struct {
+	// Copilot and Claude are store ROOT DIRECTORIES (~/.copilot, ~/.claude).
+	Copilot string
+	Claude  string
+	// Opencode is the DATABASE FILE, not a directory, because that is what
+	// the adapter opens.
+	Opencode string
+}
+
+// AllWithRoots returns every adapter, using explicit roots where supplied and
+// falling back to user-profile resolution where not.
+func AllWithRoots(r Roots) []core.Adapter {
+	copilot := NewCopilot()
+	if r.Copilot != "" {
+		copilot.Root = r.Copilot
+	}
+	claude := NewClaude()
+	if r.Claude != "" {
+		claude.Root = r.Claude
+	}
+	opencode := NewOpencode()
+	if r.Opencode != "" {
+		opencode.DB = r.Opencode
+	}
+	return []core.Adapter{copilot, claude, opencode}
+}
+
+// FindWithRoots resolves one adapter using explicit roots.
+func FindWithRoots(t core.Tool, r Roots) core.Adapter {
+	for _, a := range AllWithRoots(r) {
+		if a.Tool() == t {
+			return a
+		}
+	}
+	return nil
+}
+
 // All returns every adapter, whether or not its data is present.
 func All() []core.Adapter {
-	return []core.Adapter{
-		NewCopilot(),
-		NewClaude(),
-		NewOpencode(),
-	}
+	return AllWithRoots(Roots{})
 }
 
 // Available returns only the adapters whose data exists on this machine.
 func Available() []core.Adapter {
+	return AvailableWithRoots(Roots{})
+}
+
+// AvailableWithRoots is Available with explicit source-store roots.
+func AvailableWithRoots(r Roots) []core.Adapter {
 	var out []core.Adapter
-	for _, a := range All() {
+	for _, a := range AllWithRoots(r) {
 		if a.Available() {
 			out = append(out, a)
 		}
 	}
 	return out
+}
+
+// CollectWithRoots is Collect with explicit source-store roots.
+//
+// It is the entry point the module protocol uses: the host supplies every
+// path, so nothing is resolved from the environment.
+func CollectWithRoots(sc core.Scope, r Roots) ([]core.Session, []error) {
+	sessions, result := collectFrom(sc, AvailableWithRoots(r))
+	return sessions, result.Errors
 }
 
 // Find returns the adapter for a tool.

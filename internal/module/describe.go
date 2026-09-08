@@ -1,0 +1,350 @@
+package module
+
+import (
+	"encoding/json"
+	"fmt"
+	"sort"
+	"strings"
+
+	"github.com/mekjr1/midden/internal/adapter"
+	"github.com/mekjr1/midden/internal/assay"
+	"github.com/mekjr1/midden/internal/core"
+)
+
+// Version is Midden's module version, independent of the protocol version.
+const Version = "0.0.1"
+
+// Capability IDs, namespaced by module.
+const (
+	CapSessionsList  = "sessions.list"
+	CapSessionsAssay = "sessions.assay"
+)
+
+// Schema IDs referenced by capabilities.
+const (
+	SchemaSessionsListRequest  = "xibodev.midden.sessions.list.request/v1"
+	SchemaSessionsListResult   = "xibodev.midden.sessions.list.result/v1"
+	SchemaSessionsAssayRequest = "xibodev.midden.sessions.assay.request/v1"
+	SchemaSessionsAssayResult  = "xibodev.midden.sessions.assay.result/v1"
+)
+
+// Logical root names. These are NAMES, not paths: the host supplies the
+// canonicalized absolute path for each one per invocation, and Midden never
+// resolves a root itself.
+const (
+	RootCopilot    = "copilot_store"
+	RootClaude     = "claude_store"
+	RootOpencode   = "opencode_store"
+	RootMiddenHome = "midden_home"
+)
+
+// Describe returns Midden's module descriptor.
+//
+// It is entirely deterministic and calls no model: discovery must never cost
+// anything or depend on a provider being reachable.
+func Describe() Descriptor {
+	d := Descriptor{
+		Module:           ModuleID,
+		Name:             "Midden",
+		Version:          Version,
+		ProtocolVersions: []string{ProtocolID},
+		Capabilities: []Capability{
+			{
+				ID:            CapSessionsList,
+				Title:         "List sessions",
+				Summary:       "Inventory past agentic-CLI sessions from read-only source stores, filtered by an exact scope.",
+				RequestSchema: SchemaSessionsListRequest,
+				ResultSchema:  SchemaSessionsListResult,
+				Effects: Effects{
+					Local:     true,
+					CostKnown: true,
+				},
+				Skills: []string{SkillSessionRecovery},
+			},
+			{
+				ID:            CapSessionsAssay,
+				Title:         "Assay sessions",
+				Summary:       "Classify a session's records into signal, exhaust, artifact and bookkeeping, and report reclaimable yield. Deterministic; never calls a model.",
+				RequestSchema: SchemaSessionsAssayRequest,
+				ResultSchema:  SchemaSessionsAssayResult,
+				Effects: Effects{
+					Local:     true,
+					CostKnown: true,
+				},
+				Skills: []string{SkillSessionRecovery, SkillEvidenceSelection},
+				// Synchronous: the assay path holds no job layer and returns a
+				// completed result. Bounded by the scope plus the host deadline.
+				LongRunning: false,
+			},
+			{
+				ID:              CapSeedCreate,
+				Title:           "Create a content seed",
+				Summary:         "Build a portable xibodev.midden.seed/v1 bundle from an exact session scope: goal, redacted evidence with provenance, and an evidence digest. Deterministic; never calls a model.",
+				RequestSchema:   SchemaSeedCreateRequest,
+				ResultSchema:    SchemaSeedCreateResult,
+				ArtifactSchemas: []string{SeedSchemaID},
+				Skills:          []string{SkillContentSeed, SkillEvidenceSelection},
+				Effects: Effects{
+					Local:     true,
+					CostKnown: true,
+					// ExternalWrites is FALSE: the seed is written inside the
+					// host-granted midden_home root. The flag means "wrote
+					// outside what the host granted", not "wrote a file".
+					ExternalWrites: false,
+				},
+				LongRunning: false,
+			},
+		},
+		RequestSchemas: map[string]json.RawMessage{
+			SchemaSessionsListRequest:  json.RawMessage(scopeRequestSchema),
+			SchemaSessionsAssayRequest: json.RawMessage(assayRequestSchema),
+			SchemaSeedCreateRequest:    json.RawMessage(seedCreateRequestSchema),
+		},
+		ResultSchemas: map[string]json.RawMessage{
+			SchemaSessionsListResult:  json.RawMessage(sessionsListResultSchema),
+			SchemaSessionsAssayResult: json.RawMessage(assayResultSchema),
+			SchemaSeedCreateResult:    json.RawMessage(seedCreateResultSchema),
+		},
+		ArtifactSchemas: map[string]json.RawMessage{
+			SeedSchemaID: json.RawMessage(seedManifestSchema),
+		},
+		Permissions: Permissions{
+			// Read-only source stores. Midden opens these read-only; the host
+			// additionally supplies them as "ro" roots so confinement is
+			// enforced rather than trusted.
+			FilesystemRead: []string{RootCopilot, RootClaude, RootOpencode},
+			// Midden's own state is the only thing it writes.
+			FilesystemWrite: []string{RootMiddenHome},
+			// Deterministic capabilities need nothing else. Model-backed
+			// capabilities will declare Subprocess when they are added; they
+			// shell out to an authenticated CLI rather than calling an API.
+		},
+		AgentOverlays: overlays(),
+		Skills:        skills(),
+		Requirements:  []Requirement{},
+	}
+	d.Normalize()
+	return d
+}
+
+// ---------------------------------------------------------------------------
+// sessions.assay
+// ---------------------------------------------------------------------------
+
+// AssayRequest is the input to sessions.assay.
+//
+// Scope is mandatory in spirit: an unbounded assay over every store is exactly
+// the runaway this contract exists to prevent, so MaxSessions is clamped.
+type AssayRequest struct {
+	Tool         string   `json:"tool,omitempty"`
+	Days         int      `json:"days,omitempty"`
+	Workspace    string   `json:"workspace,omitempty"`
+	Repo         string   `json:"repo,omitempty"`
+	IDs          []string `json:"ids,omitempty"`
+	IDPrefix     string   `json:"id_prefix,omitempty"`
+	IncludeNoise bool     `json:"include_noise,omitempty"`
+
+	// MaxSessions bounds how many sessions are assayed. Clamped to
+	// MaxSessionsCeiling; 0 means DefaultMaxSessions.
+	MaxSessions int `json:"max_sessions,omitempty"`
+
+	// MaxCandidates bounds the candidate record list per session.
+	MaxCandidates int `json:"max_candidates,omitempty"`
+}
+
+// Bounds applied to every assay request. A host deadline is a backstop, not a
+// substitute for the module bounding its own work.
+const (
+	DefaultMaxSessions   = 25
+	MaxSessionsCeiling   = 200
+	DefaultMaxCandidates = 40
+	MaxCandidatesCeiling = 500
+)
+
+// AssaySessionResult is the per-session outcome.
+//
+// It reports the manifest's derived measures rather than the raw candidate
+// records: previews are drawn from private transcripts, so they are not
+// returned merely to simplify host integration.
+type AssaySessionResult struct {
+	SessionID string `json:"session_id"`
+	Tool      string `json:"tool"`
+	Title     string `json:"title,omitempty"`
+
+	TotalRecords int64 `json:"total_records"`
+	TotalBytes   int64 `json:"total_bytes"`
+
+	Counts map[string]int64 `json:"counts"`
+	Bytes  map[string]int64 `json:"bytes"`
+	ByKind map[string]int64 `json:"by_kind"`
+
+	SignalBytes      int64   `json:"signal_bytes"`
+	ReclaimableBytes int64   `json:"reclaimable_bytes"`
+	SignalShare      float64 `json:"signal_share"`
+	Compression      float64 `json:"compression"`
+
+	CandidateCount int64 `json:"candidate_count"`
+	SliceBytes     int64 `json:"slice_bytes"`
+	EstSliceTokens int64 `json:"est_slice_tokens"`
+
+	DuplicateReads int64 `json:"duplicate_reads"`
+	DuplicateBytes int64 `json:"duplicate_bytes"`
+	ImageCount     int64 `json:"image_count"`
+	ImageClusters  int64 `json:"image_clusters"`
+}
+
+// AssayResult is the sessions.assay payload.
+type AssayResult struct {
+	Sessions  []AssaySessionResult `json:"sessions"`
+	Assayed   int                  `json:"assayed"`
+	Failed    int                  `json:"failed"`
+	Truncated bool                 `json:"truncated"`
+
+	TotalBytes       int64 `json:"total_bytes"`
+	SignalBytes      int64 `json:"signal_bytes"`
+	ReclaimableBytes int64 `json:"reclaimable_bytes"`
+}
+
+// Normalize satisfies Normalizer so nested collections never marshal as null.
+func (r *AssayResult) Normalize() {
+	r.Sessions = emptySlice(r.Sessions)
+	for i := range r.Sessions {
+		r.Sessions[i].Counts = emptyMap(r.Sessions[i].Counts)
+		r.Sessions[i].Bytes = emptyMap(r.Sessions[i].Bytes)
+		r.Sessions[i].ByKind = emptyMap(r.Sessions[i].ByKind)
+	}
+}
+
+// SessionsAssay runs the deterministic assay over a bounded scope.
+//
+// It calls adapter.Assayer directly and never constructs Midden's web job
+// manager: doing so would fire stale-job reconciliation and force-fail live
+// jobs belonging to a running Midden UI. A capability that looks read-only must
+// be read-only in the code path, not merely in name.
+//
+// No model is invoked. internal/assay imports only stdlib and performs pure
+// classification; the adapters do file and read-only SQLite reads.
+func SessionsAssay(req AssayRequest, roots adapter.Roots) (*AssayResult, []string, error) {
+	sc, err := scopeFromAssayRequest(req)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	maxSessions := clamp(req.MaxSessions, DefaultMaxSessions, MaxSessionsCeiling)
+	maxCandidates := clamp(req.MaxCandidates, DefaultMaxCandidates, MaxCandidatesCeiling)
+
+	sessions, errs := adapter.CollectWithRoots(sc, roots)
+
+	var warnings []string
+	for _, e := range errs {
+		// One tool's format drift must not blind the others, and it must not
+		// silently vanish either.
+		warnings = append(warnings, "source store: "+e.Error())
+	}
+
+	result := &AssayResult{}
+	if len(sessions) > maxSessions {
+		sessions = sessions[:maxSessions]
+		result.Truncated = true
+		warnings = append(warnings, fmt.Sprintf(
+			"scope matched more sessions than the bound; assayed the first %d", maxSessions))
+	}
+
+	for _, s := range sessions {
+		a := adapter.FindWithRoots(s.Tool, roots)
+		if a == nil {
+			result.Failed++
+			warnings = append(warnings, fmt.Sprintf("no adapter for tool %q", s.Tool))
+			continue
+		}
+		as, ok := a.(adapter.Assayer)
+		if !ok {
+			result.Failed++
+			warnings = append(warnings, fmt.Sprintf("tool %q cannot be assayed", s.Tool))
+			continue
+		}
+
+		m, err := as.Assay(s, maxCandidates)
+		if err != nil {
+			result.Failed++
+			warnings = append(warnings, fmt.Sprintf("assay %s: %v", s.ID, err))
+			continue
+		}
+
+		result.Sessions = append(result.Sessions, sessionResultFrom(m))
+		result.Assayed++
+		result.TotalBytes += m.TotalBytes
+		result.SignalBytes += m.SignalBytes()
+		result.ReclaimableBytes += m.ReclaimableBytes()
+	}
+
+	// Stable ordering: map iteration and adapter concurrency must not make an
+	// otherwise deterministic capability return different bytes per run.
+	sort.SliceStable(result.Sessions, func(i, j int) bool {
+		if result.Sessions[i].Tool != result.Sessions[j].Tool {
+			return result.Sessions[i].Tool < result.Sessions[j].Tool
+		}
+		return result.Sessions[i].SessionID < result.Sessions[j].SessionID
+	})
+
+	return result, warnings, nil
+}
+
+// sessionResultFrom projects a manifest into the wire result.
+//
+// Manifest.Elapsed is deliberately dropped: it is wall-clock and would make an
+// otherwise deterministic result differ on every run.
+func sessionResultFrom(m *assay.Manifest) AssaySessionResult {
+	return AssaySessionResult{
+		SessionID:        m.SessionID,
+		Tool:             m.Tool,
+		Title:            m.Title,
+		TotalRecords:     m.TotalRecords,
+		TotalBytes:       m.TotalBytes,
+		Counts:           m.Counts,
+		Bytes:            m.Bytes,
+		ByKind:           m.ByKind,
+		SignalBytes:      m.SignalBytes(),
+		ReclaimableBytes: m.ReclaimableBytes(),
+		SignalShare:      m.SignalShare(),
+		Compression:      m.Compression(),
+		CandidateCount:   int64(len(m.Candidates)),
+		SliceBytes:       m.SliceBytes(),
+		EstSliceTokens:   m.EstSliceTokens(),
+		DuplicateReads:   m.DuplicateReads,
+		DuplicateBytes:   m.DuplicateBytes,
+		ImageCount:       m.ImageCount,
+		ImageClusters:    m.ImageClusters,
+	}
+}
+
+func scopeFromAssayRequest(req AssayRequest) (core.Scope, error) {
+	sc := core.Scope{
+		Days:         req.Days,
+		Workspace:    req.Workspace,
+		Repo:         req.Repo,
+		IDs:          req.IDs,
+		IDPrefix:     req.IDPrefix,
+		IncludeNoise: req.IncludeNoise,
+	}
+	if t := strings.TrimSpace(strings.ToLower(req.Tool)); t != "" {
+		tool := core.Tool(t)
+		switch tool {
+		case core.ToolCopilot, core.ToolClaude, core.ToolOpencode:
+			sc.Tools = []core.Tool{tool}
+		default:
+			return sc, fmt.Errorf("unknown tool %q (want copilot, claude or opencode)", req.Tool)
+		}
+	}
+	return sc, nil
+}
+
+func clamp(v, def, ceiling int) int {
+	if v <= 0 {
+		v = def
+	}
+	if v > ceiling {
+		return ceiling
+	}
+	return v
+}

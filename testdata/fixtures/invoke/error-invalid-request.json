@@ -1,0 +1,23 @@
+{
+  "protocol": "xibodev.module/v1",
+  "module": "midden",
+  "operation": "invoke",
+  "request_id": "req_fixture_badreq_01",
+  "ok": false,
+  "error": {
+    "code": "invalid_request",
+    "message": "unknown tool \"emacs\" (want copilot, claude or opencode)",
+    "retryable": false,
+    "details": {}
+  },
+  "warnings": [],
+  "execution": {
+    "local": true,
+    "network": false,
+    "external_writes": false,
+    "provider": "",
+    "estimated_cost": 0,
+    "actual_cost": 0,
+    "artifacts": []
+  }
+}

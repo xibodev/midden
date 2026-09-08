@@ -1,0 +1,57 @@
+{
+  "protocol": "xibodev.module/v1",
+  "module": "midden",
+  "operation": "invoke",
+  "request_id": "req_fixture_assay_001",
+  "ok": true,
+  "result": {
+    "sessions": [
+      {
+        "session_id": "11111111-2222-3333-4444-555555555555",
+        "tool": "claude",
+        "title": "(untitled)",
+        "total_records": 12,
+        "total_bytes": 4150,
+        "counts": {
+          "exhaust": 5,
+          "signal": 7
+        },
+        "bytes": {
+          "exhaust": 1329,
+          "signal": 2821
+        },
+        "by_kind": {
+          "assistant": 2821,
+          "unparsed": 1329
+        },
+        "signal_bytes": 2821,
+        "reclaimable_bytes": 1329,
+        "signal_share": 0.6797590361445783,
+        "compression": 1.4711095356256647,
+        "candidate_count": 5,
+        "slice_bytes": 1010,
+        "est_slice_tokens": 252,
+        "duplicate_reads": 0,
+        "duplicate_bytes": 0,
+        "image_count": 0,
+        "image_clusters": 0
+      }
+    ],
+    "assayed": 1,
+    "failed": 0,
+    "truncated": false,
+    "total_bytes": 4150,
+    "signal_bytes": 2821,
+    "reclaimable_bytes": 1329
+  },
+  "warnings": [],
+  "execution": {
+    "local": true,
+    "network": false,
+    "external_writes": false,
+    "provider": "",
+    "estimated_cost": 0,
+    "actual_cost": 0,
+    "artifacts": []
+  }
+}

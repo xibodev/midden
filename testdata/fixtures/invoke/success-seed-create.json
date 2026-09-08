@@ -1,0 +1,37 @@
+{
+  "protocol": "xibodev.module/v1",
+  "module": "midden",
+  "operation": "invoke",
+  "request_id": "req_fixture_seed_0001",
+  "ok": true,
+  "result": {
+    "schema": "xibodev.midden.seed/v1",
+    "root": "midden_home",
+    "path": "seeds/fixture-seed",
+    "manifest_path": "seeds/fixture-seed/manifest.json",
+    "evidence_digest": "b635fb886966c1fae7e4218c68a3ffd136311df1b6fa308975adddf2740baffd",
+    "evidence_count": 3,
+    "session_count": 1
+  },
+  "warnings": [],
+  "execution": {
+    "local": true,
+    "network": false,
+    "external_writes": false,
+    "provider": "",
+    "estimated_cost": 0,
+    "actual_cost": 0,
+    "artifacts": [
+      {
+        "id": "seed-manifest",
+        "kind": "xibodev.midden.seed/v1",
+        "path": "seeds/fixture-seed/manifest.json",
+        "root": "midden_home",
+        "media_type": "application/json",
+        "bytes": 315,
+        "digest": "sha256:b97ee884aff2beefd4414661c48a07f3f25be2ef2e765d20ab31397a34f9e5d6",
+        "title": "Recovery"
+      }
+    ]
+  }
+}

@@ -26,7 +26,10 @@ func main() {
 	// the last scan derived, so an unchanged file is never opened twice.
 	// Plugin commands only inspect manifests; warming the cache would create
 	// or migrate ~/.midden/index.db during a command advertised as passive.
-	if len(os.Args) < 2 || (os.Args[1] != "mcp" && os.Args[1] != "plugins" && os.Args[1] != "plugin") {
+	// `module` is excluded for the same reason as `plugins`: the module
+	// protocol is a passive, host-driven surface, and warming the cache would
+	// create or migrate ~/.midden/index.db as a side effect of discovery.
+	if len(os.Args) < 2 || (os.Args[1] != "mcp" && os.Args[1] != "plugins" && os.Args[1] != "plugin" && os.Args[1] != "module") {
 		index.WarmPeekCache()
 	}
 
@@ -65,6 +68,8 @@ func main() {
 		err = cmdWatch(os.Args[2:])
 	case "mcp":
 		err = cmdMCP(os.Args[2:])
+	case "module":
+		err = cmdModule(os.Args[2:])
 	case "scan":
 		err = cmdScan(os.Args[2:])
 	case "assay":
