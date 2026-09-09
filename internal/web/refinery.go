@@ -868,25 +868,12 @@ func (s *Server) acquireScanLockForJob(jobID string, maxWait time.Duration) (*in
 	}
 }
 
+// productionEstimate delegates to the canonical estimator.
+//
+// Pricing a run is product semantics, not a web concern: the CLI and a driver
+// need the same number before deciding whether to spend.
 func (s *Server) productionEstimate(recipe index.Recipe, evidence []index.Nugget) (cost.Estimate, refinery.EvidenceReport) {
-	report := refinery.AssessEvidence(recipe, evidence)
-	modelOutputs := 0
-	for _, output := range recipe.Outputs {
-		if output.RequiresModel {
-			modelOutputs++
-		}
-	}
-	if modelOutputs == 0 {
-		return cost.Estimate{Op: "refinery"}, report
-	}
-	raw := len(refinery.EvidencePreamble(recipe, evidence))/4 + 400
-	for _, output := range recipe.Outputs {
-		if output.RequiresModel {
-			raw += len(refinery.OutputRequest(output))/4 + 350
-		}
-	}
-	stats, _ := s.db.CalibrationFor("refinery")
-	return cost.Predict("refinery", raw, stats), report
+	return create.Estimate(s.db, recipe, evidence)
 }
 
 func productionEstimateText(recipe index.Recipe, estimate cost.Estimate) string {
@@ -934,14 +921,11 @@ func (s *Server) doProduction(jobID string, req actionRequest) (_ any, returnErr
 		}, nil
 	}
 
-	if recipe.Status != refinery.RecipeApproved && recipe.Status != refinery.RecipeFailed {
-		return nil, fmt.Errorf("approve the evidence before running this recipe")
-	}
-	if report.Blocked {
-		return nil, fmt.Errorf("the approved evidence is no longer available")
-	}
-	if len(evidence) != len(recipe.EvidenceIDs) {
-		return nil, fmt.Errorf("the evidence set changed; review it again before running")
+	// The pre-spend gates are canonical: every face must refuse the same runs
+	// for the same stated reasons, or "approved" means something different
+	// depending on where the button was.
+	if err := (create.Producer{DB: s.db}).CheckRunnable(recipe, evidence, report); err != nil {
+		return nil, err
 	}
 	claimed, err := s.db.ClaimRecipeForRun(recipe.UID)
 	if err != nil {
