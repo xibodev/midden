@@ -627,14 +627,24 @@ func writableRootOf(req Request) string {
 	return ""
 }
 
+// envelopeHeadroom is how long Midden reserves to write a structured envelope
+// before the host kills the process tree. A timeout the module REPORTS is far
+// more useful than one a host infers from a dead process.
+const envelopeHeadroom = 3 * time.Second
+
 func deadlineOf(req Request) time.Duration {
 	if req.DeadlineMS > 0 {
 		// Leave headroom so Midden returns a structured envelope before the
 		// host kills the process tree: a timeout the module reports is far
 		// more useful than one the host infers from a dead process.
 		d := time.Duration(req.DeadlineMS) * time.Millisecond
-		if d > 5*time.Second {
-			return d - 3*time.Second
+		// The guard is DERIVED from the margin rather than being a second
+		// independent literal. They were 5s and 3s: correct together, and a
+		// margin raised past the guard would have returned a NEGATIVE deadline
+		// silently, because both halves stayed internally consistent while
+		// disagreeing. Deriving it means the two cannot drift apart.
+		if d > envelopeHeadroom+time.Second {
+			return d - envelopeHeadroom
 		}
 		return d
 	}
