@@ -141,3 +141,39 @@ func TestAbsentContractIsSERVEDNotRefused(t *testing.T) {
 		t.Error("absent and wrong are indistinguishable to a caller")
 	}
 }
+
+// TestRefusalErrorIsDistinctAndComplete audits a function no passing run
+// exercises.
+//
+// Error() is reached only when something has already gone wrong, so a defect in
+// it stays invisible until the exact moment a human needs it to read correctly.
+// Coverage measured it at 0% while the suite was green -- an unaudited green
+// suite and a complete one produce the same observable, and the difference here
+// was one uncovered function whose whole job is explaining a refusal.
+//
+// Distinctness is asserted as well as content: if an absent and a wrong contract
+// rendered identically, a served v1 module and a hard refusal would be
+// indistinguishable in the one place a person reads them. That is the exact
+// conflation the three-valued Outcome exists to prevent, resurfacing one layer
+// up in its own diagnostic.
+func TestRefusalErrorIsDistinctAndComplete(t *testing.T) {
+	_, absent := CheckContract("")
+	_, wrong := CheckContract("xibodev.module/v9")
+
+	for name, r := range map[string]*ContractRefusal{"absent": absent, "wrong": wrong} {
+		msg := r.Error()
+		if !strings.Contains(msg, r.Reason) {
+			t.Errorf("%s: Error() drops the reason", name)
+		}
+		if !strings.Contains(msg, r.Remedy) {
+			t.Errorf("%s: Error() drops the remedy; a refusal without a remedy "+
+				"is a dead end rather than a report", name)
+		}
+	}
+
+	if absent.Error() == wrong.Error() {
+		t.Error("an absent and a wrong contract render identically; a served v1 " +
+			"module and a hard refusal would be indistinguishable in the one " +
+			"place a person reads them")
+	}
+}
