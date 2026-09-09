@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mekjr1/midden/internal/create"
 	"github.com/mekjr1/midden/internal/exec"
 	"github.com/mekjr1/midden/internal/index"
 	"github.com/mekjr1/midden/internal/refinery"
@@ -347,12 +348,18 @@ func ContentProduce(db *index.DB, req ContentProduceRequest, dir string, grant M
 		return nil, nil, fmt.Errorf("output name %q is not a single safe path segment", req.Name)
 	}
 
-	outDir := filepath.Join(dir, "content")
-	if err := os.MkdirAll(outDir, 0o755); err != nil {
+	// Run-scoped, so a second output of the same kind does not replace the
+	// first. The flat layout wrote content/<kind>.<ext> and silently destroyed
+	// earlier work on the second use of a capability.
+	run := create.NewRunID(time.Now())
+	rel, err := create.OutputPath(run, name, refinery.FileExtension(spec))
+	if err != nil {
+		return nil, nil, err
+	}
+	abs := filepath.Join(dir, filepath.FromSlash(rel))
+	if err := os.MkdirAll(filepath.Dir(abs), 0o755); err != nil {
 		return nil, nil, fmt.Errorf("create output directory: %w", err)
 	}
-	rel := filepath.ToSlash(filepath.Join("content", name+refinery.FileExtension(spec)))
-	abs := filepath.Join(dir, filepath.FromSlash(rel))
 	if err := os.WriteFile(abs, []byte(wrapped), 0o644); err != nil {
 		return nil, nil, fmt.Errorf("write output: %w", err)
 	}
@@ -375,10 +382,15 @@ func ContentProduce(db *index.DB, req ContentProduceRequest, dir string, grant M
 		nuggetIDs = append(nuggetIDs, n.UID)
 	}
 	if err := db.PutArtifact(index.Artifact{
-		Kind:      kind,
-		Title:     title,
-		Path:      abs,
-		Scope:     req.Workspace,
+		Kind:  kind,
+		Title: title,
+		Path:  abs,
+		// Scope records WHERE this was produced. Every one of the first seven
+		// artifacts recorded an empty scope because no caller passed a
+		// workspace -- the field was right and nothing filled it, so "what did
+		// I produce in this project" had no answer. The run id is recorded
+		// unconditionally so origin survives a caller that says nothing.
+		Scope:     scopeOrRun(req.Workspace, run),
 		NuggetIDs: nuggetIDs,
 		Model:     modelName,
 		CreatedAt: time.Now(),
@@ -682,4 +694,21 @@ func runModelOutput(spec index.RecipeOutputSpec, recipe index.Recipe, nuggets []
 		return "", conv.SessionID(), fmt.Errorf("%s returned no content for %s", grant.Backend, spec.Kind)
 	}
 	return out, conv.SessionID(), nil
+}
+
+// scopeOrRun records where an artifact came from.
+//
+// A caller-supplied workspace is the better answer and is preferred. When a
+// caller says nothing the run id is recorded instead, because an artifact with
+// no origin at all cannot be attributed later and the question "what did I make
+// here" becomes unanswerable from the store.
+//
+// It deliberately does NOT invent a session identity. No driver passes one --
+// the module protocol carries request_id, which is per-call -- and claiming to
+// know which session produced something would be a well-formed wrong answer.
+func scopeOrRun(workspace string, run create.RunID) string {
+	if w := strings.TrimSpace(workspace); w != "" {
+		return w
+	}
+	return "run:" + string(run)
 }
