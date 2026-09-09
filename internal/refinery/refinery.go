@@ -1203,3 +1203,19 @@ func max(a, b int) int {
 	}
 	return b
 }
+
+// ChargeableKinds returns the output kinds whose production spends money.
+//
+// Derived from the SAME table the product uses rather than restated, so the
+// wire and the behaviour cannot drift. CostClass is the source of truth for
+// chargeability; RequiresModel is a different fact (a harness the user is
+// already signed in to owns its own billing) and must not be substituted.
+func ChargeableKinds() []string {
+	out := make([]string, 0, len(outputTemplates))
+	for _, t := range outputTemplates {
+		if t.CostClass == "spends" {
+			out = append(out, t.Kind)
+		}
+	}
+	return out
+}

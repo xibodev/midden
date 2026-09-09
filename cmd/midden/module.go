@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/mekjr1/midden/internal/module"
 )
@@ -37,12 +38,41 @@ func cmdModuleDescribe(args []string) error {
 	// --json is accepted and ignored: this surface is always JSON. The flag
 	// exists because the host's documented invocation includes it.
 	fs.Bool("json", true, "emit JSON (always true for this surface)")
+	// --contract selects the BEHAVIOURAL contract to describe against. Absent
+	// means v1, so every existing caller keeps the descriptor it already reads:
+	// a host that does not ask for v2 must not receive v2 semantics.
+	contract := fs.String("contract", "", "behavioural contract to describe against")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 
-	d := module.Describe()
-	raw, err := json.Marshal(d)
+	// The v2 descriptor is emitted BARE, not wrapped in the v1 envelope.
+	//
+	// The host reads contract_version from the TOP LEVEL of describe output
+	// (gate.go probes it before interpreting anything else, so the gate rules
+	// before any v2 semantic is relied upon). Wrapping the descriptor in an
+	// envelope buries the field inside "result", and the host correctly
+	// concluded the module declared no contract at all -- served as v1, with
+	// every v2 declaration ignored.
+	//
+	// Found by running the real host gate against a real built bundle. It is
+	// invisible to any test that inspects the struct rather than the bytes a
+	// host parses.
+	if strings.TrimSpace(*contract) != "" {
+		if *contract != module.ContractV2 {
+			return fmt.Errorf("unsupported contract %q: this module speaks %s, "+
+				"and pinning is exact -- no negotiation, no fallback",
+				*contract, module.ContractV2)
+		}
+		raw, err := json.Marshal(module.DescribeV2())
+		if err != nil {
+			return err
+		}
+		fmt.Println(string(raw))
+		return nil
+	}
+
+	raw, err := json.Marshal(module.Describe())
 	if err != nil {
 		return err
 	}
