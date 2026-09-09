@@ -18,6 +18,7 @@ import (
 	"github.com/mekjr1/midden/internal/adapter"
 	"github.com/mekjr1/midden/internal/core"
 	"github.com/mekjr1/midden/internal/cost"
+	"github.com/mekjr1/midden/internal/create"
 	agentexec "github.com/mekjr1/midden/internal/exec"
 	"github.com/mekjr1/midden/internal/index"
 	"github.com/mekjr1/midden/internal/redact"
@@ -344,37 +345,19 @@ func (s *Server) previewRecipe(req refineryActionRequest) (any, error) {
 	}, nil
 }
 
+// buildRecipe delegates to the canonical planner.
+//
+// The logic moved to internal/create so CLI, module and a future in-process
+// kernel reach the same planning semantics. This face keeps only the mapping
+// from its own request type -- which is exactly what a face should own.
 func (s *Server) buildRecipe(req refineryActionRequest) (index.Recipe, error) {
-	var (
-		nuggets []index.Nugget
-		err     error
-	)
-	if len(req.EvidenceIDs) > 0 {
-		ids := uniqueStrings(req.EvidenceIDs)
-		nuggets, err = s.db.NuggetsByIDs(ids)
-		if err != nil {
-			return index.Recipe{}, err
-		}
-		if len(nuggets) != len(ids) {
-			return index.Recipe{}, fmt.Errorf("one or more selected evidence items no longer exist")
-		}
-	} else {
-		nuggets, err = s.db.Nuggets(index.NuggetQuery{Workspace: req.Workspace, Limit: 5000})
-		if err != nil {
-			return index.Recipe{}, err
-		}
-	}
-	recipe, err := refinery.Design(req.Prompt, req.Workspace, req.OutputKinds, nuggets, time.Now())
-	if err != nil {
-		return index.Recipe{}, err
-	}
-	if strings.TrimSpace(req.Title) != "" {
-		recipe.Title = strings.TrimSpace(req.Title)
-	}
-	if len(req.EvidenceIDs) > 0 {
-		recipe.EvidenceIDs = uniqueStrings(req.EvidenceIDs)
-	}
-	return recipe, nil
+	return create.Planner{DB: s.db}.Design(create.PlanRequest{
+		Prompt:      req.Prompt,
+		Workspace:   req.Workspace,
+		OutputKinds: req.OutputKinds,
+		EvidenceIDs: req.EvidenceIDs,
+		Title:       req.Title,
+	})
 }
 
 func (s *Server) updateRecipe(req refineryActionRequest) (any, error) {
