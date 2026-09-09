@@ -167,10 +167,24 @@ func TestEverySuggestionIsRunnableAndExplained(t *testing.T) {
 }
 
 func TestTopReturnsNothingWhenAllIsWell(t *testing.T) {
-	// A clean machine should not be nagged. Nagging is a Category 5
-	// anti-pattern.
-	if _, ok := Top(State{HasIndex: true, Assayed: 5, Nuggets: 10, Artifacts: 3}); !ok {
-		return // no suggestion is an acceptable outcome
+	// This test used to RETURN EARLY on the outcome it was checking, so the
+	// only failing path was unreachable and it passed whatever Top did.
+	// Mutation-verified: making Top always return a suggestion left it green.
+	//
+	// Rewriting it revealed the TEST'S PREMISE was wrong, not the code. A
+	// machine with nuggets and artifacts is not "done": guide.go:235-239 states
+	// deliberately that succeeding once must not end the guidance, because
+	// mining is a loop rather than a setup step. So the honest assertion is
+	// about WHAT is suggested, not that nothing is.
+	step, ok := Top(State{HasIndex: true, Assayed: 5, Nuggets: 10, Artifacts: 3})
+	if !ok {
+		t.Fatal("a working machine got no suggestion at all; mining is a loop " +
+			"and the guidance must not end when it first succeeds")
+	}
+	if step.Cost != Free {
+		t.Errorf("a machine with nothing wrong was pushed toward %v work (%q); "+
+			"an unprompted suggestion on a healthy machine must not spend",
+			step.Cost, step.Why)
 	}
 }
 
