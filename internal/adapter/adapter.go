@@ -246,8 +246,18 @@ func collectFrom(sc core.Scope, adapters []core.Adapter) ([]core.Session, Collec
 		out    []core.Session
 		result CollectionResult
 	)
+	// A scope naming exact IDs is narrowed to the tools those IDs could belong
+	// to. Without this, asking for ONE opencode session still walked every
+	// store -- an agent reported scoping to a single id and watching Midden
+	// read the entire Claude corpus (1.27 GB) first. Slow, and confusing in a
+	// way that reads as a bug even though the result was correct.
+	wanted := toolsForIDs(sc, adapters)
+
 	for _, a := range adapters {
 		if !sc.WantsTool(a.Tool()) {
+			continue
+		}
+		if wanted != nil && !wanted[a.Tool()] {
 			continue
 		}
 		result.Attempted = append(result.Attempted, a.Tool())
@@ -367,4 +377,38 @@ func LiveSessions() map[string]*core.Live {
 		}
 	}
 	return out
+}
+
+// toolsForIDs narrows a store scan when a scope names exact session IDs.
+//
+// Returns nil when no narrowing is possible -- an unprefixed id could belong to
+// any tool, and guessing would silently exclude the store the caller wanted.
+// Narrowing must never turn a findable session into a missing one, so an
+// ambiguous id widens back to every store.
+func toolsForIDs(sc core.Scope, adapters []core.Adapter) map[core.Tool]bool {
+	if len(sc.IDs) == 0 {
+		return nil
+	}
+	out := map[core.Tool]bool{}
+	for _, id := range sc.IDs {
+		t, ok := toolFromID(id)
+		if !ok {
+			// One unrecognisable id means the scan cannot be narrowed at all.
+			return nil
+		}
+		out[t] = true
+	}
+	return out
+}
+
+// toolFromID reports which tool an id belongs to when its shape says so.
+//
+// Only opencode prefixes its identifiers. Claude and Copilot use bare UUIDs
+// that carry no origin, so they are not narrowable and the caller falls back to
+// scanning -- correctness first, speed only where the id is self-describing.
+func toolFromID(id string) (core.Tool, bool) {
+	if strings.HasPrefix(id, "ses_") {
+		return core.ToolOpencode, true
+	}
+	return "", false
 }
