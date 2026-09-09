@@ -102,6 +102,20 @@ type ContentProduceRequest struct {
 	// Workspace narrows evidence to one project.
 	Workspace string `json:"workspace,omitempty"`
 
+	// SessionID narrows evidence to ONE session.
+	//
+	// Everything upstream is session-addressed -- sessions.list takes ids,
+	// sessions.assay takes an id, seed.create documents an exact session scope
+	// -- and this step dropped to workspace only. An agent scoping to a single
+	// session got a workspace filter instead, and reported it precisely: "it
+	// is a workspace filter wearing a session filter's clothes".
+	//
+	// The isolation it observed held BY COINCIDENCE: the other sessions in
+	// that workspace had no mined evidence yet. Mine one, re-run, and the
+	// scope silently widens with no error and no warning. The store already
+	// supported this -- NuggetQuery.SessionID existed and nothing offered it.
+	SessionID string `json:"session_id,omitempty"`
+
 	// Tags and Kinds narrow which stored evidence is used.
 	EvidenceKinds []string `json:"evidence_kinds,omitempty"`
 
@@ -237,7 +251,10 @@ func ContentProduce(db *index.DB, req ContentProduceRequest, dir string, grant M
 	}
 
 	limit := clamp(req.MaxEvidence, DefaultProduceEvidence, MaxProduceEvidence)
-	q := index.NuggetQuery{Workspace: strings.TrimSpace(req.Workspace)}
+	q := index.NuggetQuery{
+		Workspace: strings.TrimSpace(req.Workspace),
+		SessionID: strings.TrimSpace(req.SessionID),
+	}
 	nuggets, err := db.Nuggets(q)
 	if err != nil {
 		return nil, nil, fmt.Errorf("stored evidence could not be read: %w", err)

@@ -312,6 +312,7 @@ const contentProduceRequestSchema = `{
     "kind": {"type": "string", "description": "Output type from content.types. Model-backed kinds are refused rather than produced weakly."},
     "title": {"type": "string"},
     "workspace": {"type": "string", "description": "Narrow evidence to one project."},
+    "session_id": {"type": "string", "description": "Narrow evidence to ONE session. Everything upstream is session-addressed; without this, scoping to a session silently becomes a workspace filter that widens as more sessions are mined."},
     "evidence_kinds": {"type": "array", "items": {"type": "string"}, "description": "Narrow to evidence kinds: decision, gotcha, error_fix, command, artifact, dead_end."},
     "max_evidence": {"type": "integer", "minimum": 0, "maximum": 300, "description": "Bound on evidence used. 0 selects the default of 40."},
     "name": {"type": "string", "maxLength": 100, "pattern": "^[A-Za-z0-9_-]+$", "description": "Output filename stem, a single safe path segment."}

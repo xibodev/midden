@@ -3,10 +3,12 @@ package module
 import (
 	"context"
 	"fmt"
+	"math"
 	"sort"
 	"strings"
 
 	"github.com/mekjr1/midden/internal/adapter"
+	"github.com/mekjr1/midden/internal/assay"
 	"github.com/mekjr1/midden/internal/exec"
 	"github.com/mekjr1/midden/internal/index"
 	"github.com/mekjr1/midden/internal/reclaim"
@@ -55,6 +57,26 @@ type ExtractedSession struct {
 	// model, which is what a cost question is really about.
 	SliceBytes     int64 `json:"slice_bytes"`
 	EstSliceTokens int64 `json:"est_slice_tokens"`
+
+	// SignalBytes is the DENOMINATOR slice_bytes is a fraction of, and
+	// CoveragePercent states that fraction outright.
+	//
+	// An agent using this reported the gap in its own words: it saw 8,340 of
+	// 5,502,047 signal bytes -- 0.15% -- and could not distinguish "this
+	// session contained few decisions" from "my net was too small to find
+	// them". Midden reported what it sent and never what it sent it OUT OF.
+	//
+	// Same defect as a session count without excluded_noise, in the place that
+	// decides whether an artifact is worth anything: a thin slice and a thin
+	// session produce the same small number of nuggets, and nothing said which
+	// this was.
+	SignalBytes     int64   `json:"signal_bytes"`
+	CoveragePercent float64 `json:"coverage_percent"`
+
+	// Candidates and SignalRecords are the same ratio by count, which is what
+	// max_candidates actually bounds.
+	Candidates    int `json:"candidates"`
+	SignalRecords int `json:"signal_records"`
 }
 
 // EvidenceExtractResult is the evidence.extract payload.
@@ -233,6 +255,12 @@ func EvidenceExtract(db *index.DB, req EvidenceExtractRequest, roots adapter.Roo
 			Redacted:       redacted,
 			SliceBytes:     manifest.SliceBytes(),
 			EstSliceTokens: manifest.EstSliceTokens(),
+			// The denominator travels with the figure, so a caller cannot
+			// quote what was sent without what it was sent out of.
+			SignalBytes:     manifest.SignalBytes(),
+			CoveragePercent: coveragePercent(manifest.SliceBytes(), manifest.SignalBytes()),
+			Candidates:      len(manifest.Candidates),
+			SignalRecords:   int(manifest.Counts[assay.Signal.String()]),
 		})
 		result.Extracted++
 		result.Stored += len(nuggets)
@@ -367,4 +395,25 @@ func invokeEvidenceExtract(req Request) Envelope {
 	}
 	env.Warnings = emptySlice(warnings)
 	return env
+}
+
+// coveragePercent is what fraction of a session the model actually saw.
+//
+// Rounded to two places because the interesting values are small: 0.15% is the
+// number that told an agent its net was too narrow, and a whole-percent figure
+// would have shown 0 and said nothing.
+func coveragePercent(slice, signal int64) float64 {
+	if signal <= 0 {
+		return 0
+	}
+	pct := float64(slice) / float64(signal) * 100
+	rounded := math.Round(pct*100) / 100
+	// A non-zero slice must never report 0%. Rounding 0.0001% to zero makes a
+	// tiny sample indistinguishable from having sent nothing, which is the
+	// exact ambiguity this field exists to remove. Report the smallest
+	// representable non-zero figure instead of a false zero.
+	if rounded == 0 && slice > 0 {
+		return 0.01
+	}
+	return rounded
 }

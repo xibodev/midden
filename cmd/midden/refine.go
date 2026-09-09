@@ -116,11 +116,32 @@ func cmdRefine(args []string) error {
 			}
 		}
 	} else {
+		// The catalog computes which artifacts the evidence actually supports.
+		// A named artifact used to bypass it silently: an agent asked for an
+		// ADR when the catalog proposed eight kinds and ADR was not among them
+		// -- only 1 of 6 nuggets classified as a decision -- and refine ran
+		// without a murmur. It noticed on its own; a less careful run would
+		// have shipped a document the tool's own analysis did not back.
+		//
+		// This WARNS rather than refuses. The catalog is a judgement about
+		// thin evidence, not a correctness rule, and a user who has read it
+		// may still want the artifact. Refusing would substitute Midden's
+		// judgement for theirs; saying nothing hid it entirely.
+		proposed := map[string]bool{}
+		for _, it := range refine.Catalog(ns, 1) {
+			proposed[it.Template] = true
+		}
 		for _, name := range fs.Args() {
 			t, ok := refine.FindTemplate(name)
 			if !ok {
 				return fmt.Errorf("unknown artifact %q (have: %s)",
 					name, strings.Join(refine.TemplateNames(), ", "))
+			}
+			if !proposed[t.Name] {
+				fmt.Fprintln(os.Stderr,
+					"note: the catalog does not propose", t.Name,
+					"for this evidence -- proceeding anyway. Run `midden catalog`",
+					"to see what it does support.")
 			}
 			wanted = append(wanted, t)
 		}
