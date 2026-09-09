@@ -27,6 +27,41 @@ func TestPresenceNeverYieldsSatisfied(t *testing.T) {
 	}
 }
 
+// TestEverySubprocessTargetResolvesItsHarness audits the INPUT CLASS.
+//
+// The tests below iterate every target but assert only on the resolutions that
+// EXIST. Mutation-verified: skipping harness resolution for all targets except
+// claude-code passes the whole suite, because a target producing no resolution
+// has nothing to assert against.
+//
+// An absent resolution and a satisfied one are the same observable to a loop
+// that only inspects what it is handed. A target that declares subprocess must
+// resolve the harness it would invoke, or install-time reports nothing about
+// the requirement that actually gates the work.
+func TestEverySubprocessTargetResolvesItsHarness(t *testing.T) {
+	var checked int
+	for _, tg := range Targets {
+		if !tg.Subprocess {
+			continue
+		}
+		checked++
+		var found bool
+		for _, r := range ResolveInstall(tg) {
+			if r.Requirement == "agentic-harness" {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("%s declares subprocess but produces no agentic-harness "+
+				"resolution; install-time says nothing about the requirement "+
+				"that gates the work", tg.ID)
+		}
+	}
+	if checked == 0 {
+		t.Fatal("no subprocess target was visited; the sweep asserts nothing")
+	}
+}
+
 // TestEveryPhaseResolutionExplainsItself enforces the reason+remedy contract
 // across both wired phases.
 func TestEveryPhaseResolutionExplainsItself(t *testing.T) {
