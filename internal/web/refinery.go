@@ -1019,7 +1019,21 @@ func (s *Server) doProduction(jobID string, req actionRequest) (_ any, returnErr
 		if returnErr != nil {
 			ledger.Note = returnErr.Error()
 		}
-		_ = s.db.PutRun(*ledger)
+		// A failed ledger write is REPORTED, never discarded. The work is done
+		// and the user holds the output, so failing the job over bookkeeping
+		// would be the wrong trade -- but a silently unrecorded spend is how
+		// `midden cost` quietly stops matching what was actually paid for.
+		//
+		// The module face already does this (internal/module/ledger.go). This
+		// face discarded the same error, so the same failure was visible
+		// through one door and invisible through the other.
+		if err := s.db.PutRun(*ledger); err != nil {
+			s.jobs.update(jobID, func(job *Job) {
+				job.Progress = "model spend was NOT recorded in the cost ledger: " +
+					err.Error() + ". The work completed; only the accounting " +
+					"failed, so `midden cost` will under-report."
+			})
+		}
 		time.Sleep(1500 * time.Millisecond)
 		s.settle(jobID, ledger.UID)
 	}()
