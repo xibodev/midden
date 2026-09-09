@@ -56,6 +56,8 @@ func main() {
 	switch os.Args[1] {
 	case "ls", "list":
 		err = cmdLs(os.Args[2:])
+	case "find", "search":
+		err = cmdFind(os.Args[2:])
 	case "show":
 		err = cmdShow(os.Args[2:])
 	case "resume":
