@@ -44,6 +44,16 @@ type Operation struct {
 
 	// ExternalWrites reports whether this writes outside a granted root.
 	ExternalWrites bool
+
+	// Produces names the artifact kinds this Operation can emit.
+	//
+	// It exists because of a REVERSE REFERENCE: an artifact kind is declared to
+	// be named by an Operation, so a kind nobody produces is a half-published
+	// payload rather than a harmless extra. Declaring kinds without this field
+	// would publish a set no Operation claims, which a host is entitled to
+	// refuse -- and the defect would only appear when the v2 payload was built,
+	// long after the kinds were written.
+	Produces []string
 }
 
 // Operations is the canonical inventory. Four, not six, not twenty-nine.
@@ -69,11 +79,13 @@ var Operations = []Operation{
 		Contract:        "evidence set + kind -> written output",
 		MayCharge:       true,
 		ChargeDependsOn: "kind",
+		Produces:        []string{ArtifactContentOutput},
 	},
 	{
 		ID:            "build_seed",
 		Contract:      "session scope + goal -> portable seed bundle",
 		Deterministic: true,
+		Produces:      []string{SeedSchemaID},
 	},
 }
 

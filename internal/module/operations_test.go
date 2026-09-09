@@ -86,3 +86,53 @@ func TestChargeabilityIsNotModelUsage(t *testing.T) {
 			op.ChargeDependsOn)
 	}
 }
+
+// TestEveryArtifactKindIsProducedBySomeOperation pins the REVERSE REFERENCE.
+//
+// facet-studio's v2 validation splits "no Operations and no kinds" (legitimate,
+// a module with nothing to publish) from HALF-PUBLISHED: artifact kinds exist to
+// be named by an Operation, so a kind nobody produces is an incomplete payload a
+// host may refuse.
+//
+// Checked here rather than discovered when the v2 payload is built, because the
+// obligation is on the OPERATION MODEL and the kinds already exist. A kind
+// declared today with no producer is a defect that stays invisible until the
+// wire is wired.
+func TestEveryArtifactKindIsProducedBySomeOperation(t *testing.T) {
+	produced := map[string]bool{}
+	for _, op := range Operations {
+		for _, k := range op.Produces {
+			produced[k] = true
+		}
+	}
+
+	d := Describe()
+	if len(d.ArtifactSchemas) == 0 {
+		t.Fatal("no artifact schemas declared; the check asserts nothing")
+	}
+	for kind := range d.ArtifactSchemas {
+		if !produced[kind] {
+			t.Errorf("artifact kind %q is declared but no Operation produces it; "+
+				"that is a half-published payload rather than a harmless extra",
+				kind)
+		}
+	}
+}
+
+// TestNoOperationProducesAnUndeclaredKind checks the FORWARD direction.
+//
+// An Operation naming a kind that does not exist is the same defect inverted:
+// the reference resolves to nothing, and a consumer following it finds no
+// contract to validate against.
+func TestNoOperationProducesAnUndeclaredKind(t *testing.T) {
+	d := Describe()
+	for _, op := range Operations {
+		for _, k := range op.Produces {
+			if _, ok := d.ArtifactSchemas[k]; !ok {
+				t.Errorf("operation %q produces kind %q, which is not declared "+
+					"in artifact_schemas; the reference resolves to nothing",
+					op.ID, k)
+			}
+		}
+	}
+}
