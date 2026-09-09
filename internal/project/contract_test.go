@@ -24,8 +24,8 @@ func TestWrongContractVersionIsRefused(t *testing.T) {
 		"XIBODEV.MODULE/V2",  // case: exact match means exact
 		"something-else",
 	} {
-		ok, refusal := CheckContract(wrong)
-		if ok {
+		out, refusal := CheckContract(wrong)
+		if out.Served() {
 			t.Errorf("contract %q was ACCEPTED; exact pinning means exact", wrong)
 			continue
 		}
@@ -39,7 +39,7 @@ func TestWrongContractVersionIsRefused(t *testing.T) {
 		}
 	}
 
-	if ok, _ := CheckContract(ContractV2); !ok {
+	if out, _ := CheckContract(ContractV2); !out.MayRelyOnV2() {
 		t.Fatal("the exact contract was refused; the gate rejects everything")
 	}
 }
@@ -111,5 +111,33 @@ func TestV1WireIsUnchanged(t *testing.T) {
 	d := module.Describe()
 	if len(d.ProtocolVersions) != 1 || d.ProtocolVersions[0] != module.ProtocolID {
 		t.Errorf("v1 descriptor protocol_versions changed: %v", d.ProtocolVersions)
+	}
+}
+
+// TestAbsentContractIsSERVEDNotRefused is the defect a sibling lane found in
+// their gate and I then found in mine: a boolean collapses "serve under v1" and
+// "refuse", which are opposite instructions.
+//
+// Every Midden build today declares no contract_version. Under the collapsed
+// form a host wiring this gate would REFUSE the shipping module -- while
+// implementing a contract whose compatibility clause says v1 modules keep
+// working.
+func TestAbsentContractIsSERVEDNotRefused(t *testing.T) {
+	absent, _ := CheckContract("")
+	wrong, _ := CheckContract("xibodev.module/v9")
+
+	if !absent.Served() {
+		t.Error("a module declaring no contract_version was REFUSED; every " +
+			"Midden build today is in that state and v1 must keep working")
+	}
+	if absent.MayRelyOnV2() {
+		t.Error("an absent contract was treated as v2; a guarantee would be " +
+			"asserted against a contract nobody declared")
+	}
+	if wrong.Served() {
+		t.Error("a wrong contract was served; exact pinning means exact")
+	}
+	if absent.Served() == wrong.Served() {
+		t.Error("absent and wrong are indistinguishable to a caller")
 	}
 }

@@ -36,24 +36,51 @@ type ContractRefusal struct {
 
 func (r ContractRefusal) Error() string { return r.Reason + " " + r.Remedy }
 
+// Outcome is what a contract pairing permits. THREE states, not a boolean.
+//
+// A boolean collapses "serve this exchange under v1" and "refuse this exchange"
+// into one value, and they are opposite instructions: the first must keep
+// working forever, the second must never proceed. Found by checking this file
+// against a sibling lane's identical defect -- both of us had written a gate for
+// the two-states-one-value failure that contained it.
+type Outcome int
+
+const (
+	// OutcomeRefuse: the host declared a contract this module does not speak.
+	OutcomeRefuse Outcome = iota
+	// OutcomeV1: no behavioural contract declared. A v1 exchange, and valid.
+	OutcomeV1
+	// OutcomeV2: both sides pinned the same behavioural contract.
+	OutcomeV2
+)
+
+// MayRelyOnV2 is the ONLY question a conformance suite may ask before checking
+// a v2 guarantee. Deliberately not named OK: "ok" invites reading a served v1
+// exchange as v2 success, which is the conflation this type exists to prevent.
+func (o Outcome) MayRelyOnV2() bool { return o == OutcomeV2 }
+
+// Served reports whether the exchange may proceed at all, under either version.
+func (o Outcome) Served() bool { return o != OutcomeRefuse }
+
 // CheckContract compares a host's declared contract against this module's.
 //
 // Absent is not a failure of v2 conformance -- it is a v1 exchange, which stays
-// valid. Wrong is a hard refusal BEFORE any v2 guarantee is relied upon, which
-// is the point: a guarantee assumed from a mismatched contract is exactly the
+// valid and always will. Wrong is a hard refusal BEFORE any v2 guarantee is
+// relied upon: a guarantee assumed from a mismatched contract is exactly the
 // silent-correctness failure the pin exists to prevent.
-func CheckContract(hostContract string) (bool, *ContractRefusal) {
+func CheckContract(hostContract string) (Outcome, *ContractRefusal) {
 	switch hostContract {
 	case ContractV2:
-		return true, nil
+		return OutcomeV2, nil
 	case "":
-		return false, &ContractRefusal{
+		return OutcomeV1, &ContractRefusal{
 			Reason: "the host declared no behavioural contract version, so this is a v1 exchange",
-			Remedy: "no action needed for v1; a host wanting v2 guarantees must declare " +
-				ContractV2 + " explicitly",
+			Remedy: "nothing to fix: v1 modules keep working and always will. A host " +
+				"wanting v2 guarantees declares " + ContractV2 + " explicitly, and " +
+				"this module declares it only once it implements those guarantees",
 		}
 	default:
-		return false, &ContractRefusal{
+		return OutcomeRefuse, &ContractRefusal{
 			Reason: fmt.Sprintf("behavioural contract mismatch: host declares %q, "+
 				"this module speaks %q", hostContract, ContractV2),
 			Remedy: "no negotiation exists by operator ruling: pinning is required and " +
