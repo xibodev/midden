@@ -229,15 +229,25 @@ func TestDetectReportsWithoutAsserting(t *testing.T) {
 // which reads as a broken skill rather than a stale binary.
 func TestSpeaksModuleProtocolProbesRatherThanGuesses(t *testing.T) {
 	// Something that exists and is certainly not Midden.
+	//
+	// The RETURN used to sit inside the loop, so the first binary found ended
+	// the test and every later one was dead code. The list implied two probes
+	// and exactly one ran -- a scan of assertion counts cannot see that,
+	// because the assertion is real and simply never reached for most inputs.
+	var probed int
 	for _, notMidden := range []string{"go", "git"} {
-		if p := lookPath(notMidden); p != "" {
-			if speaksModuleProtocol(p) {
-				t.Errorf("%s was reported as speaking the module protocol", p)
-			}
-			return
+		p := lookPath(notMidden)
+		if p == "" {
+			continue
+		}
+		probed++
+		if speaksModuleProtocol(p) {
+			t.Errorf("%s was reported as speaking the module protocol", p)
 		}
 	}
-	t.Skip("no probe binary available")
+	if probed == 0 {
+		t.Skip("no probe binary available")
+	}
 }
 
 // TestPathWarningIsSilentWhenCorrect proves the warning is not noise. A
