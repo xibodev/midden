@@ -76,6 +76,25 @@ func TestProjectionDoesNotInventOperations(t *testing.T) {
 	}
 }
 
+// TestEveryTargetReceivesAssets audits the INPUT CLASS.
+//
+// The test below compares standalone against claude-code. Mutation-verified:
+// returning no assets for copilot-cli and opencode passes the whole suite,
+// because neither is visited. A target that silently receives nothing installs
+// nothing, and the projection would still report itself supported.
+func TestEveryTargetReceivesAssets(t *testing.T) {
+	if len(Targets) == 0 {
+		t.Fatal("no targets; the sweep asserts nothing")
+	}
+	for _, tg := range Targets {
+		if got := Project(tg).Assets; len(got) == 0 {
+			t.Errorf("%s (asset form %q) received no assets; a target that is "+
+				"handed nothing installs nothing while still reporting supported",
+				tg.ID, tg.AssetForm)
+		}
+	}
+}
+
 // TestAssetsAreSelectedNotCopiedEverywhere proves per-target selection is real.
 //
 // Handing every target an identical bundle is the "portable means ship
