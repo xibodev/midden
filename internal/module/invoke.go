@@ -59,11 +59,35 @@ type ListResult struct {
 	// agent does not have to infer it from two numbers differing.
 	NoiseFilterApplied bool `json:"noise_filter_applied"`
 
+	// StoresRead and StoresUnavailable make the counts self-qualifying.
+	//
+	// A store that is present but LOCKED is skipped: the run succeeds, a
+	// warning names the store and the remedy, and every count is computed over
+	// the stores that opened. That is correct behaviour and a misleading
+	// number -- matched is right about what was read and silent about what was
+	// not, so a consumer cannot tell a partial inventory from a complete one.
+	//
+	// Reported as a FIELD rather than left to the warning, for the reason
+	// excluded_noise exists: prose is not machine-readable, and an agent
+	// summarising this result will quote the figure and drop the caveat. A
+	// count that cannot carry its own denominator invites exactly the wrong
+	// conclusion, and nothing about it prompts a check.
+	StoresRead        []string `json:"stores_read"`
+	StoresUnavailable []string `json:"stores_unavailable"`
+
+	// PartialInventory is true when at least one store could not be read, so
+	// the fact survives even if a consumer ignores the lists.
+	PartialInventory bool `json:"partial_inventory"`
+
 	Truncated bool `json:"truncated"`
 }
 
 // Normalize satisfies Normalizer.
-func (r *ListResult) Normalize() { r.Sessions = emptySlice(r.Sessions) }
+func (r *ListResult) Normalize() {
+	r.Sessions = emptySlice(r.Sessions)
+	r.StoresRead = emptySlice(r.StoresRead)
+	r.StoresUnavailable = emptySlice(r.StoresUnavailable)
+}
 
 // SessionsList inventories sessions over a bounded scope. Deterministic and
 // read-only: source stores are opened read-only and never written.
@@ -82,9 +106,23 @@ func SessionsList(req AssayRequest, roots adapter.Roots) (*ListResult, []string,
 	all, errs := adapter.CollectWithRoots(wide, roots)
 
 	var warnings []string
+	// Coverage is derived from the SAME errors that produce the warnings, so
+	// the prose and the structured fields cannot disagree.
+	var unavailable []string
 	for _, e := range errs {
 		warnings = append(warnings, "source store: "+e.Error())
+		unavailable = append(unavailable, storeNameOf(e))
 	}
+
+	var read []string
+	for _, a := range adapter.AvailableWithRoots(roots) {
+		name := string(a.Tool())
+		if !containsName(unavailable, name) {
+			read = append(read, name)
+		}
+	}
+	sort.Strings(read)
+	sort.Strings(unavailable)
 
 	sessions := all
 	excluded := 0
@@ -104,6 +142,17 @@ func SessionsList(req AssayRequest, roots adapter.Roots) (*ListResult, []string,
 		Matched:            len(all),
 		ExcludedNoise:      excluded,
 		NoiseFilterApplied: !req.IncludeNoise,
+		StoresRead:         read,
+		StoresUnavailable:  unavailable,
+		PartialInventory:   len(unavailable) > 0,
+	}
+	if len(unavailable) > 0 {
+		// Said in prose as well, because the numbers above are the ones an
+		// agent will quote and this is the caveat that qualifies every one.
+		warnings = append(warnings, fmt.Sprintf(
+			"every count here covers %v only: %v could not be read, so this is a "+
+				"PARTIAL inventory and the totals are lower bounds",
+			read, unavailable))
 	}
 	if excluded > 0 {
 		warnings = append(warnings, fmt.Sprintf(
@@ -402,6 +451,29 @@ func invalidRequest(req Request, err error) Envelope {
 func speaksProtocol(id string) bool {
 	for _, v := range Describe().ProtocolVersions {
 		if v == id {
+			return true
+		}
+	}
+	return false
+}
+
+// storeNameOf extracts the tool name from a source-store error.
+//
+// The errors are formatted "<tool>: <cause>", so the name is the prefix. A
+// malformed error yields the whole string rather than an empty name: an
+// unnamed unavailable store is worse than an oddly named one, because the
+// coverage list would silently shrink.
+func storeNameOf(e error) string {
+	msg := e.Error()
+	if i := strings.Index(msg, ":"); i > 0 {
+		return strings.TrimSpace(msg[:i])
+	}
+	return msg
+}
+
+func containsName(list []string, want string) bool {
+	for _, v := range list {
+		if v == want {
 			return true
 		}
 	}
