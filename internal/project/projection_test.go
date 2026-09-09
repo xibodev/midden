@@ -108,6 +108,41 @@ func TestAssetsAreSelectedNotCopiedEverywhere(t *testing.T) {
 	}
 }
 
+// TestDegradedIsReportedForEveryAffectedTarget audits the INPUT CLASS rather
+// than one example.
+//
+// TestDegradedIsReportedNotHidden below checks facet-studio specifically. That
+// assertion passes when the degraded rule is narrowed to `t.ID ==
+// "facet-studio"` -- mutation-verified -- so a second module-descriptor target
+// would silently lose its weakening report and the suite would stay green.
+//
+// The rule is a property of the ASSET FORM, not of one target id. This sweeps
+// every target that carries the form, so adding one cannot bypass the check.
+func TestDegradedIsReportedForEveryAffectedTarget(t *testing.T) {
+	var checked int
+	for _, tg := range Targets {
+		if tg.AssetForm != "module-descriptor" {
+			continue
+		}
+		checked++
+		for _, op := range Project(tg).Operations {
+			if op.Operation != "produce_content" {
+				continue
+			}
+			if op.Support != Degraded {
+				t.Errorf("%s projects produce_content as %s; conditional "+
+					"chargeability is unexpressible on a module descriptor and "+
+					"must report degraded on EVERY such target, not just one",
+					tg.ID, op.Support)
+			}
+		}
+	}
+	if checked == 0 {
+		t.Fatal("no module-descriptor target was visited; the sweep asserts " +
+			"nothing and would pass however the rule is written")
+	}
+}
+
 // TestDegradedIsReportedNotHidden pins the case the v2 RFC exists to fix.
 //
 // produce_content's chargeability varies by argument. module/v1 has no
