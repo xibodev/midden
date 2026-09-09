@@ -58,21 +58,28 @@ func cmdModuleDescribe(args []string) error {
 	// Found by running the real host gate against a real built bundle. It is
 	// invisible to any test that inspects the struct rather than the bytes a
 	// host parses.
-	if strings.TrimSpace(*contract) != "" {
-		if *contract != module.ContractV2 {
-			return fmt.Errorf("unsupported contract %q: this module speaks %s, "+
-				"and pinning is exact -- no negotiation, no fallback",
-				*contract, module.ContractV2)
-		}
-		raw, err := json.Marshal(module.DescribeV2())
-		if err != nil {
-			return err
-		}
-		fmt.Println(string(raw))
-		return nil
+	// The v2 descriptor is published UNCONDITIONALLY, inside the envelope.
+	//
+	// Derived from the frozen contract rather than chosen: v2 is ADDITIVE and
+	// v1 modules keep working, which together mean a v2 descriptor is a v1
+	// descriptor plus fields -- ONE payload valid under both validators. A
+	// flag-gated v2 is a second document behind a second call, which satisfies
+	// "v1 keeps working" only by publishing two different things.
+	//
+	// Found because the host never sends a flag: my v2 was opt-in behind
+	// --contract and therefore invisible to the host it was built for. The
+	// bare-output form was wrong too -- discovery validates the ENVELOPE and
+	// unmarshals Result, so a bare payload has no envelope to validate.
+	//
+	// --contract is still accepted for a caller who wants to ask explicitly.
+	// It must never be REQUIRED.
+	if c := strings.TrimSpace(*contract); c != "" && c != module.ContractV2 {
+		return fmt.Errorf("unsupported contract %q: this module speaks %s, "+
+			"and pinning is exact -- no negotiation, no fallback",
+			c, module.ContractV2)
 	}
 
-	raw, err := json.Marshal(module.Describe())
+	raw, err := json.Marshal(module.DescribeV2())
 	if err != nil {
 		return err
 	}

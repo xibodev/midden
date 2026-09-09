@@ -31,9 +31,19 @@ type V2Descriptor struct {
 	Name    string `json:"name"`
 	Version string `json:"version"`
 
+	// ProtocolVersions is the v1 wire field, carried for the same additive
+	// reason: a v1 host validates it and refuses null.
+	ProtocolVersions []string `json:"protocol_versions"`
+
 	Operations    []V2Operation             `json:"operations"`
 	Capabilities  []V2Capability            `json:"capabilities"`
 	ArtifactKinds map[string]V2ArtifactKind `json:"artifact_kinds"`
+
+	// ArtifactSchemas is the v1 MAP that capability artifact_schemas entries
+	// resolve against. v2 declares kinds separately in artifact_kinds, but a
+	// v1 host validates the reference and refuses a name it cannot resolve --
+	// so both must travel, or the payload is additive in name only.
+	ArtifactSchemas map[string]json.RawMessage `json:"artifact_schemas"`
 
 	RequestSchemas map[string]json.RawMessage `json:"request_schemas"`
 	ResultSchemas  map[string]json.RawMessage `json:"result_schemas"`
@@ -68,6 +78,15 @@ type V2Capability struct {
 
 	Projects []string  `json:"projects"`
 	Effects  V2Effects `json:"effects"`
+
+	// ArtifactSchemas and Skills are carried from v1, not because v2 reads
+	// them, but because ADDITIVE means one payload valid under BOTH
+	// validators. Dropping them marshals null, and null is what the never-null
+	// guarantee forbids -- so a descriptor perfectly conformant to v2 becomes
+	// unusable by a v1 host. The v2 gate cannot see that: it does not check v1
+	// shape, and only running both validators against one payload finds it.
+	ArtifactSchemas []string `json:"artifact_schemas"`
+	Skills          []string `json:"skills"`
 }
 
 // V2Effects carries may_charge INDEPENDENTLY of cost_known: whether an
@@ -145,16 +164,18 @@ func DescribeV2() V2Descriptor {
 	v1 := Describe()
 
 	d := V2Descriptor{
-		Protocol:        ProtocolID,
-		ContractVersion: ContractV2,
-		Module:          core.ModuleID,
-		Name:            "Midden",
-		Version:         core.Version,
-		ArtifactKinds:   map[string]V2ArtifactKind{},
-		RequestSchemas:  v1.RequestSchemas,
-		ResultSchemas:   v1.ResultSchemas,
-		Permissions:     v1.Permissions,
-		Skills:          v1.Skills,
+		Protocol:         ProtocolID,
+		ContractVersion:  ContractV2,
+		Module:           core.ModuleID,
+		Name:             "Midden",
+		Version:          core.Version,
+		ProtocolVersions: emptySlice(v1.ProtocolVersions),
+		ArtifactSchemas:  v1.ArtifactSchemas,
+		ArtifactKinds:    map[string]V2ArtifactKind{},
+		RequestSchemas:   v1.RequestSchemas,
+		ResultSchemas:    v1.ResultSchemas,
+		Permissions:      v1.Permissions,
+		Skills:           v1.Skills,
 	}
 
 	for _, op := range Operations {
@@ -241,12 +262,14 @@ func v2Operation(op Operation) V2Operation {
 // true is legal and costs the precision the conditional form exists to give.
 func v2Capability(c Capability) V2Capability {
 	out := V2Capability{
-		ID:            c.ID,
-		Title:         c.Title,
-		Summary:       c.Summary,
-		RequestSchema: c.RequestSchema,
-		ResultSchema:  c.ResultSchema,
-		Projects:      []string{},
+		ID:              c.ID,
+		Title:           c.Title,
+		Summary:         c.Summary,
+		RequestSchema:   c.RequestSchema,
+		ResultSchema:    c.ResultSchema,
+		Projects:        []string{},
+		ArtifactSchemas: emptySlice(c.ArtifactSchemas),
+		Skills:          emptySlice(c.Skills),
 	}
 
 	opID := capabilityOperations[c.ID]
