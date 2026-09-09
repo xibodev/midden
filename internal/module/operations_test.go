@@ -200,3 +200,60 @@ func TestProducesAgreesWithTheCapabilitiesThatProject(t *testing.T) {
 			"asserts nothing")
 	}
 }
+
+// TestChargeabilityAgreesWithTheDescriptor closes the "asserts the wrong value"
+// subclass: an assertion whose expected value comes from the code under test.
+//
+// Every sweep in this package iterates Operations and asserts about Operations,
+// so a WRONG entry agrees with itself and only a MISSING one is caught.
+// Mutation-verified: declaring mine_evidence MayCharge:false passed both this
+// package and internal/project.
+//
+// The descriptor is an independent oracle. It is written separately, and the
+// no-weakening rule ties the two: a charging Operation must project a capability
+// that declares cost_known:false, because the host gates on that and a charging
+// Operation whose capability claims a known cost silences the gate.
+//
+// The reverse direction matters as much and nothing tested it: a FREE Operation
+// projecting cost_known:false over-gates every invocation forever, which is the
+// permanent unnecessary-approval cost that RFC §3a exists to prevent.
+func TestChargeabilityAgreesWithTheDescriptor(t *testing.T) {
+	d := Describe()
+	effects := map[string]Effects{}
+	for _, c := range d.Capabilities {
+		effects[c.ID] = c.Effects
+	}
+
+	var checked int
+	for capID, opID := range capabilityOperations {
+		if opID == "" {
+			continue
+		}
+		op, ok := OperationByID(opID)
+		if !ok {
+			t.Errorf("capability %s maps to unknown operation %q", capID, opID)
+			continue
+		}
+		e, ok := effects[capID]
+		if !ok {
+			t.Errorf("capability %s is mapped but absent from the descriptor", capID)
+			continue
+		}
+		checked++
+
+		charges := op.MayCharge || op.ChargeDependsOn != ""
+		switch {
+		case charges && e.CostKnown:
+			t.Errorf("operation %s may charge but capability %s declares "+
+				"cost_known:true; the host gates on that field and would "+
+				"gate nothing", opID, capID)
+		case !charges && !e.CostKnown:
+			t.Errorf("operation %s never charges but capability %s declares "+
+				"cost_known:false; every invocation is gated forever for a "+
+				"cost that cannot occur", opID, capID)
+		}
+	}
+	if checked == 0 {
+		t.Fatal("no capability/operation pair was compared; the check asserts nothing")
+	}
+}
