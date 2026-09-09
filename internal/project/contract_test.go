@@ -81,6 +81,35 @@ func TestContractVersionIsNotACollection(t *testing.T) {
 	}
 }
 
+// TestEveryProjectionRecordsItsContract audits the INPUT CLASS.
+//
+// The single-target test below checks facet-studio. Mutation-verified: dropping
+// the contract identity for every target EXCEPT facet-studio passes the whole
+// suite, so any other target's evidence could silently lose the thing that says
+// which contract it was gathered under.
+//
+// Recording the contract is a property of EVERY projection, not of one target.
+// Evidence that cannot say which contract it was gathered under cannot be
+// re-checked later, which is the whole reason the field exists.
+func TestEveryProjectionRecordsItsContract(t *testing.T) {
+	if len(Targets) == 0 {
+		t.Fatal("no targets; the sweep asserts nothing and would pass however " +
+			"identity is built")
+	}
+	for _, tg := range Targets {
+		c := Project(tg)
+		if c.TargetVia == "" {
+			t.Errorf("%s records no contract identity", tg.ID)
+			continue
+		}
+		if !strings.Contains(c.Identity, c.TargetVia) {
+			t.Errorf("%s identity %q omits the contract it was verified against "+
+				"(%q); evidence that cannot name its contract cannot be "+
+				"re-checked", tg.ID, c.Identity, c.TargetVia)
+		}
+	}
+}
+
 // TestProjectionIdentityRecordsThePinnedContract is the other half of the
 // ruling: projection identity and conformance evidence must RECORD the pinned
 // version, not merely check it.
