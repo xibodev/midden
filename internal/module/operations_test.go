@@ -136,3 +136,67 @@ func TestNoOperationProducesAnUndeclaredKind(t *testing.T) {
 		}
 	}
 }
+
+// TestProducesAgreesWithTheCapabilitiesThatProject audits the ABSENT case.
+//
+// An empty Produces is legitimate -- assay_session returns its manifest in the
+// envelope and mine_evidence writes rows to the index, neither emitting an
+// artifact KIND. But nothing distinguished "correctly produces no kind" from
+// "should name one and does not", and those are the same observable.
+//
+// The capability layer already knows the answer: a capability declares
+// artifact_schemas for exactly what it emits. So the two declarations must
+// agree, and disagreement in either direction is a defect rather than a matter
+// of which one to trust.
+func TestProducesAgreesWithTheCapabilitiesThatProject(t *testing.T) {
+	d := Describe()
+
+	// What each Operation claims to produce.
+	claims := map[string]map[string]bool{}
+	for _, op := range Operations {
+		claims[op.ID] = map[string]bool{}
+		for _, k := range op.Produces {
+			claims[op.ID][k] = true
+		}
+	}
+
+	var checked int
+	for _, c := range d.Capabilities {
+		opID := capabilityOperations[c.ID]
+		if opID == "" {
+			// A registry read emits nothing; if it ever declares a kind, the
+			// mapping is wrong rather than the declaration.
+			if len(c.ArtifactSchemas) > 0 {
+				t.Errorf("%s projects no Operation but declares artifact schemas %v",
+					c.ID, c.ArtifactSchemas)
+			}
+			continue
+		}
+		checked++
+		for _, k := range c.ArtifactSchemas {
+			if !claims[opID][k] {
+				t.Errorf("capability %s emits %q but its Operation %s does not "+
+					"list it in Produces; the reverse reference would be "+
+					"half-published on the v2 payload", c.ID, k, opID)
+			}
+		}
+		// And the other direction: an Operation claiming a kind no projecting
+		// capability emits is a claim nothing backs.
+		for k := range claims[opID] {
+			var found bool
+			for _, got := range c.ArtifactSchemas {
+				if got == k {
+					found = true
+				}
+			}
+			if !found {
+				t.Errorf("operation %s claims to produce %q but capability %s "+
+					"does not emit it", opID, k, c.ID)
+			}
+		}
+	}
+	if checked == 0 {
+		t.Fatal("no capability projecting an Operation was visited; the check " +
+			"asserts nothing")
+	}
+}
