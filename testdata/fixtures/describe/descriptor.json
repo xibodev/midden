@@ -1009,8 +1009,8 @@
         "id": "midden.recovery",
         "title": "Midden session recovery",
         "path": "agents/midden-recovery.md",
-        "digest": "sha256:efb835a228894206a19ee185c04623cef92888b14889504aaeee208bf5d47d25",
-        "tokens": 1528
+        "digest": "sha256:a1cbc8688e6225888ee4daca38dad211c2bdc8c4c933d65f33681aa9174784b7",
+        "tokens": 1704
       }
     ],
     "skills": [

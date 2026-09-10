@@ -1,12 +1,14 @@
 ---
 name: midden-recovery
-description: Midden inventories past agentic-CLI sessions and prepares them for reuse. Use for recovering a session too large to resume, measuring what a transcript is made of, selecting evidence worth keeping, or building a portable content seed. Deterministic and model-free; source stores are read-only. Requires the midden binary.
+description: Recover past agentic-CLI sessions and produce evidence-grounded content. Inventory, assay, and seeds are model-free; extraction and narrative production use an authorized AI CLI. Source stores are read-only. Requires the midden binary.
 ---
 
 # Midden: session recovery
 
-Midden inventories past agentic-CLI sessions and prepares them for reuse. It is
-deterministic and reads source stores read-only.
+Midden inventories past agentic-CLI sessions and prepares them for reuse and
+content production. Inventory, assay, and seeds are deterministic; evidence
+extraction and narrative production use an authenticated AI CLI. Source stores
+are read-only throughout.
 
 ## What it is for
 
@@ -20,11 +22,14 @@ meaning, and packages it so work can continue in a fresh session.
 - `sessions.assay` — classify one or more sessions into signal, exhaust,
   artifact and bookkeeping, and report reclaimable yield. Free and model-free.
 - `seed.create` — build a portable content seed from selected sessions.
+- `evidence.extract` — extract bounded, redacted evidence into Midden's index
+  through an authorized AI CLI. Required before producing from a fresh index.
 - `content.types` — list the documents Midden can write from mined evidence,
   which are free and which cost a model call. Call before producing.
 - `content.produce` — write one of them.
 
-All three are deterministic, local, and cost nothing. None calls a model.
+Inventory, assay, seeds, and the content-type catalog are model-free.
+Extraction always uses a model; production depends on the selected content type.
 
 ## Rules that matter
 
@@ -77,6 +82,13 @@ archive is the user's call.
 
 Mining is not the end. `content.produce` turns stored evidence into a document
 a person reads: a tutorial, an ADR, a slide deck, a diagram, a video brief.
+
+Read extraction coverage before choosing the document's scope. A small extracted
+slice does not support claims about the whole session. After production, review
+the actual draft against its cited evidence, revise unsupported framing, and
+export through the available product or host workflow. Report missing revision,
+rendering, or export support explicitly; a seed or a draft is not a completed
+content-production workflow.
 
 Seven kinds are deterministic and free — notebook, retrieval, eval, sft and
 preference packs, and the privacy and provenance manifests. Twelve are written
