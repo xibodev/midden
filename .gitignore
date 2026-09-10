@@ -55,7 +55,15 @@ Thumbs.db
 /.agents/
 /.gemini/
 /.kiro/
+/.opencode/
 /.pi/
 /.qoder/
 /.rovodev/
 /.vibe/
+
+# Coordination-plane working state. Not project code.
+/.brains/
+
+# Session-scoped operator prompts. Author them per session, never ship them.
+/SESSION_PROMPT.md
+/STARTER_PROMPT.md
