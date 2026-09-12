@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/mekjr1/midden/internal/create"
@@ -304,7 +305,16 @@ func ContentProduce(db *index.DB, req ContentProduceRequest, dir string, grant M
 
 	if spec.RequiresModel {
 		if grant.Backend == "" {
-			return nil, nil, fmt.Errorf("%s", ErrSubprocessDenied)
+			if driver := getNativeDriver(); driver != nil {
+				grant = ModelGrant{
+					Backend:      exec.Backend("native"),
+					Path:         "in-process",
+					StageDir:     dir,
+					NativeDriver: driver,
+				}
+			} else {
+				return nil, nil, fmt.Errorf("%s", ErrSubprocessDenied)
+			}
 		}
 		// Ledger entry opened before the call, so a failed or killed
 		// invocation still leaves a record that it happened.
@@ -607,14 +617,29 @@ var _ = json.Marshal
 // happens to appear earlier on a search path. A zero value means no authority
 // was granted, and a model-backed output must be refused rather than attempted.
 type ModelGrant struct {
-	Backend exec.Backend
-	Path    string
-	Timeout time.Duration
+	Backend      exec.Backend
+	Path         string
+	Timeout      time.Duration
+	StageDir     string
+	NativeDriver func(ctx context.Context, prompt string) (string, error)
+}
 
-	// StageDir is a writable directory for staging an oversized prompt. It is
-	// the host-granted root: under an empty environment the OS temp directory
-	// resolves to a path the process cannot write.
-	StageDir string
+var (
+	nativeDriverMu     sync.RWMutex
+	globalNativeDriver func(ctx context.Context, prompt string) (string, error)
+)
+
+// SetNativeDriver configures an in-process prompt executor for model-backed operations.
+func SetNativeDriver(driver func(ctx context.Context, prompt string) (string, error)) {
+	nativeDriverMu.Lock()
+	defer nativeDriverMu.Unlock()
+	globalNativeDriver = driver
+}
+
+func getNativeDriver() func(ctx context.Context, prompt string) (string, error) {
+	nativeDriverMu.RLock()
+	defer nativeDriverMu.RUnlock()
+	return globalNativeDriver
 }
 
 // modelGrantFrom reads the subprocess grant out of a request.
@@ -623,6 +648,16 @@ type ModelGrant struct {
 // module declares what it MAY need, and only what the host actually authorized
 // for this invocation may be run.
 func modelGrantFrom(req Request) ModelGrant {
+	if driver := getNativeDriver(); driver != nil {
+		return ModelGrant{
+			Backend:      exec.Backend("native"),
+			Path:         "in-process",
+			Timeout:      deadlineOf(req),
+			StageDir:     writableRootOf(req),
+			NativeDriver: driver,
+		}
+	}
+
 	granted := map[string]bool{}
 	for _, g := range req.Grants.Subprocess {
 		granted[strings.ToLower(strings.TrimSpace(g))] = true
@@ -689,11 +724,12 @@ func runModelOutput(spec index.RecipeOutputSpec, recipe index.Recipe, nuggets []
 	prompt := refinery.EvidencePreamble(recipe, nuggets) + "\n" + refinery.OutputRequest(spec)
 
 	runner := &exec.Runner{
-		Backend:    grant.Backend,
-		BinaryPath: grant.Path,
-		StageDir:   grant.StageDir,
-		Timeout:    grant.Timeout,
-		Pure:       true,
+		Backend:      grant.Backend,
+		BinaryPath:   grant.Path,
+		StageDir:     grant.StageDir,
+		Timeout:      grant.Timeout,
+		Pure:         true,
+		NativeDriver: grant.NativeDriver,
 	}
 	// A conversation assigns the CLI session id up front, which is what
 	// reconciliation needs to resolve real usage afterwards.

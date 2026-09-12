@@ -172,6 +172,23 @@ func (c *Conversation) Ask(ctx context.Context, prompt string) (*Result, error) 
 
 // invoke runs one turn, staging oversized prompts to a file.
 func (c *Conversation) invoke(ctx context.Context, argv func(string) []string, prompt string) (*Result, error) {
+	if c.runner != nil && c.runner.NativeDriver != nil {
+		c.turns++
+		start := time.Now()
+		out, err := c.runner.NativeDriver(ctx, prompt)
+		if err != nil {
+			return nil, err
+		}
+		return &Result{
+			Output:   out,
+			Backend:  "native",
+			Model:    c.runner.Model,
+			Command:  "native",
+			Elapsed:  time.Since(start),
+			ExitCode: 0,
+		}, nil
+	}
+
 	staged, cleanup, err := c.runner.stage(prompt)
 	if err != nil {
 		return nil, err

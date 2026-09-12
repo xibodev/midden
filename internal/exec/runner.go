@@ -80,6 +80,9 @@ type Runner struct {
 	// authority; an absolute path the host supplies is a grant, and the host
 	// decides exactly which executable runs rather than trusting search order.
 	BinaryPath string
+
+	// NativeDriver executes prompts in-process without spawning an external CLI.
+	NativeDriver func(ctx context.Context, prompt string) (string, error)
 }
 
 // command returns the executable to invoke: the host-granted absolute path
@@ -274,6 +277,22 @@ func (r *Runner) stage(prompt string) (string, func(), error) {
 // cold cache, and paying the cache-write cost repeatedly is the single easiest
 // way to make salvage expensive.
 func (r *Runner) Run(ctx context.Context, prompt string) (*Result, error) {
+	if r.NativeDriver != nil {
+		start := time.Now()
+		out, err := r.NativeDriver(ctx, prompt)
+		if err != nil {
+			return nil, err
+		}
+		return &Result{
+			Output:   out,
+			Backend:  "native",
+			Model:    r.Model,
+			Command:  "native",
+			Elapsed:  time.Since(start),
+			ExitCode: 0,
+		}, nil
+	}
+
 	staged, cleanup, err := r.stage(prompt)
 	if err != nil {
 		return nil, err
