@@ -233,7 +233,7 @@ func (d *DB) Recipes(limit int) ([]Recipe, error) {
 	query := `
 		SELECT uid,title,COALESCE(workspace,''),COALESCE(request,''),status,
 		       outputs,evidence_ids,created_at,updated_at,COALESCE(approved_at,0)
-		FROM refinery_recipes ORDER BY updated_at DESC`
+		FROM refinery_recipes WHERE status != 'chat' ORDER BY updated_at DESC`
 	if limit > 0 {
 		query += fmt.Sprintf(" LIMIT %d", limit)
 	}
@@ -276,7 +276,7 @@ func (d *DB) RecipesPage(limit, offset int, search string, excludeArchived bool)
 	if offset < 0 {
 		offset = 0
 	}
-	var where []string
+	where := []string{`status != 'chat'`}
 	args := []any{}
 	if excludeArchived {
 		where = append(where, `status != 'archived'`)

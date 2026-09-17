@@ -5,8 +5,10 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
+	"github.com/mekjr1/midden/internal/install"
 	"github.com/mekjr1/midden/internal/module"
 )
 
@@ -20,7 +22,7 @@ import (
 // diagnostic goes to stderr where it is advisory only.
 func cmdModule(args []string) error {
 	if len(args) < 1 {
-		return fmt.Errorf("usage: midden module <describe|invoke> [flags]")
+		return fmt.Errorf("usage: midden module <describe|invoke|package> [flags]")
 	}
 
 	switch args[0] {
@@ -28,9 +30,35 @@ func cmdModule(args []string) error {
 		return cmdModuleDescribe(args[1:])
 	case "invoke":
 		return cmdModuleInvoke(args[1:])
+	case "package":
+		return cmdModulePackage(args[1:])
 	default:
 		return fmt.Errorf("unknown module subcommand %q (want describe or invoke)", args[0])
 	}
+}
+
+func cmdModulePackage(args []string) error {
+	fs := flag.NewFlagSet("module package", flag.ExitOnError)
+	outDir := fs.String("out", "", "package output directory")
+	if err := fs.Parse(reorderArgs(fs, args)); err != nil {
+		return err
+	}
+	if *outDir == "" {
+		return fmt.Errorf("usage: midden module package --out <directory>")
+	}
+	self, err := install.SelfPath()
+	if err != nil {
+		return err
+	}
+	if !filepath.IsAbs(*outDir) {
+		abs, err := filepath.Abs(*outDir)
+		if err != nil {
+			return err
+		}
+		*outDir = abs
+	}
+	_, err = install.PackageModule(self, *outDir)
+	return err
 }
 
 func cmdModuleDescribe(args []string) error {

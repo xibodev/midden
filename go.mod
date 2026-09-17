@@ -1,15 +1,13 @@
 module github.com/mekjr1/midden
 
-go 1.26.4
+go 1.26.5
 
 require (
-	github.com/xibodev/facet-studio v0.0.0-00010101000000-000000000000
+	github.com/xibodev/facet-studio v1.0.0
 	golang.org/x/sys v0.46.0
 	gopkg.in/yaml.v3 v3.0.1
 	modernc.org/sqlite v1.54.0
 )
-
-replace github.com/xibodev/facet-studio => ../facet-studio
 
 require (
 	github.com/Azure/azure-sdk-for-go/sdk/azcore v1.22.0 // indirect
@@ -39,7 +37,7 @@ require (
 	github.com/caarlos0/env/v11 v11.4.1 // indirect
 	github.com/creack/pty v1.1.24 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
-	github.com/github/copilot-sdk/go v0.2.0 // indirect
+	github.com/github/copilot-sdk/go v1.0.0 // indirect
 	github.com/go-logr/logr v1.4.3 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/golang-jwt/jwt/v5 v5.3.1 // indirect
@@ -70,6 +68,9 @@ require (
 	github.com/tidwall/match v1.2.0 // indirect
 	github.com/tidwall/pretty v1.2.1 // indirect
 	github.com/tidwall/sjson v1.2.5 // indirect
+	github.com/xibodev/llm-provider-auth v0.1.2 // indirect
+	github.com/xibodev/llm-translate v0.1.0 // indirect
+	github.com/xibodev/llmgw-core v0.2.0 // indirect
 	github.com/yosida95/uritemplate/v3 v3.0.2 // indirect
 	go.opentelemetry.io/auto/sdk v1.1.0 // indirect
 	go.opentelemetry.io/otel v1.35.0 // indirect

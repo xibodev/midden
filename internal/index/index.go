@@ -44,6 +44,24 @@ func Path() string { return filepath.Join(Dir(), "index.db") }
 // Open creates or opens the index, applying the schema.
 func Open() (*DB, error) { return OpenAt(Dir()) }
 
+// OpenReadOnly observes an existing Midden store without creating directories,
+// migrating schemas or changing journal mode. Missing state is not an empty DB.
+func OpenReadOnly(dir string) (*DB, error) {
+	if !filepath.IsAbs(dir) {
+		return nil, fmt.Errorf("index root must be absolute")
+	}
+	path := filepath.Join(dir, "index.db")
+	sdb, err := sql.Open("sqlite", "file:"+filepath.ToSlash(path)+"?mode=ro&_pragma=query_only(1)&_pragma=busy_timeout(10000)")
+	if err != nil {
+		return nil, err
+	}
+	if err = sdb.Ping(); err != nil {
+		sdb.Close()
+		return nil, err
+	}
+	return &DB{sql: sdb, path: path}, nil
+}
+
 // OpenAt opens the index under an EXPLICIT directory rather than resolving one
 // from the environment.
 //

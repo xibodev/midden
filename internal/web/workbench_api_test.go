@@ -1,10 +1,12 @@
 package web
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -17,7 +19,35 @@ import (
 	"github.com/mekjr1/midden/internal/core"
 	"github.com/mekjr1/midden/internal/index"
 	"github.com/mekjr1/midden/internal/refinery"
+	"github.com/mekjr1/midden/pkg/provider"
+
+	"github.com/xibodev/facet-studio/pkg/agent"
+	"github.com/xibodev/facet-studio/pkg/bus"
+	"github.com/xibodev/facet-studio/pkg/config"
+	"github.com/xibodev/facet-studio/pkg/providers"
+	kernelsession "github.com/xibodev/facet-studio/pkg/session"
 )
+
+type scriptMockProvider struct {
+	response string
+}
+
+func (s *scriptMockProvider) Chat(
+	ctx context.Context,
+	messages []providers.Message,
+	tools []providers.ToolDefinition,
+	model string,
+	options map[string]any,
+) (*providers.LLMResponse, error) {
+	return &providers.LLMResponse{
+		Content:   s.response,
+		ToolCalls: []providers.ToolCall{},
+	}, nil
+}
+
+func (s *scriptMockProvider) GetDefaultModel() string {
+	return "mock-model"
+}
 
 func TestWorkItemsExposePersistentThreadAndMessages(t *testing.T) {
 	t.Setenv("MIDDEN_HOME", t.TempDir())
@@ -426,6 +456,107 @@ func TestWorkChatLockSerializesOneRecipe(t *testing.T) {
 	case <-acquired:
 	case <-time.After(time.Second):
 		t.Fatal("second turn did not resume after the recipe lock released")
+	}
+}
+
+func TestChatEndpoint(t *testing.T) {
+	db, err := index.OpenAt(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	server := NewServer(db)
+	defer server.Close()
+
+	cfg := config.DefaultConfig()
+	cfg.Agents.Defaults.Workspace = t.TempDir()
+	mockLLM := &scriptMockProvider{response: "Hello from Midden agent!"}
+	al := agent.NewAgentLoop(cfg, bus.NewMessageBus(), mockLLM, agent.WithToolProviders(provider.NewMiddenToolProvider()))
+	server.SetAgentLoop(al)
+
+	newLoopbackReq := func(method, path string, body string) *http.Request {
+		var r io.Reader
+		if body != "" {
+			r = strings.NewReader(body)
+		}
+		req := httptest.NewRequest(method, path, r)
+		req.RemoteAddr = "127.0.0.1:1234"
+		req.Host = "localhost"
+		return req
+	}
+
+	// 1. GET /api/chat
+	rec := httptest.NewRecorder()
+	req := newLoopbackReq(http.MethodGet, "/api/chat", "")
+	server.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /api/chat code = %d", rec.Code)
+	}
+	var getResp struct {
+		SessionID string              `json:"session_id"`
+		Messages  []index.WorkMessage `json:"messages"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &getResp); err != nil {
+		t.Fatal(err)
+	}
+	if getResp.SessionID != "main_chat" || len(getResp.Messages) != 0 {
+		t.Fatalf("unexpected GET response: %+v", getResp)
+	}
+
+	// 2. POST /api/chat
+	rec = httptest.NewRecorder()
+	req = newLoopbackReq(http.MethodPost, "/api/chat", `{"message":"hello world"}`)
+	server.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST /api/chat code = %d, body = %s", rec.Code, rec.Body.String())
+	}
+	var postResp struct {
+		Reply   string             `json:"reply"`
+		Message *index.WorkMessage `json:"message"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &postResp); err != nil {
+		t.Fatal(err)
+	}
+	if postResp.Reply != "Hello from Midden agent!" {
+		t.Fatalf("unexpected POST response: %+v", postResp)
+	}
+
+	// 3. Verify messages persisted
+	rec = httptest.NewRecorder()
+	req = newLoopbackReq(http.MethodGet, "/api/chat", "")
+	server.Handler().ServeHTTP(rec, req)
+	_ = json.Unmarshal(rec.Body.Bytes(), &getResp)
+	if len(getResp.Messages) != 2 {
+		t.Fatalf("expected 2 messages (user + agent), got %d: %+v", len(getResp.Messages), getResp.Messages)
+	}
+	key := kernelsession.BuildOpaqueSessionKey("midden-chat:main_chat")
+	store := al.GetRegistry().GetDefaultAgent().Sessions
+	if len(store.GetHistory(key)) < 2 {
+		t.Fatal("chat did not use kernel history")
+	}
+	store.SetSummary(key, "old private context")
+	if _, err := db.Recipe("main_chat"); !errors.Is(err, sql.ErrNoRows) {
+		t.Fatalf("chat created a production recipe: %v", err)
+	}
+
+	// 4. DELETE /api/chat
+	rec = httptest.NewRecorder()
+	req = newLoopbackReq(http.MethodDelete, "/api/chat", "")
+	server.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("DELETE /api/chat code = %d", rec.Code)
+	}
+
+	rec = httptest.NewRecorder()
+	req = newLoopbackReq(http.MethodGet, "/api/chat", "")
+	server.Handler().ServeHTTP(rec, req)
+	_ = json.Unmarshal(rec.Body.Bytes(), &getResp)
+	if len(getResp.Messages) != 0 {
+		t.Fatalf("expected 0 messages after delete, got %d", len(getResp.Messages))
+	}
+	if store.GetSummary(key) != "" || len(store.GetHistory(key)) != 0 {
+		t.Fatal("clear left kernel context behind")
 	}
 }
 

@@ -6,6 +6,7 @@ import (
 	"math"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/mekjr1/midden/internal/adapter"
 	"github.com/mekjr1/midden/internal/assay"
@@ -298,6 +299,20 @@ func EvidenceExtract(db *index.DB, req EvidenceExtractRequest, roots adapter.Roo
 // backend's own accounting, so a run recorded without one can report that it
 // happened and never what it cost.
 func runExtraction(slice reclaim.Slice, grant ModelGrant) (string, string, error) {
+	if grant.NativeDriver != nil {
+		timeout := grant.Timeout
+		if timeout <= 0 {
+			timeout = 5 * time.Minute
+		}
+		ctx := grant.Context
+		if ctx == nil {
+			ctx = context.Background()
+		}
+		ctx, cancel := context.WithTimeout(ctx, timeout)
+		defer cancel()
+		out, err := grant.NativeDriver(ctx, slice.Prompt())
+		return out, "", err
+	}
 	runner := &exec.Runner{
 		Backend:    grant.Backend,
 		BinaryPath: grant.Path,

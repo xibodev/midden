@@ -58,6 +58,13 @@ type Operation struct {
 
 // Operations is the canonical inventory. Four, not six, not twenty-nine.
 var Operations = []Operation{
+	{ID: "compose_recipe", Contract: "approved recipe + host-authored content -> reviewable drafts", Deterministic: true},
+	{ID: "render_output", Contract: "source output -> editable or publishable local delivery file", Deterministic: true},
+	{ID: "plan_recovery", Contract: "intent + stored evidence -> reviewable recipe", Deterministic: true},
+	{ID: "review_evidence", Contract: "recipe + selected evidence + review decision -> approved or draft plan", Deterministic: true},
+	{ID: "produce_recipe", Contract: "approved recipe -> evidence-grounded drafts", MayCharge: true},
+	{ID: "review_output", Contract: "draft + revision or review -> versioned reviewed output", Deterministic: true},
+	{ID: "export_output", Contract: "reviewed output + provenance -> local vault copy", Deterministic: true},
 	{
 		ID:            "assay_session",
 		Contract:      "session scope -> evidence manifest",
@@ -96,6 +103,12 @@ var Operations = []Operation{
 // They are still bound by the effects model -- a capability that projects no
 // Operation is not thereby unregulated.
 var capabilityOperations = map[string]string{
+	"recipes.compose": "compose_recipe",
+	"outputs.render":  "render_output",
+	"evidence.list":   "", "recipes.list": "", "recipes.inspect": "", "outputs.inspect": "",
+	"recipes.preview": "plan_recovery", "recipes.design": "plan_recovery", "recipes.update": "plan_recovery",
+	"recipes.evidence": "review_evidence", "recipes.produce": "produce_recipe",
+	"outputs.review": "review_output", "outputs.export": "export_output",
 	CapSessionsAssay:   "assay_session",
 	CapEvidenceExtract: "mine_evidence",
 	CapContentProduce:  "produce_content",

@@ -638,6 +638,23 @@ func (d *DB) WorkMessageCount(recipeID string) (int, error) {
 	return count, err
 }
 
+// EnsureChatSession ensures a session recipe row exists for holding chat messages.
+func (d *DB) EnsureChatSession(sessionID string) error {
+	now := time.Now().Unix()
+	_, err := d.sql.Exec(`
+		INSERT INTO refinery_recipes (uid, title, status, outputs, evidence_ids, created_at, updated_at)
+		VALUES (?, 'Chat Session', 'chat', '[]', '[]', ?, ?)
+		ON CONFLICT(uid) DO NOTHING`,
+		sessionID, now, now)
+	return err
+}
+
+// ClearWorkMessages removes all messages for a recipe or session.
+func (d *DB) ClearWorkMessages(recipeID string) error {
+	_, err := d.sql.Exec(`DELETE FROM work_messages WHERE recipe_id = ?`, recipeID)
+	return err
+}
+
 func nullableJSON(value json.RawMessage) any {
 	if len(value) == 0 || string(value) == "null" {
 		return nil

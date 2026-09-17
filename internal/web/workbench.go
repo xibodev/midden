@@ -20,7 +20,7 @@ import (
 
 	"github.com/mekjr1/midden/internal/core"
 	"github.com/mekjr1/midden/internal/cost"
-	agentexec "github.com/mekjr1/midden/internal/exec"
+	"github.com/mekjr1/midden/internal/create"
 	"github.com/mekjr1/midden/internal/index"
 	"github.com/mekjr1/midden/internal/integrations"
 	"github.com/mekjr1/midden/internal/redact"
@@ -196,7 +196,6 @@ func (s *Server) doWorkChat(jobID string, req actionRequest) (any, error) {
 	if req.BudgetTokens > 0 {
 		thread.BudgetTokens = req.BudgetTokens
 	}
-	preferredBackend := valueOr(req.Backend, thread.Backend)
 	model := valueOr(req.Model, thread.Model)
 	firstTurn := thread.CLISessionID == ""
 	rawTokens := len(question)/4 + 500
@@ -211,10 +210,7 @@ func (s *Server) doWorkChat(jobID string, req actionRequest) (any, error) {
 			"this turn would exceed the work-item budget (%d of %d estimated tokens used)",
 			thread.EstimatedSpent, thread.BudgetTokens)
 	}
-	backend, err := agentexec.Detect(preferredBackend)
-	if err != nil {
-		return nil, err
-	}
+	backend := "native"
 	workDir, deliveryDir, err := studioAgentDirs(recipe)
 	if err != nil {
 		return nil, err
@@ -231,43 +227,41 @@ func (s *Server) doWorkChat(jobID string, req actionRequest) (any, error) {
 		return nil, err
 	}
 
-	runner := &agentexec.Runner{
-		Backend: backend, Model: model, Pure: true,
-		Dir: workDir, AllowedDirs: studioAgentAllowedDirs(workDir, deliveryDir),
-		Timeout: 60 * time.Minute,
-	}
-	var conversation *agentexec.Conversation
-	if firstTurn {
-		conversation = runner.NewConversation()
-	} else {
-		conversation = runner.ResumeConversation(thread.CLISessionID)
-	}
-	run := cost.Run{
-		UID: index.NewUID(), Op: "work_chat", Scope: recipe.Title,
-		Backend: string(backend), EstTokens: rawTokens, StartedAt: time.Now(),
-	}
-	s.jobs.update(jobID, func(job *Job) { job.Progress = "thinking in the persistent work session" })
+	s.agentLoopMu.RLock()
+	defer s.agentLoopMu.RUnlock()
+	al := s.agentLoop
 
-	var result *agentexec.Result
-	if firstTurn {
-		result, err = conversation.Prime(context.Background(),
-			s.studioFirstTurnPrompt(question, workDir, deliveryDir, contextPath))
+	var answer string
+	var sessionID string
+	var runUID string
+
+	if al != nil {
+		s.jobs.update(jobID, func(job *Job) { job.Progress = "thinking with native agent runtime" })
+		prompt := question
+		if firstTurn {
+			prompt = s.studioFirstTurnPrompt(question, workDir, deliveryDir, contextPath)
+		} else {
+			prompt = studioTurnPrompt(question)
+		}
+		ans, err := al.ProcessDirect(context.Background(), prompt, recipe.UID)
+		if err != nil {
+			return nil, err
+		}
+		answer = ans
+		runUID = index.NewUID()
+		run := cost.Run{
+			UID: runUID, Op: "work_chat", Scope: recipe.Title,
+			Backend: "native", EstTokens: rawTokens, StartedAt: time.Now(),
+			Items: 1, EndedAt: time.Now(), OK: true,
+		}
+		_ = s.db.PutRun(run)
+		backend = "native"
+		sessionID = recipe.UID
 	} else {
-		result, err = conversation.Ask(context.Background(), studioTurnPrompt(question))
-	}
-	run.Items = 1
-	run.CLISessions = []string{conversation.SessionID()}
-	run.EndedAt = time.Now()
-	run.OK = err == nil
-	if err != nil {
-		run.Note = err.Error()
-	}
-	_ = s.db.PutRun(run)
-	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("native agent unavailable; configure a model in Runtime settings")
 	}
 
-	answer := refine.CleanOutput(result.Output)
+	answer = refine.CleanOutput(answer)
 	answer = extractStudioFinalAnswer(answer)
 	if scan := redact.Text(answer); scan.Redacted {
 		answer = scan.Text
@@ -283,7 +277,7 @@ func (s *Server) doWorkChat(jobID string, req actionRequest) (any, error) {
 	}
 	thread.Backend = string(backend)
 	thread.Model = model
-	thread.CLISessionID = conversation.SessionID()
+	thread.CLISessionID = sessionID
 	thread.EstimatedSpent += int(estimate.Mid)
 	if err := s.db.PutWorkThread(&thread); err != nil {
 		return nil, err
@@ -295,7 +289,7 @@ func (s *Server) doWorkChat(jobID string, req actionRequest) (any, error) {
 
 	s.jobs.update(jobID, func(job *Job) { job.Progress = "settling work-session usage" })
 	time.Sleep(1500 * time.Millisecond)
-	if actual := s.settle(jobID, run.UID); actual != nil && !actual.Usage.Empty() {
+	if actual := s.settle(jobID, runUID); actual != nil && !actual.Usage.Empty() {
 		thread.EstimatedSpent += int(actual.Usage.Billable()) - int(estimate.Mid)
 		if thread.EstimatedSpent < 0 {
 			thread.EstimatedSpent = 0
@@ -711,10 +705,28 @@ func (s *Server) handleOutputDownload(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "output not found", http.StatusNotFound)
 		return
 	}
+	if r.URL.Query().Get("format") == "bundle" {
+		raw, err := (create.Workflow{DB: s.db}).Bundle(output.UID)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		w.Header().Set("Content-Type", "application/zip")
+		w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="midden-%s.zip"`, output.UID))
+		w.Write(raw)
+		return
+	}
 	path, err := safeRefineryFile(output.Path)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusForbidden)
 		return
+	}
+	if format := r.URL.Query().Get("format"); format != "" {
+		path, err = (create.Workflow{DB: s.db}).DeliveryPath(output.UID, format)
+		if err != nil {
+			http.Error(w, "render this format before downloading: "+err.Error(), http.StatusNotFound)
+			return
+		}
 	}
 	file, err := os.Open(path)
 	if err != nil {
@@ -756,6 +768,17 @@ func (s *Server) handleOutputRendered(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	preview := source
+	if output.Kind == "slides" {
+		raw, err := (create.Workflow{DB: s.db}).SlidePreview(output.UID)
+		if err != nil {
+			http.Error(w, err.Error(), 500)
+			return
+		}
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.Header().Set("Content-Security-Policy", "sandbox; default-src 'none'; style-src 'unsafe-inline'")
+		w.Write(raw)
+		return
+	}
 	if output.Format == "d2" {
 		preview, err = renderD2Preview(source)
 		if err != nil {

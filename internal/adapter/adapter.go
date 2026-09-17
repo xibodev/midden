@@ -34,11 +34,33 @@ type Roots struct {
 	// Opencode is the DATABASE FILE, not a directory, because that is what
 	// the adapter opens.
 	Opencode string
+	// Strict disables ambient fallback to user-profile resolution, restricting
+	// adapters only to the explicitly supplied roots.
+	Strict bool
 }
 
 // AllWithRoots returns every adapter, using explicit roots where supplied and
 // falling back to user-profile resolution where not.
 func AllWithRoots(r Roots) []core.Adapter {
+	if r.Strict {
+		var out []core.Adapter
+		if r.Copilot != "" {
+			c := NewCopilot()
+			c.Root = r.Copilot
+			out = append(out, c)
+		}
+		if r.Claude != "" {
+			c := NewClaude()
+			c.Root = r.Claude
+			out = append(out, c)
+		}
+		if r.Opencode != "" {
+			o := NewOpencode()
+			o.DB = r.Opencode
+			out = append(out, o)
+		}
+		return out
+	}
 	copilot := NewCopilot()
 	if r.Copilot != "" {
 		copilot.Root = r.Copilot

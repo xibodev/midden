@@ -62,6 +62,14 @@ func (p Planner) Design(req PlanRequest) (index.Recipe, error) {
 	if t := strings.TrimSpace(req.Title); t != "" {
 		recipe.Title = t
 	}
+	if strings.Contains(strings.ToLower(req.Prompt), "blog") {
+		for i := range recipe.Outputs {
+			if recipe.Outputs[i].Kind == "tutorial" {
+				recipe.Outputs[i].Title = recipe.Title + " — Blog post"
+				recipe.Outputs[i].Audience = "developers reading a publication-ready article"
+			}
+		}
+	}
 	if len(req.EvidenceIDs) > 0 {
 		recipe.EvidenceIDs = uniqueStrings(req.EvidenceIDs)
 	}

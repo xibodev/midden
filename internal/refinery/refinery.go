@@ -840,13 +840,13 @@ func OutputRequest(output index.RecipeOutputSpec) string {
 		output.Title, output.Audience)
 	switch output.Kind {
 	case "tutorial":
-		return base + "\nUse Markdown. Include prerequisites, numbered steps, exact verified commands, expected results, failure modes, and a verification section."
+		return base + "\nUse Markdown. If the recipe requests a blog post, write publication-ready editorial prose with a compelling title, short introduction, descriptive headings, concrete examples and a concise conclusion; do not turn it into a checklist tutorial. Otherwise include prerequisites, numbered steps, exact verified commands, expected results, failure modes, and a verification section. Do not include internal file paths or private session identifiers in public-facing prose. Cite evidence IDs compactly."
 	case "adr":
 		return base + "\nUse Markdown sections: Context, Decision, Alternatives considered, Consequences, Evidence."
 	case "release_pack":
 		return base + "\nProduce one Markdown bundle containing release notes, a launch summary, a demo script, and channel-ready short copy. Keep every claim consistent."
 	case "slides":
-		return base + "\nProduce Marp-compatible Markdown with exactly 12 slides, YAML front matter, concise speaker notes, and evidence citations."
+		return base + "\nProduce 8 to 12 slides in Markdown. Each slide starts with a single # heading; separate slides with --- on its own line. Include a title slide and a conclusion. Maximum 4 concise bullets per slide, under 65 words per slide; use ## only for subsections, not slide titles. Put speaker notes in ::: notes blocks and include evidence citations in notes. Use editable text, no fabricated charts, no private file paths. Return Markdown only, without enclosing code fences."
 	case "diagram":
 		return base + "\nOutput valid D2 source only. Model the evidenced architecture or journey; use comments for citations. Do not wrap it in Markdown fences."
 	case "video_brief":

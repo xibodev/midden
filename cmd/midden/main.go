@@ -19,26 +19,26 @@ import (
 	"github.com/mekjr1/midden/internal/render"
 )
 
-const version = "0.0.1"
+const version = core.Version
 
 func main() {
 	// Adapters that must open transcripts to describe a session reuse what
 	// the last scan derived, so an unchanged file is never opened twice.
 	// Plugin commands only inspect manifests; warming the cache would create
 	// or migrate ~/.midden/index.db during a command advertised as passive.
-	// `module` is excluded for the same reason as `plugins`: the module
-	// protocol is a passive, host-driven surface, and warming the cache would
-	// create or migrate ~/.midden/index.db as a side effect of discovery.
-	if len(os.Args) < 2 || (os.Args[1] != "mcp" && os.Args[1] != "plugins" && os.Args[1] != "plugin" && os.Args[1] != "module") {
+	// `module` and `seed` are excluded for the same reason as `plugins`:
+	// they are deterministic, machine-driven surfaces, and warming the cache
+	// would create or migrate ~/.midden/index.db as a side effect.
+	if len(os.Args) < 2 || (os.Args[1] != "mcp" && os.Args[1] != "plugins" && os.Args[1] != "plugin" && os.Args[1] != "module" && os.Args[1] != "seed") {
 		index.WarmPeekCache()
 	}
 
 	// Narrate slow work on every interactive command. The first run on a
 	// machine has nothing cached and can take minutes; silence for that long
 	// is indistinguishable from a hang, which is exactly the failure this
-	// tool exists to notice. MCP is excluded: it speaks a protocol, not to a
-	// person.
-	if len(os.Args) < 2 || os.Args[1] != "mcp" {
+	// tool exists to notice. MCP and seed are excluded: they speak machine
+	// protocols, not to a person.
+	if len(os.Args) < 2 || (os.Args[1] != "mcp" && os.Args[1] != "seed") {
 		defer narrate()()
 	}
 
@@ -106,6 +106,8 @@ func main() {
 		err = cmdSummarize(os.Args[2:])
 	case "ask":
 		err = cmdAsk(os.Args[2:])
+	case "seed":
+		err = cmdSeed(os.Args[2:])
 	case "plugins", "plugin":
 		err = cmdPlugins(os.Args[2:])
 	case "version", "--version", "-v":

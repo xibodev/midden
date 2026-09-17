@@ -37,6 +37,8 @@ type SessionSummary struct {
 // ListResult is the sessions.list payload.
 type ListResult struct {
 	Sessions []SessionSummary `json:"sessions"`
+	// RiskCounts covers the complete filtered scope before the bounded page.
+	RiskCounts map[string]int `json:"risk_counts"`
 
 	// Total is how many sessions the scope matched AFTER filtering.
 	Total int `json:"total"`
@@ -138,6 +140,7 @@ func SessionsList(req AssayRequest, roots adapter.Roots) (*ListResult, []string,
 	}
 
 	result := &ListResult{
+		RiskCounts:         map[string]int{},
 		Total:              len(sessions),
 		Matched:            len(all),
 		ExcludedNoise:      excluded,
@@ -145,6 +148,9 @@ func SessionsList(req AssayRequest, roots adapter.Roots) (*ListResult, []string,
 		StoresRead:         read,
 		StoresUnavailable:  unavailable,
 		PartialInventory:   len(unavailable) > 0,
+	}
+	for _, session := range sessions {
+		result.RiskCounts[session.Risk().String()]++
 	}
 	if len(unavailable) > 0 {
 		// Said in prose as well, because the numbers above are the ones an
@@ -247,6 +253,7 @@ func sourceRootsFrom(req Request) adapter.Roots {
 	if v, ok := req.Roots[RootOpencode]; ok {
 		r.Opencode = strings.TrimSpace(v.Path)
 	}
+	r.Strict = req.ExplicitSourceRoots
 	return r
 }
 
@@ -297,6 +304,9 @@ func sourceStoresVisible(r adapter.Roots) bool {
 	if r.Copilot != "" || r.Claude != "" || r.Opencode != "" {
 		return true
 	}
+	if r.Strict {
+		return false
+	}
 	h, err := os.UserHomeDir()
 	return err == nil && strings.TrimSpace(h) != ""
 }
@@ -346,6 +356,9 @@ func Invoke(req Request) Envelope {
 		}, UnknownCost())
 	}
 
+	if capability, ok := workflowCapabilityByID(req.Capability); ok {
+		return invokeWorkflow(req, capability)
+	}
 	// Precondition: the read capabilities need visible source stores.
 	// Reporting an empty success when the stores are merely invisible would be
 	// a lie the host cannot detect. seed.create runs its own checks in order:

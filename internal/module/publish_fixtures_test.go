@@ -44,6 +44,27 @@ func writeOrCompare(t *testing.T, rel string, got []byte) {
 	if err != nil {
 		t.Fatalf("fixture %s missing; regenerate with MIDDEN_UPDATE_FIXTURES=1: %v", rel, err)
 	}
+	if rel == "describe/descriptor.json" {
+		// Delivery build is the only intentional difference in the headless
+		// descriptor. Assert its real value before comparing shared semantics.
+		var emitted struct {
+			Result struct {
+				Build string `json:"build"`
+			} `json:"result"`
+		}
+		if err := json.Unmarshal(got, &emitted); err != nil {
+			t.Fatal(err)
+		}
+		if emitted.Result.Build != BuildVariant {
+			t.Fatalf("build=%q want %q", emitted.Result.Build, BuildVariant)
+		}
+		if BuildVariant == "headless" {
+			var fixture map[string]any
+			json.Unmarshal(want, &fixture)
+			fixture["result"].(map[string]any)["build"] = BuildVariant
+			want, _ = json.Marshal(fixture)
+		}
+	}
 	// Compare parsed documents rather than bytes: a line-ending conversion
 	// must not read as a protocol change.
 	if !jsonEqual(want, got) {

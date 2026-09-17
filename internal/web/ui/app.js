@@ -2,7 +2,17 @@ const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => Array.from(root.querySelectorAll(selector));
 
 const state = {
-  activeView: 'recover',
+  activeView: 'chat',
+  chatMessages: [],
+  chatActiveModel: '',
+  chatReady: false,
+  chatSessionId: sessionStorage.getItem('midden.chatSession') || 'main_chat',
+  chatPending: false,
+  chatController: null,
+  chatEvents: [],
+  selectedAssaySessionId: '',
+  assayData: null,
+  chatScope: null,
   overview: null,
   sessions: [],
   sessionStats: null,
@@ -67,12 +77,18 @@ const state = {
 };
 
 const viewMeta = {
-  recover: 'Recover',
-  studio: 'Studio',
-  library: 'Library',
+  runtime: 'Runtime & Models',
+  chat: 'Agent Chat',
+  mine: 'Mine',
+  analyze: 'Analyze',
+  plan: 'Plan',
+  create: 'Create',
   cleanup: 'Cleanup',
   activity: 'Activity',
   tools: 'Tools',
+  recover: 'Mine',
+  studio: 'Plan',
+  library: 'Create',
 };
 
 function el(tag, className, text) {
@@ -231,6 +247,10 @@ function formatCount(value) {
   return String(count);
 }
 
+function shortID(value) {
+  return String(value || '').slice(0, 8);
+}
+
 function formatDate(value) {
   if (!value) return '--';
   return new Intl.DateTimeFormat(undefined, {
@@ -357,7 +377,7 @@ function setServiceStatus(available, message = '') {
       available ? 'Local service ready' : 'Local service unavailable'));
     if (detail) {
       detail.textContent = available
-        ? 'Source stores remain read-only. Jobs, chat, previews, and exports stay on this machine.'
+        ? 'Recovery state stays local. Model-backed chat sends selected context to the configured provider.'
         : 'The browser cannot reach the loopback service. Restart the app, then retry.';
     }
   }
@@ -475,17 +495,34 @@ function configurePrimaryAction(view) {
   action.hidden = false;
   action.onclick = null;
   switch (view) {
+  case 'chat':
+    action.textContent = 'Focus chat';
+    action.onclick = () => {
+      const input = $('#chat-input');
+      if (input) input.focus();
+    };
+    break;
+  case 'mine':
   case 'recover':
     action.textContent = 'New mine';
     action.onclick = () => openMineBuilder().catch(showError);
     break;
+  case 'analyze':
+    action.textContent = 'Ask Agent';
+    action.onclick = () => {
+      activateView('chat');
+      sendChatMessage('Run an assay on my sessions and report the signal vs exhaust breakdown.');
+    };
+    break;
+  case 'plan':
   case 'studio':
-    action.textContent = 'New work item';
+    action.textContent = 'New recipe';
     action.onclick = openCreateWorkItem;
     break;
+  case 'create':
   case 'library':
-    action.textContent = 'Open Studio';
-    action.onclick = () => activateView('studio');
+    action.textContent = 'Open Plan';
+    action.onclick = () => activateView('plan');
     break;
   case 'cleanup':
     action.textContent = 'Refresh eligibility';
@@ -511,18 +548,29 @@ function configurePrimaryAction(view) {
   }
 }
 
-function activateView(view) {
+function activateView(rawView) {
   clearNotice();
+  closeDrawer();
+  closeModal();
+  let view = rawView;
+  if (view === 'recover') view = 'mine';
+  if (view === 'studio') view = 'plan';
+  if (view === 'library') view = 'create';
   state.activeView = view;
+  document.body.classList.toggle('with-chat', ['mine', 'analyze', 'plan', 'create'].includes(view));
   if (state.jobsInitialized) renderTaskDock();
-  $$('.nav-item[data-view]').forEach((item) => item.classList.toggle('active', item.dataset.view === view));
+  $$('.nav-item[data-view]').forEach((item) => {
+    const v = item.dataset.view;
+    item.classList.toggle('active', v === view || (v === 'mine' && rawView === 'recover') || (v === 'plan' && rawView === 'studio') || (v === 'create' && rawView === 'library'));
+  });
   $$('.view').forEach((section) => section.classList.toggle('active', section.id === view));
-  $('#view-title').textContent = viewMeta[view];
+  $('#view-title').textContent = viewMeta[view] || humanStatus(view);
   configurePrimaryAction(view);
   closeNavigation();
   window.scrollTo({top: 0, behavior: 'instant'});
   showViewLoading(view);
   renderViewWithError(view);
+  if (document.body.classList.contains('with-chat') && !$('#chat-input')) renderChat().catch(showError);
 }
 
 async function renderViewWithError(view) {
@@ -558,9 +606,22 @@ function updateGlobalUI() {
   append(badges, badge(`${readySources} sources ready`, 'free'),
     badge(`${formatCount(overview.stats?.nuggets)} evidence`),
     badge(`${formatCount(overview.stats?.outputs)} outputs`, 'blue'));
-  $('#nav-studio-count').textContent = String(overview.stats?.recipes || 0);
-  $('#nav-library-count').textContent = String(overview.stats?.outputs || 0);
-  $('#nav-recover-count').textContent = String(overview.stats?.sessions || 0);
+
+  const setNav = (id, count) => {
+    const el = $('#' + id);
+    if (el) el.textContent = formatCount(count);
+  };
+  setNav('nav-mine-count', overview.stats?.sessions || 0);
+  setNav('nav-analyze-count', overview.stats?.nuggets || 0);
+  setNav('nav-plan-count', overview.stats?.recipes || 0);
+  setNav('nav-create-count', overview.stats?.outputs || 0);
+  setNav('nav-cleanup-count', overview.stats?.cleanup_candidates || 0);
+  setNav('nav-activity-count', state.recoveryRunsTotal || 0);
+  setNav('nav-tools-count', (overview.connections?.integrations || []).length);
+  // Backwards-compatible IDs:
+  setNav('nav-studio-count', overview.stats?.recipes || 0);
+  setNav('nav-library-count', overview.stats?.outputs || 0);
+  setNav('nav-recover-count', overview.stats?.sessions || 0);
 }
 
 async function refreshAll() {
@@ -728,7 +789,7 @@ async function loadRecoveryData(force = false) {
 
 async function renderRecover() {
   await loadRecoveryData();
-  const root = clear($('#recover-content'));
+  const root = clear($('#mine-content') || $('#recover-content'));
   root.classList.remove('loading-shell');
   append(root, pageHead('Recover',
     'Find what matters before clearing what does not.',
@@ -798,10 +859,7 @@ function renderMineBuilder() {
     {value: 'reclaim', label: 'Extract evidence · model-backed'},
   ], 'mine');
   const backend = selectInput([
-    {value: '', label: 'Auto-detect signed-in CLI'},
-    {value: 'copilot', label: 'Copilot CLI'},
-    {value: 'claude', label: 'Claude Code'},
-    {value: 'opencode', label: 'OpenCode'},
+    {value: 'native', label: 'Embedded kernel · configured model'},
   ]);
   const grid = el('div', 'form-grid');
   append(grid, field('Source', source), field('Workspace', workspace),
@@ -1079,6 +1137,8 @@ function renderRecoveryHistory() {
 }
 
 function openSession(session) {
+  state.chatScope = {id: session.id, tool: session.tool, title: session.title};
+  if ($('#chat-input')) renderChat(false).catch(showError);
   const body = openDrawer(session.title || session.short);
   body.append(el('p', 'muted', `${humanStatus(session.tool)} · ${session.id} · ${session.dir}`));
   body.append(metricGrid([
@@ -1089,6 +1149,16 @@ function openSession(session) {
   ]));
   const actions = el('div', 'actions');
   append(actions,
+    button('💬 Ask Agent', 'button', () => {
+      closeDrawer();
+      activateView('chat');
+      sendChatMessage(`Analyze and summarize session ${session.id} (${session.tool}, ${formatBytes(session.bytes)}). What can we recover?`);
+    }),
+    button('🔬 Assay Breakdown', 'button ghost', () => {
+      closeDrawer();
+      state.selectedAssaySessionId = session.id;
+      activateView('analyze');
+    }),
     button('Copy resume command', 'button ghost', () => copyText(session.resume)),
     button('Rescue handoff', 'button', () => {
       closeDrawer();
@@ -1180,6 +1250,11 @@ async function loadWorkItems(force = false) {
     }
   }
   if (!state.selectedWork && state.workItems.length) state.selectedWork = state.workItems[0].recipe.uid;
+  if (state.selectedWork === 'main_chat' && !state.workItems.some(item => item.recipe.uid === 'main_chat')) {
+    state.selectedWork = '';
+    state.workDetail = null;
+    sessionStorage.removeItem('midden.selectedWork');
+  }
 }
 
 async function selectWork(recipeID) {
@@ -1204,9 +1279,9 @@ async function loadWorkDetail(force = false) {
 
 async function renderStudio() {
   await Promise.all([loadWorkItems(), loadIntegrations()]);
-  const root = clear($('#studio-content'));
-  const head = pageHead('Studio', 'Talk, operate, create, and preview.',
-    'The persistent workspace agent can use local tools, ask for approvals, and return finished files to a native preview.',
+  const root = clear($('#plan-content') || $('#studio-content'));
+  const head = pageHead('Plan', 'Choose evidence, purpose, and deliverables.',
+    'Review what the evidence supports before approving a production. Keep unsupported claims out of the plan.',
     [
       button('Import evidence set', 'button ghost', openCreateWorkItem),
       button('New work item', 'button', openCreateWorkItem),
@@ -1220,9 +1295,33 @@ async function renderStudio() {
     return;
   }
   const detail = await loadWorkDetail();
-  const shell = el('div', `studio-shell ${state.workRailCollapsed ? 'work-rail-collapsed' : ''}`.trim());
-  append(shell, renderWorkRail(), renderConversation(detail), renderPreview(detail));
+  const shell = el('div', 'recovery-plan-shell');
+  const workspace = el('div','recovery-plan-workspace');
+  append(workspace, renderRecipeContext(detail), renderPreview(detail));
+  append(shell, renderWorkRail(), workspace);
   root.append(shell);
+}
+
+function renderRecipeContext(detail) {
+  const panel=el('section','panel panel-inner');
+  append(panel,el('div','eyebrow',`Plan ${detail.recipe.uid}`),el('h2',null,detail.recipe.title),
+    el('p',null,`${detail.recipe.evidence_ids.length} selected evidence items · ${detail.outputs.length} drafts · ${humanStatus(detail.recipe.status)}`));
+  const actions=el('div','actions');
+  append(actions,button('Discuss this plan','button',()=>{
+    state.chatScope={recipe_id:detail.recipe.uid};
+    activateView('chat');
+    sendChatMessage('Inspect the selected recipe and explain its evidence coverage and next step.');
+  }),button('Review evidence','button ghost',()=>openEvidenceReview(detail)),button('Edit outputs','button ghost',()=>editWorkItemOutputs(detail)));
+  if (['approved','failed'].includes(detail.recipe.status)) actions.append(button('Use authored content','button ghost',()=>{
+    const body=openModal('Use authored content','Paste the finished draft for each requested output. Midden records provenance and saves drafts without an additional model call.');
+    const inputs=new Map();
+    for(const output of detail.recipe.outputs.filter(o=>o.requires_model)){const input=textArea('',`Paste ${output.title} source`);input.rows=8;inputs.set(output.kind,input);body.append(field(output.title,input));}
+    body.append(button('Save drafts','button',async()=>{
+      try{const drafts=Object.fromEntries([...inputs].map(([kind,input])=>[kind,input.value]));await post('/api/refinery/action',{action:'compose',recipe_id:detail.recipe.uid,drafts});closeModal();state.workDetail=null;state.workItems=[];state.overview=null;await renderStudio();}catch(err){showError(err)}
+    }));
+  }));
+  if (['approved','failed'].includes(detail.recipe.status) && detail.outputs.length) actions.append(button('Retry production','button success',()=>previewProduction(detail.recipe.uid)));
+  panel.append(actions);return panel;
 }
 
 function renderWorkRail() {
@@ -1310,7 +1409,7 @@ function renderConversation(detail) {
   const spent = Number(detail.thread?.estimated_spent || 0);
   const limit = Number(detail.thread?.budget_tokens || 1_200_000);
   const budgetPercent = limit > 0 ? Math.round(spent / limit * 100) : 0;
-  append(line, el('span', null, detail.thread?.backend || 'AI CLI not selected'),
+  append(line, el('span', null, 'Embedded kernel'),
     el('span', null, budgetPercent > 100 ? `${budgetPercent}% · over budget` : `${budgetPercent}% budget`));
   const progress = el('progress');
   progress.max = limit;
@@ -1319,7 +1418,7 @@ function renderConversation(detail) {
   append(head, copy, budget);
 
   const body = el('div', 'conversation-body');
-  const chat = renderChat(detail);
+  const chat = renderWorkChat(detail);
   const consolePanel = renderConsole(detail);
   chat.hidden = state.conversationMode !== 'chat';
   consolePanel.hidden = state.conversationMode !== 'console';
@@ -1338,12 +1437,12 @@ function renderConversation(detail) {
   return pane;
 }
 
-function renderChat(detail) {
+function renderWorkChat(detail) {
   const panel = el('div', 'chat-panel');
   const messages = el('div', 'messages');
   messages.id = 'work-messages';
   messages.append(el('div', 'message system',
-    `Workspace agent enabled. It can use shell and local tools, asks before destructive, publishing, credential, or unapproved paid actions, and returns finished files here. AI CLI envelope: ${formatCount(detail.thread?.budget_tokens || 1_200_000)} tokens.`));
+    'This conversation uses the embedded kernel. Configure the connection under Runtime & Models.'));
   const allMessages = detail.messages || [];
   const messageTotal = Number(detail.message_total || allMessages.length);
   const messagePage = state.messagePages.get(detail.recipe.uid) || 0;
@@ -1375,7 +1474,7 @@ function renderChat(detail) {
   allMessages.slice(-messageLimit).forEach((message) => {
     const node = el('div', `message ${message.role === 'agent' ? 'agent' : message.role}`);
     append(node, document.createTextNode(message.body),
-      el('small', null, `${message.role === 'agent' ? detail.thread?.backend || 'AI CLI' : 'operator'} · ${formatDate(message.created_at)}`));
+      el('small', null, `${message.role === 'agent' ? 'kernel' : 'operator'} · ${formatDate(message.created_at)}`));
     messages.append(node);
   });
   const composer = el('form', 'composer');
@@ -1647,6 +1746,18 @@ function renderPreview(detail) {
   const actions = el('div', 'actions');
   if (selected) {
     append(actions, button('Download', 'button ghost compact', () => downloadOutput(selected)));
+    actions.append(button('Download bundle','button ghost compact',()=>{
+      window.location.href=`/api/output-download?id=${encodeURIComponent(selected.uid)}&format=bundle`;
+    }));
+    if (['markdown','marp'].includes(selected.format)) {
+      actions.append(button(selected.kind==='slides'?'Create PPTX':'Create HTML','button compact',async()=>{
+        const format=selected.kind==='slides'?'pptx':'html';
+        try{await post('/api/refinery/action',{action:'render_output',output_id:selected.uid,format});
+        const a=el('a','button',`Download ${format.toUpperCase()}`);a.href=`/api/output-download?id=${encodeURIComponent(selected.uid)}&format=${format}`;a.download='';
+        const body=openModal('Delivery file ready','Rendered from the current source revision; provenance is stored beside the file.');body.append(a);
+        }catch(err){showError(err)}
+      }));
+    }
     if (binaryOutputFormat(selected.format) && !['reviewed', 'exported'].includes(selected.status)) {
       append(actions,
         button('Reject', 'button danger compact', () => saveOutputReview(selected, '', 'rejected')),
@@ -1715,10 +1826,20 @@ function renderOutputContent(detail, output) {
   if (!outputDetail) return emptyState('Loading', 'Output is still loading.');
   if (state.previewMode === 'source' && !binaryOutputFormat(output.format)) return renderSourceEditor(outputDetail);
   if (state.previewMode === 'provenance') return renderProvenance(outputDetail.provenance, output);
-  return renderOwnedPreview(outputDetail.body || '', output.format, output);
+  const wrap=el('div');
+  const deliveries=el('div','actions delivery-links');
+  for(const delivery of outputDetail.deliveries || []) {
+    const link=el('a','button compact',`Download ${delivery.format.toUpperCase()}`);link.href=delivery.url;link.download='';deliveries.append(link);
+  }
+  if(deliveries.children.length)wrap.append(deliveries);
+  wrap.append(renderOwnedPreview(outputDetail.body || '', output.format, output));return wrap;
 }
 
 function renderOwnedPreview(body, format, output) {
+  if (output.kind==='slides') {
+    const frame=el('iframe','rendered-document');frame.title='Slide source preview';frame.src=`/api/output-rendered?id=${encodeURIComponent(output.uid)}`;
+    const wrap=el('div','rendered-stage');append(wrap,el('p','muted','Slide-source preview. Use Create PPTX for the editable PowerPoint; layout may differ.'),frame);return wrap;
+  }
   if (format === 'jsonl') return renderJSONL(body, output);
   if (format === 'json') {
     try {
@@ -1915,6 +2036,7 @@ async function saveOutputReview(output, body, decision) {
   try {
     await post('/api/refinery/action', {
       action: 'review_output', output_id: output.uid, decision, body,
+      expected_digest: state.outputDetail?.content_digest || '',
     });
     state.workDetail = null;
     state.outputDetail = null;
@@ -2067,10 +2189,7 @@ async function previewProduction(recipeID) {
         {label: 'Estimate', value: result.estimate_text || formatCount(estimate.mid), copy: estimate.samples ? 'calibrated' : 'conservative'},
       ]));
       const backend = selectInput([
-        {value: '', label: 'Auto-detect signed-in CLI'},
-        {value: 'copilot', label: 'Copilot CLI'},
-        {value: 'claude', label: 'Claude Code'},
-        {value: 'opencode', label: 'OpenCode'},
+        {value: 'native', label: 'Embedded kernel · configured model'},
       ]);
       body.append(field('Backend', backend));
       const actions = el('div', 'modal-actions');
@@ -2108,6 +2227,8 @@ function openCreateWorkItem() {
     {value: 'adr,handbook', label: 'ADR + field guide'},
     {value: 'video_brief,provenance_manifest', label: 'Video brief + provenance'},
     {value: 'skill,eval_pack', label: 'Skill + evaluation pack'},
+    {value: 'provenance_manifest', label: 'Provenance manifest · no model'},
+    {value: 'tutorial,slides', label: 'Blog post + PowerPoint deck'},
   ]);
   append(body, field('Evidence workspace', workspace), field('Name', title),
     field('Finished outcome', prompt), field('Output starter', kinds));
@@ -2131,10 +2252,10 @@ function openCreateWorkItem() {
 
 async function renderLibrary() {
   const overview = await loadOverview();
-  const root = clear($('#library-content'));
+  const root = clear($('#create-content') || $('#library-content'));
   append(root, pageHead('Library', 'Everything recovered and created, in usable form.',
     'Browse rendered results, source files, versions, provenance, and destinations without reopening a whole production.',
-    [button('Open Studio', 'button', () => activateView('studio'))]));
+    [button('Open Plan', 'button', () => activateView('plan'))]));
   const toolbar = el('div', 'library-toolbar');
   const filters = el('div', 'segmented');
   const categories = [
@@ -2171,9 +2292,11 @@ async function renderLibrary() {
       append(actions,
         button('Open', 'button compact', async () => {
           await selectWork(output.recipe_id);
+          state.selectedOutput=output.uid;state.outputDetail=null;
           activateView('studio');
         }),
         button('Download', 'button ghost compact', () => downloadOutput(output)));
+      actions.append(button('Bundle','button ghost compact',()=>{window.location.href=`/api/output-download?id=${encodeURIComponent(output.uid)}&format=bundle`;}));
       body.append(actions);
       append(card, thumb, body);
       grid.append(card);
@@ -2779,6 +2902,391 @@ async function probePlugins() {
   }
 }
 
+async function renderRuntime() {
+  const data = await get('/api/runtime');
+  const root = clear($('#runtime-content'));
+  root.append(pageHead('Runtime', 'Your agent connection', 'Midden embeds the Facet Studio kernel. Configure the model here; no external agent CLI is required for chat.'));
+  root.append(metricGrid([
+    {label: 'Kernel', value: `${data.kernel} ${data.version}`, copy: 'Running inside Midden'},
+    {label: 'Connection', value: data.status, copy: data.connection_verified ? 'A text request succeeded' : 'Not yet verified with a text request'},
+    {label: 'Selected model', value: data.active_model || 'None', copy: 'Provider selection persists across restarts'},
+  ]));
+  if (data.error) root.append(emptyState('Connection needs attention', data.error));
+  const panel = el('section', 'panel panel-inner');
+  panel.append(panelHead('Models', 'Discover, select, test', 'Free-model availability depends on the provider. A discovered catalog alone does not prove chat or tool support.'));
+  const picker = selectInput((data.models || []).map(model => ({value: model, label: model})), data.active_model);
+  picker.setAttribute('aria-label', 'Active model');
+  const actions = el('div', 'actions');
+  const run = async (action, control) => {
+    control.disabled = true;
+    control.textContent = 'Working…';
+    try { await post('/api/runtime', {action, model: picker.value}); }
+    catch (err) { showError(err); }
+    finally { await renderRuntime(); }
+  };
+  for (const [label, action] of [['Discover free models','discover'], ['Use selected model','select'], ['Test connection','test']]) {
+    const control = button(label, 'button ghost', () => run(action, control));
+    if (action !== 'discover') control.disabled = !picker.value;
+    actions.append(control);
+  }
+  append(panel, picker, actions, el('p', 'muted', `Kernel configuration, catalogs and conversation state: ${data.state_path}`));
+  root.append(panel);
+  const providerPanel = el('section','panel panel-inner');
+  providerPanel.append(panelHead('Provider connection','Connect your provider','OpenAI-compatible connections use the kernel credential store and catalog discovery. Other authentication flows are not yet exposed here.'));
+  const roster = (data.providers || []).filter(p => p.adapter === 'openai-compatible');
+  const providerPicker = selectInput(roster.map(p => ({value:p.id,label:p.display_name || p.id})),roster[0]?.id);
+  const instanceID = textInput('', 'A name for this connection');
+  const endpoint = textInput(roster[0]?.default_endpoint || '', 'Provider API base URL');
+  const apiKey = textInput('', 'Optional for anonymous providers');
+  apiKey.type = 'password'; apiKey.autocomplete = 'off';
+  providerPicker.addEventListener('change',()=>{endpoint.value=roster.find(p=>p.id===providerPicker.value)?.default_endpoint || '';});
+  const connect = button('Connect and discover models','button',async()=>{
+    connect.disabled=true;
+    try {await post('/api/runtime',{action:'connect',instance_id:instanceID.value,provider_kind:providerPicker.value,endpoint:endpoint.value,api_key:apiKey.value});apiKey.value='';await renderRuntime();}
+    catch(err){showError(err);} finally {connect.disabled=false;apiKey.value='';}
+  });
+  append(providerPanel,field('Provider',providerPicker),field('Connection ID',instanceID),field('Endpoint',endpoint),field('API key',apiKey),connect);
+  root.append(providerPanel);
+  const tools = el('section', 'panel panel-inner');
+  tools.append(panelHead('Native recovery tools', 'What the agent can call', 'These tools share the standalone evidence store with the workbench.'));
+  for (const tool of data.tools || []) tools.append(el('p', null, `${tool.id} — ${tool.summary}`));
+  root.append(tools);
+}
+
+async function renderChat(load = true) {
+  const root = clear($('#chat-content'));
+  root.classList.remove('loading-shell');
+
+  try {
+    if (load && !state.chatPending) {
+    const chatData = await get('/api/chat?session_id=' + encodeURIComponent(state.chatSessionId || 'main_chat'));
+    state.chatMessages = chatData.messages || [];
+    state.chatActiveModel = chatData.active_model || '';
+    state.chatReady = chatData.agent_ready;
+    $('#nav-chat-count').textContent = state.chatReady ? 'Configured' : 'Setup';
+    }
+  } catch (err) {
+    console.warn('Failed to load chat history:', err);
+  }
+
+  const container = el('div', 'chat-container');
+
+  const hero = el('div', 'chat-hero');
+  const head = el('div', 'chat-hero-header');
+  const title = el('div', 'chat-hero-title');
+  title.textContent = 'Midden · Recovery conversation';
+
+  const modelBadge = button(state.chatActiveModel || 'Configure model', 'button ghost compact', () => activateView('runtime'));
+  const clearBtn = button('Clear Chat', 'button ghost compact', async () => {
+    if (confirm('Clear chat history?')) {
+      const response = await fetch('/api/chat?session_id=' + encodeURIComponent(state.chatSessionId || 'main_chat'), {method: 'DELETE'});
+      if (!response.ok) throw new Error(await response.text());
+      state.chatMessages = [];
+      await renderChat();
+    }
+  });
+
+  const headRight = el('div', 'composer-actions');
+  clearBtn.disabled = state.chatPending;
+  const newChat = button('New chat', 'button ghost compact', async () => {
+    state.chatSessionId = crypto.randomUUID();
+    sessionStorage.setItem('midden.chatSession', state.chatSessionId);
+    state.chatMessages = [];
+    state.chatEvents = [];
+    await renderChat();
+  });
+  newChat.disabled = state.chatPending;
+  append(headRight, modelBadge, newChat, clearBtn);
+  append(head, title, headRight);
+
+  const sub = el('div', 'chat-hero-sub', state.chatReady ? 'Choose a scope, inspect evidence, then plan what to carry forward. Model requests use the provider selected in Runtime.' : 'Chat is not connected. Open Runtime & Models to discover, select and test a model.');
+  append(hero, head, sub);
+  if (state.chatScope) {
+    const scope = el('div', 'prompt-chips');
+    append(scope, el('span', 'badge', state.chatScope.recipe_id ? `Plan: ${shortID(state.chatScope.recipe_id)}` : `Selected: ${state.chatScope.tool}:${shortID(state.chatScope.id)}`),
+      button('Remove context', 'button ghost compact', () => {state.chatScope = null; renderChat(false).catch(showError);}));
+    hero.append(scope);
+  }
+
+  const chips = el('div', 'prompt-chips');
+  const chipList = [
+    {label: '🚨 Sessions past resume cliff', prompt: 'Which sessions are at critical risk past the resume cliff and will not reload?'},
+    {label: '🔬 Run full assay', prompt: 'Run a full assay across all session stores and show the signal vs exhaust breakdown.'},
+    {label: '📋 Plan an ADR', prompt: 'Plan an Architecture Decision Record (ADR) from recent engineering sessions.'},
+    {label: '📦 Create a recovery seed', prompt: 'Create a portable xibodev.midden.seed/v1 seed from the largest recoverable session.'},
+    {label: '🧹 Check reclaimable space', prompt: 'How many gigabytes of disk space can be safely reclaimed from tool exhaust?'},
+  ];
+
+  chipList.forEach((item) => {
+    const chip = el('button', 'prompt-chip', item.label);
+    chip.type = 'button';
+    chip.disabled = state.chatPending || !state.chatReady;
+    chip.addEventListener('click', () => {
+      sendChatMessage(item.prompt);
+    });
+    chips.append(chip);
+  });
+  hero.append(chips);
+
+  const messagesBox = el('div', 'messages');
+  if (state.chatMessages.length === 0) {
+    const welcome = el('div', 'message system');
+    welcome.innerHTML = `<strong>Start with your recovery goal</strong><br>
+    I can discover your Claude, Copilot, and OpenCode sessions, analyze transcript bloat, extract decisions, and refine artifacts.<br>
+    Click one of the prompt chips above or type a message below to begin.`;
+    messagesBox.append(welcome);
+  } else {
+    state.chatMessages.forEach((msg) => {
+      const isUser = msg.role === 'user';
+      const m = el('div', `message ${isUser ? 'user' : 'agent'}`);
+      if (isUser) m.textContent = msg.body;
+      else { m.innerHTML = markdownToHTML(msg.body); m.classList.add('formatted'); }
+      const ts = el('small', null, msg.created_at ? formatDate(msg.created_at) : '');
+      m.append(ts);
+      messagesBox.append(m);
+    });
+  }
+
+  if (state.chatPending) messagesBox.append(el('div', 'message system typing', 'Agent is working…'));
+  const activity = el('div', 'message system');
+  activity.id = 'chat-runtime-events';
+  activity.setAttribute('aria-live', 'polite');
+  activity.textContent = state.chatEvents.join('\n');
+  activity.hidden = state.chatEvents.length === 0;
+  messagesBox.append(activity);
+  const stream=el('div','message agent formatted');stream.id='chat-stream-content';stream.hidden=true;messagesBox.append(stream);
+  const approvals = el('div');
+  approvals.id = 'chat-approvals';
+  messagesBox.append(approvals);
+
+  const composer = el('form', 'composer');
+  const input = textArea('', 'Ask the agent to recover, assay, plan, or create…');
+  input.id = 'chat-input';
+  input.rows = 3;
+  input.disabled = state.chatPending || !state.chatReady;
+
+  const foot = el('div', 'composer-foot');
+  const footNote = el('span', null, 'Source reads stay read-only · model calls use your selected provider');
+  const sendBtn = button(state.chatPending ? 'Thinking…' : 'Send', 'button compact');
+  sendBtn.type = 'submit';
+  sendBtn.disabled = state.chatPending || !state.chatReady;
+
+  append(foot, footNote, sendBtn);
+  if (state.chatPending) foot.append(button('Stop', 'button warning compact', () => state.chatController?.abort()));
+  append(composer, input, foot);
+
+  composer.addEventListener('submit', (e) => {
+    e.preventDefault();
+    const txt = input.value.trim();
+    if (!txt || state.chatPending) return;
+    input.value = '';
+    sendChatMessage(txt);
+  });
+
+  append(container, hero, messagesBox, composer);
+  root.append(container);
+
+  requestAnimationFrame(() => {
+    messagesBox.scrollTop = messagesBox.scrollHeight;
+  });
+}
+
+async function sendChatMessage(text) {
+  if (state.chatPending) return;
+  state.chatPending = true;
+  state.chatController = new AbortController();
+  state.chatEvents = [];
+  state.chatMessages.push({role: 'user', body: text, created_at: new Date().toISOString()});
+  await renderChat(false);
+
+  const events = new EventSource('/api/chat/events?session_id=' + encodeURIComponent(state.chatSessionId));
+  events.onmessage = event => {
+    const data = JSON.parse(event.data);
+    if (data.kind==='midden.chat.content'||data.kind==='midden.chat.final') {
+      const stream=$('#chat-stream-content');if(stream){stream.hidden=false;stream.innerHTML=markdownToHTML(data.content || '');stream.scrollIntoView({block:'nearest'});}return;
+    }
+    state.chatEvents.push(`${data.kind}${data.tool ? ' · ' + data.tool : ''}`);
+    if (state.chatEvents.length > 30) state.chatEvents.shift();
+    const output = $('#chat-runtime-events');
+    if (output) { output.hidden = false; output.textContent = state.chatEvents.join('\n'); }
+  };
+  let checkingApprovals = false;
+  const approvalTimer = setInterval(async () => {
+    if (checkingApprovals) return;
+    checkingApprovals = true;
+    try {
+      const url = '/api/chat/approvals?session_id=' + encodeURIComponent(state.chatSessionId);
+      const pending = await get(url);
+      const root = $('#chat-approvals');
+      if (!root) return;
+      clear(root);
+      for (const item of pending) {
+        const card = el('section', 'panel panel-inner');
+        append(card, el('h3', null, `Allow ${item.tool}?`), el('pre', 'approval-arguments', JSON.stringify(item.arguments,null,2)));
+        const actions = el('div','actions');
+        for (const [label,approved] of [['Allow once',true],['Deny',false]]) actions.append(button(label,'button',async()=>{await post(url,{id:item.id,approved});card.remove();}));
+        card.append(actions); root.append(card);
+      }
+    } catch (err) { console.warn('Approval status:',err.message); }
+    finally {checkingApprovals=false;}
+  },1000);
+
+  try {
+    await new Promise(resolve => { events.onopen = resolve; events.onerror = resolve; setTimeout(resolve, 1500); });
+    const res = await request('/api/chat', {method: 'POST', signal: state.chatController.signal, body: JSON.stringify({
+      session_id: state.chatSessionId || 'main_chat',
+      message: text,
+      scope: state.chatScope,
+    })});
+    if (res && res.reply) {
+      state.chatMessages.push({role: 'agent', body: res.reply, created_at: new Date().toISOString()});
+    }
+  } catch (err) {
+    notice(err.name === 'AbortError' ? 'Turn stopped.' : (err.message || 'Chat request failed'), 'bad');
+  } finally {
+    events.close();
+    clearInterval(approvalTimer);
+    state.chatPending = false;
+    state.chatController = null;
+    state.overview = null;
+    state.workItems=[];state.workDetail=null;state.outputDetail=null;
+    if (state.activeView === 'chat' || document.body.classList.contains('with-chat')) await renderChat();
+    if (['mine','analyze','plan','create'].includes(state.activeView)) await renderActiveView();
+  }
+}
+
+async function renderAnalyze() {
+  await loadRecoveryData();
+  if (state.selectedAssaySessionId && state.assayData?.session?.id !== state.selectedAssaySessionId) {
+    const selected = state.sessions.find(s => s.id === state.selectedAssaySessionId);
+    state.assayData = await get('/api/assay?id=' + encodeURIComponent(state.selectedAssaySessionId) + '&tool=' + encodeURIComponent(selected?.tool || ''));
+  }
+  const root = clear($('#analyze-content'));
+  root.classList.remove('loading-shell');
+
+  append(root, pageHead('Analyze · Session Assay',
+    'Classify transcripts into Signal, Exhaust, Artifact, and Bookkeeping.',
+    'Deterministic, free, and model-free. Read reclaimable yield and candidate evidence excerpts before spending.',
+    [
+      button('Ask Agent to Assay', 'button', () => {
+        activateView('chat');
+        sendChatMessage('Run an assay on my sessions and report the signal vs exhaust breakdown.');
+      }),
+    ]
+  ));
+
+  let agg = null;
+  try {
+    agg = await get('/api/assay');
+  } catch (err) {
+    console.warn('Failed to load aggregate assay:', err);
+  }
+
+  if (agg && !agg.assayed) root.append(emptyState('No indexed assays yet', 'Zero measured sessions is not evidence of zero recoverable content. Inspect one session below.'));
+  if (agg && agg.assayed > 0) {
+    const totalBytes = (agg.signal || 0) + (agg.exhaust || 0) + (agg.artifact || 0) + (agg.bookkeeping || 0);
+    const signalPct = totalBytes > 0 ? Math.round(((agg.signal || 0) / totalBytes) * 100) : 0;
+    const exhaustPct = totalBytes > 0 ? Math.round(((agg.exhaust || 0) / totalBytes) * 100) : 0;
+    const artifactPct = totalBytes > 0 ? Math.round(((agg.artifact || 0) / totalBytes) * 100) : 0;
+    const bookPct = totalBytes > 0 ? Math.max(0, 100 - signalPct - exhaustPct - artifactPct) : 0;
+
+    append(root, metricGrid([
+      {label: 'Assayed Sessions', value: agg.assayed || 0, copy: `out of ${agg.sessions || 0} total sessions`},
+      {label: 'Reclaimable Space', value: formatBytes(agg.reclaimable || 0), copy: 'tool exhaust & bulk payloads'},
+      {label: 'Signal Share', value: `${signalPct}%`, copy: 'meaningful prompts & decisions'},
+      {label: 'Compression', value: `${agg.compression || 1}x`, copy: 'yield if only signal is retained'},
+      {label: 'Image Clusters', value: agg.image_clusters || 0, copy: `${agg.images || 0} total screenshots`},
+    ]));
+
+    const meterSection = el('section', 'panel');
+    const meterInner = el('div', 'panel-inner');
+    meterInner.append(panelHead('Exhaust Composition', 'Aggregate byte breakdown across all assayed sessions',
+      'Signal carries meaning. Exhaust and bookkeeping are reclaimable.'));
+
+    const meter = el('div', 'class-meter');
+    const s1 = el('div', 'class-segment signal'); s1.style.width = signalPct + '%'; s1.title = `Signal: ${signalPct}%`;
+    const s2 = el('div', 'class-segment exhaust'); s2.style.width = exhaustPct + '%'; s2.title = `Exhaust: ${exhaustPct}%`;
+    const s3 = el('div', 'class-segment artifact'); s3.style.width = artifactPct + '%'; s3.title = `Artifacts: ${artifactPct}%`;
+    const s4 = el('div', 'class-segment bookkeeping'); s4.style.width = bookPct + '%'; s4.title = `Bookkeeping: ${bookPct}%`;
+    append(meter, s1, s2, s3, s4);
+
+    const legend = el('div', 'class-legend');
+    legend.innerHTML = `
+      <div class="class-legend-item"><span class="legend-dot signal"></span> Signal (${signalPct}% · ${formatBytes(agg.signal || 0)})</div>
+      <div class="class-legend-item"><span class="legend-dot exhaust"></span> Exhaust (${exhaustPct}% · ${formatBytes(agg.exhaust || 0)})</div>
+      <div class="class-legend-item"><span class="legend-dot artifact"></span> Artifacts (${artifactPct}% · ${formatBytes(agg.artifact || 0)})</div>
+      <div class="class-legend-item"><span class="legend-dot bookkeeping"></span> Bookkeeping (${bookPct}% · ${formatBytes(agg.bookkeeping || 0)})</div>
+    `;
+    append(meterInner, meter, legend);
+    meterSection.append(meterInner);
+    root.append(meterSection);
+  }
+
+  const sessionList = el('div', 'content-grid');
+  const panel = el('section', 'panel');
+  const inner = el('div', 'panel-inner');
+  inner.append(panelHead('Inspect Session Assay', 'Pick a session to drill into its candidate evidence slice and metrics',
+    'Selecting candidates governs token cost before feeding evidence to the planner.'));
+
+  const selectSessionRow = el('div', 'field');
+  const options = [{value: '', label: 'Select a session to assay…'}];
+  (state.sessions || []).slice(0, 50).forEach((s) => {
+    options.push({value: s.id, label: `${s.tool} · ${shortID(s.id)} · ${formatBytes(s.bytes)} · ${s.dir || 'no workspace'}`});
+  });
+  const picker = selectInput(options, state.selectedAssaySessionId);
+  picker.addEventListener('change', async () => {
+    state.selectedAssaySessionId = picker.value;
+    if (picker.value) {
+      try {
+        const selected = state.sessions.find(s => s.id === picker.value);
+        state.assayData = await get('/api/assay?id=' + encodeURIComponent(picker.value) + '&tool=' + encodeURIComponent(selected?.tool || ''));
+      } catch (err) {
+        showError(err);
+      }
+    } else {
+      state.assayData = null;
+    }
+    renderAnalyze();
+  });
+  append(selectSessionRow, el('label', 'label', 'Session to Assay'), picker);
+  inner.append(selectSessionRow);
+
+  if (state.assayData && state.assayData.manifest) {
+    const m = state.assayData.manifest;
+    const sess = state.assayData.session;
+    const detailBox = el('div', 'card');
+    detailBox.innerHTML = `
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+        <strong>Session ${escapeHTML(shortID(sess.id))} (${escapeHTML(sess.tool)})</strong>
+        <span class="badge ${sess.risk === 'critical' ? 'danger' : 'blue'}">${escapeHTML(sess.risk || 'normal')}</span>
+      </div>
+      <div class="metric-grid compact" style="margin-bottom:14px;">
+        <div class="metric-card"><span class="metric-label">Total Bytes</span><span class="metric-value">${formatBytes(sess.bytes)}</span></div>
+        <div class="metric-card"><span class="metric-label">Exhaust + bookkeeping</span><span class="metric-value">${formatBytes((m.bytes?.exhaust || 0) + (m.bytes?.bookkeeping || 0))}</span></div>
+        <div class="metric-card"><span class="metric-label">Signal Share</span><span class="metric-value">${m.total_bytes ? Math.round((m.bytes?.signal || 0) / m.total_bytes * 100) : 0}%</span></div>
+        <div class="metric-card"><span class="metric-label">Slice Tokens</span><span class="metric-value">~${state.assayData.slice_tokens || 0}</span></div>
+      </div>
+    `;
+
+    const actions = el('div', 'composer-actions');
+    append(actions,
+      button('💬 Discuss in Chat', 'button', () => {
+        activateView('chat');
+        sendChatMessage(`I want to recover session ${sess.id} (${sess.tool}, ${formatBytes(sess.bytes)}). What can we produce from it?`);
+      }),
+      button('📋 Plan Deliverables', 'button ghost', () => {
+        activateView('plan');
+      }),
+    );
+    detailBox.append(actions);
+    inner.append(detailBox);
+  }
+
+  panel.append(inner);
+  sessionList.append(panel);
+  root.append(sessionList);
+}
+
 async function copyText(value) {
   try {
     await navigator.clipboard.writeText(value || '');
@@ -2791,8 +3299,14 @@ async function copyText(value) {
 async function renderActiveView() {
   await loadOverview();
   switch (state.activeView) {
+  case 'runtime': return renderRuntime();
+  case 'chat': return renderChat();
+  case 'mine':
   case 'recover': return renderRecover();
+  case 'analyze': return renderAnalyze();
+  case 'plan':
   case 'studio': return renderStudio();
+  case 'create':
   case 'library': return renderLibrary();
   case 'cleanup': return renderCleanup();
   case 'activity': return renderActivity();
@@ -2800,11 +3314,11 @@ async function renderActiveView() {
   }
 }
 
-configurePrimaryAction('recover');
+configurePrimaryAction('chat');
 Promise.all([loadOverview(true), refreshJobs()])
-  .then(() => renderRecover())
+  .then(() => renderChat())
   .catch((error) => {
     console.error(error);
-    clear($('#recover-content')).append(emptyState('Recovery could not load', error.message,
+    clear($('#chat-content') || $('#mine-content')).append(emptyState('Recovery could not load', error.message,
       button('Retry', 'button', () => location.reload())));
   });

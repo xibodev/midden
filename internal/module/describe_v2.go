@@ -48,8 +48,9 @@ type V2Descriptor struct {
 	RequestSchemas map[string]json.RawMessage `json:"request_schemas"`
 	ResultSchemas  map[string]json.RawMessage `json:"result_schemas"`
 
-	Permissions Permissions `json:"permissions"`
-	Skills      []Skill     `json:"skills"`
+	Permissions   Permissions `json:"permissions"`
+	Skills        []Skill     `json:"skills"`
+	AgentOverlays []Overlay   `json:"agent_overlays,omitempty"`
 }
 
 // V2Operation is Layer 1: a semantic unit, independent of any face.
@@ -176,6 +177,7 @@ func DescribeV2() V2Descriptor {
 		ResultSchemas:    v1.ResultSchemas,
 		Permissions:      v1.Permissions,
 		Skills:           v1.Skills,
+		AgentOverlays:    v1.AgentOverlays,
 	}
 
 	for _, op := range Operations {

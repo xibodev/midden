@@ -24,6 +24,7 @@
 package module
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -174,12 +175,18 @@ type Requirement struct {
 
 // Request is the JSON document the host supplies via --input.
 type Request struct {
-	Protocol   string          `json:"protocol"`
-	Capability string          `json:"capability"`
-	RequestID  string          `json:"request_id"`
-	Input      json.RawMessage `json:"input"`
-	Roots      map[string]Root `json:"roots"`
-	Grants     Grants          `json:"grants"`
+	Context      context.Context                               `json:"-"`
+	NativeDriver func(context.Context, string) (string, error) `json:"-"`
+	Protocol     string                                        `json:"protocol"`
+	Capability   string                                        `json:"capability"`
+	RequestID    string                                        `json:"request_id"`
+	Input        json.RawMessage                               `json:"input"`
+	Roots        map[string]Root                               `json:"roots"`
+	Grants       Grants                                        `json:"grants"`
+
+	// ExplicitSourceRoots disables ambient fallback to user-profile paths,
+	// requiring all source stores to be explicitly provided in Roots.
+	ExplicitSourceRoots bool `json:"explicit_source_roots,omitempty"`
 
 	// Binaries maps a declared subprocess NAME to the absolute path the host
 	// resolved for it.

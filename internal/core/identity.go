@@ -12,5 +12,5 @@ const (
 	ModuleID = "midden"
 
 	// Version is the product version reported in descriptors and provenance.
-	Version = "0.0.1"
+	Version = "0.1.0"
 )

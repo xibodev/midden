@@ -7,24 +7,40 @@ and turns approved evidence into reviewed drafts with provenance.
 Midden is:
 
 - **Local-first:** one Go binary, an embedded web UI, and a local SQLite index.
-- **Read-only on source stores:** it does not write to Copilot, Claude, or
-  OpenCode session data.
+- **Read-only recovery:** inventory, assay and extraction do not modify source
+  stores. Explicit cleanup commands are separate source-mutation operations.
 - **Approval-gated:** model spend, evidence approval, production, export, and
   cleanup are separate decisions.
 - **Evidence-grounded:** Studio will not create or run an unsupported work item
   when no reclaimed evidence exists.
 
-Current development version: **0.0.1**. It has not been publicly released.
+Current version: **0.1.0 (preview)**. This release adds native kernel chat,
+streaming, model configuration, shared recovery production tools, reviewed
+exports and Pandoc-backed editable PowerPoint/HTML delivery.
+
+Download a platform archive from [Releases](https://github.com/xibodev/midden/releases).
+Use the **standalone** archive for `midden ui`; **headless** archives provide the
+CLI/module surface without the web application. Verify the archive against
+`SHA256SUMS`, extract it, and run `midden ui` (`.\midden.exe ui` on Windows).
+Pandoc is required for PPTX and HTML rendering; it is not bundled.
+
+This is a prerelease, not a claim of completed product validation. Free-provider
+availability and output quality vary. Inspect generated claims and drafts before
+publication. OAuth/native-provider onboarding and live equivalence testing in
+external CLI/Studio hosts remain incomplete.
 
 ## Fastest clean install on Windows
 
 Prerequisites:
 
 - Git
-- Go 1.26.4 or newer
+- Go 1.26.5 or newer
 - At least one supported AI CLI session store if you want Midden to find data
-- A signed-in `copilot`, `claude`, or `opencode` command only for model-backed
-  evidence extraction and generation
+- A working model selected in **Runtime & Models** for standalone model-backed
+  extraction and generation. The embedded Facet Studio v1.0.0 kernel handles it;
+  an external agent CLI is not required for the standalone application.
+- Repository access to private `github.com/xibodev/*` Go dependencies for source
+  builds; set `GOPRIVATE=github.com/xibodev/*` in your build environment.
 
 From PowerShell:
 
@@ -56,11 +72,11 @@ upgrades, and removal.
 
 ## First useful journey
 
-1. Open **Recover**, filter or select exact sessions, and start a free assay.
+1. Open **Mine / Recover**, filter or select exact sessions, and start a free assay.
    The job continues in the background while you use the rest of Midden.
 2. Extract a small evidence scope. Choose a real depth, inspect the long-running
    estimate once, then approve the recovery job.
-3. Create a **Studio** work item from that evidence.
+3. Create a **Plan / Studio** work item from that evidence.
 4. Continue with one persistent workspace agent. It can inspect files, use
    local tools, and run commands in the work context. Destructive, publishing,
    credential, upload, and unapproved paid-provider actions remain explicit

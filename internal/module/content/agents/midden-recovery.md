@@ -1,13 +1,13 @@
 ---
 name: midden-recovery
-description: Recover past agentic-CLI sessions and produce evidence-grounded content. Inventory, assay, and seeds are model-free; extraction and narrative production use an authorized AI CLI. Source stores are read-only. Requires the midden binary.
+description: Recover past agentic-CLI sessions and produce evidence-grounded content. Inventory, assay, and seeds are model-free; extraction and narrative production use the host's authorized model runtime. Source recovery reads are read-only.
 ---
 
 # Midden: session recovery
 
 Midden inventories past agentic-CLI sessions and prepares them for reuse and
 content production. Inventory, assay, and seeds are deterministic; evidence
-extraction and narrative production use an authenticated AI CLI. Source stores
+extraction and narrative production use the host's authorized model runtime. Source stores
 are read-only throughout.
 
 ## What it is for
@@ -23,7 +23,7 @@ meaning, and packages it so work can continue in a fresh session.
   artifact and bookkeeping, and report reclaimable yield. Free and model-free.
 - `seed.create` — build a portable content seed from selected sessions.
 - `evidence.extract` — extract bounded, redacted evidence into Midden's index
-  through an authorized AI CLI. Required before producing from a fresh index.
+  through the host's authorized model runtime. Required before producing from a fresh index.
 - `content.types` — list the documents Midden can write from mined evidence,
   which are free and which cost a model call. Call before producing.
 - `content.produce` — write one of them.
@@ -63,8 +63,8 @@ Do not ask Midden to return raw transcripts to make an integration simpler.
 
 **Redaction is not a privacy filter.** It matches credential shapes — tokens,
 keys, connection strings. It does not remove names, private prose, or
-proprietary code. A redacted seed is safe from leaking a secret, not
-automatically safe to publish.
+proprietary code. Redaction reduces credential exposure but cannot guarantee
+that secrets are absent or that content is suitable for publication.
 
 ## Reading a result
 
@@ -80,6 +80,21 @@ archive is the user's call.
 
 ## Producing content
 
+For a complete reviewed production, inspect `evidence.list` and `recipes.list`
+first. Use `recipes.preview` to discuss a plan without saving; `recipes.design`
+saves it. `recipes.update` revises intent or outputs and invalidates approval.
+`recipes.evidence` selects exact evidence IDs; record `decision: approved` only
+after the user's review. `recipes.produce` creates drafts from that approved
+plan. Read `outputs.inspect` before revising or reviewing with `outputs.review`,
+passing its `content_digest` as `expected_digest`. `outputs.export` copies only
+reviewed, unchanged bytes and provenance into the local vault. A draft, reviewed
+output, rendered deliverable and exported file are distinct outcomes.
+
+The host owns model execution: standalone uses its embedded kernel; a detached
+CLI/module receives an authorized model driver. Do not require an external AI
+CLI when the host supplies a native runtime. Model use alone does not prove a
+monetary charge; report pricing as unknown unless the host supplies evidence.
+
 Mining is not the end. `content.produce` turns stored evidence into a document
 a person reads: a tutorial, an ADR, a slide deck, a diagram, a video brief.
 
@@ -92,19 +107,21 @@ content-production workflow.
 
 Seven kinds are deterministic and free — notebook, retrieval, eval, sft and
 preference packs, and the privacy and provenance manifests. Twelve are written
-by a model through an AI CLI the user is already signed in to, and Midden holds
-no API key: `content.produce` needs the host to grant subprocess authority and
-supply that binary. Without a grant it returns `subprocess_denied` and names the
-free kinds instead of producing something weaker.
+by a model supplied by the host. Standalone uses the embedded kernel; detached
+CLI/module execution requires an explicitly granted driver. The host manages
+provider credentials. Missing runtime authority is an error, never an invitation
+to silently choose another provider or fabricate output.
 
 **Cost is per document, not per capability.** A free pack reports zero. A
 model-backed document reports UNKNOWN cost, because the spend happens inside
-someone's own subscription and Midden never sees a bill. Never describe a
-model-backed output as free.
+the selected provider and pricing is not necessarily available. Model usage and
+monetary charge are separate facts; report a free tier only when the host identifies it.
 
 **Every output is source text.** A diagram is `.d2` source, a deck is markdown
-with Marp front matter. Midden renders nothing, and the `maker` field names the
-tool a person would run next rather than a dependency Midden invokes.
+with Marp front matter. The `maker` field names the
+renderer for that source. `outputs.render` invokes Pandoc to create editable
+PowerPoint from slide source or standalone HTML from Markdown. Rendering does
+not approve the content; inspect the actual delivered format before declaring it ready.
 
 Outputs are drafts. Producing a document is not approving it.
 

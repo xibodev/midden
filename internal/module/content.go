@@ -617,6 +617,7 @@ var _ = json.Marshal
 // happens to appear earlier on a search path. A zero value means no authority
 // was granted, and a model-backed output must be refused rather than attempted.
 type ModelGrant struct {
+	Context      context.Context
 	Backend      exec.Backend
 	Path         string
 	Timeout      time.Duration
@@ -648,6 +649,9 @@ func getNativeDriver() func(ctx context.Context, prompt string) (string, error) 
 // module declares what it MAY need, and only what the host actually authorized
 // for this invocation may be run.
 func modelGrantFrom(req Request) ModelGrant {
+	if req.NativeDriver != nil {
+		return ModelGrant{Backend: exec.Backend("native"), Timeout: deadlineOf(req), StageDir: writableRootOf(req), NativeDriver: req.NativeDriver, Context: req.Context}
+	}
 	if driver := getNativeDriver(); driver != nil {
 		return ModelGrant{
 			Backend:      exec.Backend("native"),
@@ -722,6 +726,20 @@ func deadlineOf(req Request) time.Duration {
 // run and a terminal run produce the same shape from the same evidence.
 func runModelOutput(spec index.RecipeOutputSpec, recipe index.Recipe, nuggets []index.Nugget, grant ModelGrant) (string, string, error) {
 	prompt := refinery.EvidencePreamble(recipe, nuggets) + "\n" + refinery.OutputRequest(spec)
+	if grant.NativeDriver != nil {
+		ctx := grant.Context
+		if ctx == nil {
+			ctx = context.Background()
+		}
+		timeout := grant.Timeout
+		if timeout <= 0 {
+			timeout = 5 * time.Minute
+		}
+		ctx, cancel := context.WithTimeout(ctx, timeout)
+		defer cancel()
+		out, err := grant.NativeDriver(ctx, prompt)
+		return out, "", err
+	}
 
 	runner := &exec.Runner{
 		Backend:      grant.Backend,

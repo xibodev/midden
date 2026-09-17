@@ -18,6 +18,9 @@
         "workspace_exists": false
       }
     ],
+    "risk_counts": {
+      "ok": 1
+    },
     "total": 1,
     "excluded_noise": 0,
     "matched": 1,

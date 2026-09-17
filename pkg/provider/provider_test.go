@@ -3,13 +3,44 @@ package provider_test
 import (
 	"context"
 	"encoding/json"
+	"github.com/mekjr1/midden/internal/index"
 	"strings"
 	"testing"
+	"time"
 
-	"github.com/xibodev/facet-studio/pkg/agent"
 	"github.com/mekjr1/midden/internal/module"
 	"github.com/mekjr1/midden/pkg/provider"
+	"github.com/xibodev/facet-studio/pkg/agent"
 )
+
+func TestNativeWorkflowUsesSharedEvidenceAndRecipeStore(t *testing.T) {
+	home := t.TempDir()
+	db, err := index.OpenAt(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if err = db.PutNuggets([]index.Nugget{{UID: "native-evidence", Kind: "decision", Title: "Explicit scope", Body: "Keep evidence bound to the selected session.", Workspace: "fixture", Confidence: 1, CreatedAt: time.Now()}}); err != nil {
+		t.Fatal(err)
+	}
+	p := provider.NewMiddenToolProvider(provider.WithStateRoot(home))
+	tools := map[string]agent.Tool{}
+	p.RegisterTools(t.TempDir(), func(tool agent.Tool) { tools[tool.Name()] = tool })
+	result := tools["midden_recipes_design"].Execute(context.Background(), map[string]any{"workspace": "fixture", "output_kinds": []string{"provenance_manifest"}, "evidence_ids": []string{"native-evidence"}})
+	if result.IsError {
+		t.Fatal(result.ForLLM)
+	}
+	var response struct {
+		Recipe index.Recipe `json:"recipe"`
+	}
+	if err = json.Unmarshal([]byte(result.ForLLM), &response); err != nil {
+		t.Fatal(err)
+	}
+	r, err := db.Recipe(response.Recipe.UID)
+	if err != nil || len(r.EvidenceIDs) != 1 || r.EvidenceIDs[0] != "native-evidence" {
+		t.Fatalf("native and views do not share state: %+v %v", r, err)
+	}
+}
 
 func TestMiddenToolProvider_Registration(t *testing.T) {
 	p := provider.NewMiddenToolProvider()

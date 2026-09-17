@@ -1,6 +1,7 @@
 package install
 
 import (
+	"github.com/mekjr1/midden/internal/module"
 	"os"
 	"path/filepath"
 	"strings"
@@ -53,6 +54,19 @@ func TestInstallWritesTheDeclaredBundle(t *testing.T) {
 	}
 	if err := VerifySkillsInstall(tgt); err != nil {
 		t.Errorf("verify after install: %v", err)
+	}
+	entry, err := os.ReadFile(filepath.Join(tgt.SkillsDir, bundle[0].dir, "SKILL.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, overlay := range module.Describe().AgentOverlays {
+		raw, _ := module.OverlayContent(overlay.Path)
+		if !strings.Contains(string(entry), string(raw)) {
+			t.Errorf("CLI entry skill omitted overlay %s", overlay.ID)
+		}
+	}
+	if !strings.Contains(string(entry), module.WorkflowGuidance()) {
+		t.Fatal("CLI entry omitted full workflow guidance")
 	}
 }
 

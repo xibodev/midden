@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"path/filepath"
 	"runtime"
 	"syscall"
 	"time"
@@ -19,6 +20,7 @@ import (
 	"github.com/mekjr1/midden/internal/index"
 	"github.com/mekjr1/midden/internal/render"
 	"github.com/mekjr1/midden/internal/web"
+	kernelconfig "github.com/xibodev/facet-studio/pkg/config"
 )
 
 // cmdUI serves the embedded web interface.
@@ -41,6 +43,20 @@ func cmdUI(args []string) error {
 	}
 	defer db.Close()
 
+	// The public kernel uses process-scoped home paths for catalogs and auth.
+	// Bind these once, before creating any kernel service, in this standalone
+	// process rather than inheriting a full Studio installation's state.
+	kernelHome := filepath.Join(filepath.Dir(db.Path()), "kernel")
+	for key, value := range map[string]string{
+		kernelconfig.EnvHome:          kernelHome,
+		kernelconfig.EnvConfig:        filepath.Join(kernelHome, "config.json"),
+		kernelconfig.EnvBuiltinSkills: filepath.Join(kernelHome, "skills"),
+	} {
+		if err := os.Setenv(key, value); err != nil {
+			return err
+		}
+	}
+
 	addr := fmt.Sprintf("127.0.0.1:%d", *port)
 	ln, err := net.Listen("tcp", addr)
 	if err != nil {
@@ -49,6 +65,7 @@ func cmdUI(args []string) error {
 
 	application := web.NewServer(db)
 	defer application.Close()
+	application.StartRuntime(context.Background())
 	srv := &http.Server{
 		Handler:           application.Handler(),
 		ReadHeaderTimeout: 10 * time.Second,

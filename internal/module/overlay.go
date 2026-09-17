@@ -138,6 +138,35 @@ func OverlayContent(path string) ([]byte, bool) {
 	return nil, false
 }
 
+// WorkflowGuidance is delivery-neutral knowledge shared by the CLI bundle and
+// native prompt contributor. Capability names are stable; hosts adapt invocation.
+func WorkflowGuidance() string {
+	var b strings.Builder
+	b.WriteString("\n## Evidence-to-output workflow\n\nInspect existing evidence and recipes before re-extracting. Ask for the recovery goal, exact source scope, audience and intended deliverables. Assay source material before model-backed extraction. A preview, saved recipe, approved evidence set, draft, reviewed output and exported file are different states.\n\n")
+	for _, cap := range workflowCapabilities {
+		fmt.Fprintf(&b, "- `%s`: %s\n", cap.ID, cap.Summary)
+	}
+	b.WriteString("\nUse recipes.preview to discuss a plan; recipes.design saves it. recipes.evidence records the user's exact evidence selection and review. recipes.produce starts only from an approved plan. Read outputs.inspect and its content_digest before outputs.review; send that digest as expected_digest. Revisions invalidate earlier review. Export only reviewed, unchanged bytes with provenance. A model's self-review is not a human's editorial approval. Never claim a seed or a source document is a finished rendered deliverable.\n")
+	b.WriteString("\nWhen the host agent authors the content itself, recipes.compose accepts drafts keyed by output kind and saves them into the same approved-plan lifecycle without a nested model call. Use outputs.render for editable PPTX from slides or standalone HTML from Markdown. Pandoc must be installed; surface missing renderer errors. A source preview is not a visual verification of PowerPoint rendering.\n")
+	return b.String()
+}
+
+// CLISkillContent includes the canonical recovery overlay in the entry skill so
+// installing skills alone does not silently omit the agent's steering guidance.
+func CLISkillContent(path string) ([]byte, bool) {
+	raw, ok := OverlayContent(path)
+	if !ok {
+		return nil, false
+	}
+	out := append([]byte(nil), raw...)
+	if path == pathSkillRecovery {
+		out = append(out, []byte("\n\n## Recovery capability guidance\n\n")...)
+		out = append(out, mustRead(pathOverlayRecovery)...)
+	}
+	out = append(out, []byte(WorkflowGuidance())...)
+	return out, true
+}
+
 // SelfCheck reports problems in Midden's own descriptor.
 //
 // It exists because of a question a host could not answer from outside: a

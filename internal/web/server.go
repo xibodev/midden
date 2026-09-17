@@ -33,6 +33,10 @@ import (
 	"github.com/mekjr1/midden/internal/oracle"
 	"github.com/mekjr1/midden/internal/plugins"
 	"github.com/mekjr1/midden/internal/refine"
+
+	"github.com/xibodev/facet-studio/pkg/agent"
+	"github.com/xibodev/facet-studio/pkg/config"
+	runtimeevents "github.com/xibodev/facet-studio/pkg/events"
 )
 
 //go:embed ui/*
@@ -58,6 +62,18 @@ type Server struct {
 	reindexing    bool
 	reindexedAt   time.Time
 	retryAt       time.Time
+
+	agentLoop     *agent.AgentLoop
+	agentEventBus *runtimeevents.EventBus
+	agentLoopMu   sync.RWMutex
+	agentCfg      *config.Config
+	agentInitOnce sync.Once
+	agentStatus   string
+	agentError    string
+	agentVerified bool
+	agentClosed   bool
+	approvalMu    sync.Mutex
+	approvals     map[string]*browserApproval
 }
 
 func NewServer(db *index.DB) *Server {
@@ -73,10 +89,44 @@ func NewServer(db *index.DB) *Server {
 	return s
 }
 
+func (s *Server) initAgentRuntime(ctx context.Context) {
+	s.agentInitOnce.Do(func() {
+		s.agentLoopMu.Lock()
+		defer s.agentLoopMu.Unlock()
+		if s.agentClosed {
+			return
+		}
+		s.agentStatus = "connecting"
+		if err := s.configureRuntime(ctx, "", false); err != nil {
+			s.agentStatus, s.agentError = "unavailable", err.Error()
+		}
+	})
+}
+
+// SetAgentLoop overrides the server's agent loop (used in tests or custom embeddings).
+func (s *Server) SetAgentLoop(al *agent.AgentLoop) {
+	s.agentLoopMu.Lock()
+	defer s.agentLoopMu.Unlock()
+	s.agentLoop = al
+}
+
 // Close releases process-local job ownership before the owned database closes.
 func (s *Server) Close() {
-	if s != nil && s.jobs != nil {
-		s.jobs.Close()
+	if s != nil {
+		if s.jobs != nil {
+			s.jobs.Close()
+		}
+		s.agentLoopMu.Lock()
+		s.agentClosed = true
+		if s.agentLoop != nil {
+			s.agentLoop.Close()
+			s.agentLoop = nil
+		}
+		if s.agentEventBus != nil {
+			s.agentEventBus.Close()
+			s.agentEventBus = nil
+		}
+		s.agentLoopMu.Unlock()
 	}
 }
 
@@ -129,8 +179,16 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/refinery/output", s.handleRefineryOutput)
 	mux.HandleFunc("/api/refinery/action", s.handleRefineryAction)
 	mux.HandleFunc("/api/refinery/connections", s.handleRefineryConnections)
+	mux.HandleFunc("/api/chat", s.handleChat)
+	mux.HandleFunc("/api/runtime", s.handleRuntime)
+	mux.HandleFunc("/api/chat/events", s.handleChatEvents)
+	mux.HandleFunc("/api/chat/approvals", s.handleChatApprovals)
 
 	return localOnly(mux)
+}
+
+func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
+	s.serveKernelChat(w, r)
 }
 
 // localOnly rejects non-loopback callers.
@@ -363,8 +421,21 @@ func (s *Server) handleSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	matches, _ := adapter.Collect(core.Scope{IDPrefix: id, IncludeNoise: true})
+	if tool := r.URL.Query().Get("tool"); tool != "" {
+		filtered := matches[:0]
+		for _, candidate := range matches {
+			if string(candidate.Tool) == tool {
+				filtered = append(filtered, candidate)
+			}
+		}
+		matches = filtered
+	}
 	if len(matches) == 0 {
 		http.Error(w, "not found", http.StatusNotFound)
+		return
+	}
+	if len(matches) != 1 {
+		http.Error(w, "ambiguous session; supply exact id and tool", http.StatusConflict)
 		return
 	}
 
@@ -400,6 +471,19 @@ func (s *Server) handleAssay(w http.ResponseWriter, r *http.Request) {
 	matches, _ := adapter.Collect(core.Scope{IDPrefix: id, IncludeNoise: true})
 	if len(matches) == 0 {
 		http.Error(w, "not found", http.StatusNotFound)
+		return
+	}
+	if tool := r.URL.Query().Get("tool"); tool != "" {
+		filtered := matches[:0]
+		for _, candidate := range matches {
+			if string(candidate.Tool) == tool {
+				filtered = append(filtered, candidate)
+			}
+		}
+		matches = filtered
+	}
+	if len(matches) != 1 {
+		http.Error(w, "session is missing or ambiguous; supply exact id and tool", http.StatusConflict)
 		return
 	}
 	a, ok := adapter.Find(matches[0].Tool).(adapter.Assayer)

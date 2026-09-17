@@ -19,10 +19,8 @@ import (
 	"github.com/mekjr1/midden/internal/core"
 	"github.com/mekjr1/midden/internal/cost"
 	"github.com/mekjr1/midden/internal/create"
-	agentexec "github.com/mekjr1/midden/internal/exec"
 	"github.com/mekjr1/midden/internal/index"
 	"github.com/mekjr1/midden/internal/redact"
-	"github.com/mekjr1/midden/internal/refine"
 	"github.com/mekjr1/midden/internal/refinery"
 )
 
@@ -226,8 +224,20 @@ func (s *Server) handleRefineryOutput(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, map[string]any{
 		"output": output, "body": string(body), "provenance": provenance,
-		"binary": !isTextOutputFormat(output.Format),
+		"content_digest": create.Digest(body),
+		"deliveries":     s.outputDeliveries(output.UID),
+		"binary":         !isTextOutputFormat(output.Format),
 	})
+}
+
+func (s *Server) outputDeliveries(id string) []map[string]string {
+	items := []map[string]string{}
+	for _, format := range []string{"pptx", "html"} {
+		if _, err := (create.Workflow{DB: s.db}).DeliveryPath(id, format); err == nil {
+			items = append(items, map[string]string{"format": format, "url": "/api/output-download?id=" + id + "&format=" + format})
+		}
+	}
+	return items
 }
 
 func isTextOutputFormat(format string) bool {
@@ -240,18 +250,21 @@ func isTextOutputFormat(format string) bool {
 }
 
 type refineryActionRequest struct {
-	Action      string   `json:"action"`
-	RecipeID    string   `json:"recipe_id"`
-	OutputID    string   `json:"output_id"`
-	Workspace   string   `json:"workspace"`
-	Prompt      string   `json:"prompt"`
-	Title       string   `json:"title"`
-	Decision    string   `json:"decision"`
-	Destination string   `json:"destination"`
-	Body        string   `json:"body"`
-	OutputKinds []string `json:"output_kinds"`
-	EvidenceIDs []string `json:"evidence_ids"`
-	ProposalID  string   `json:"proposal_id"`
+	Action         string            `json:"action"`
+	RecipeID       string            `json:"recipe_id"`
+	OutputID       string            `json:"output_id"`
+	Workspace      string            `json:"workspace"`
+	Prompt         string            `json:"prompt"`
+	Title          string            `json:"title"`
+	Decision       string            `json:"decision"`
+	Destination    string            `json:"destination"`
+	Body           string            `json:"body"`
+	OutputKinds    []string          `json:"output_kinds"`
+	EvidenceIDs    []string          `json:"evidence_ids"`
+	ExpectedDigest string            `json:"expected_digest"`
+	ProposalID     string            `json:"proposal_id"`
+	Format         string            `json:"format"`
+	Drafts         map[string]string `json:"drafts"`
 }
 
 // handleRefineryAction applies short, explicit state transitions. Expensive
@@ -276,6 +289,14 @@ func (s *Server) handleRefineryAction(w http.ResponseWriter, r *http.Request) {
 		err    error
 	)
 	switch req.Action {
+	case "compose":
+		if len(req.Drafts) == 0 {
+			err = fmt.Errorf("drafts are required")
+		} else {
+			result, err = (create.Workflow{DB: s.db, Drafts: req.Drafts}).Produce(r.Context(), req.RecipeID)
+		}
+	case "render_output":
+		result, err = (create.Workflow{DB: s.db}).Render(r.Context(), req.OutputID, req.Format)
 	case "preview_design":
 		result, err = s.previewRecipe(req)
 	case "design":
@@ -310,15 +331,11 @@ func (s *Server) handleRefineryAction(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) designRecipe(req refineryActionRequest) (any, error) {
-	recipe, err := s.buildRecipe(req)
-	if err != nil {
-		return nil, err
-	}
-	if err := s.db.PutRecipe(&recipe); err != nil {
-		return nil, err
-	}
-	s.db.RecordOp("recipe_design", "", "", 0, 0, recipe.UID, true)
-	return map[string]any{"recipe": recipe}, nil
+	return (create.Workflow{DB: s.db}).Design(workflowChange(req), true)
+}
+
+func workflowChange(req refineryActionRequest) create.Change {
+	return create.Change{RecipeID: req.RecipeID, OutputID: req.OutputID, Workspace: req.Workspace, Prompt: req.Prompt, Title: req.Title, Decision: req.Decision, Destination: req.Destination, Body: req.Body, OutputKinds: req.OutputKinds, EvidenceIDs: req.EvidenceIDs, ExpectedDigest: req.ExpectedDigest}
 }
 
 func (s *Server) previewRecipe(req refineryActionRequest) (any, error) {
@@ -340,8 +357,8 @@ func (s *Server) previewRecipe(req refineryActionRequest) (any, error) {
 	return map[string]any{
 		"recipe": recipe, "evidence_report": report, "estimate": estimate,
 		"estimate_text": productionEstimateText(recipe, estimate),
-		"backend":       "auto-detect signed-in CLI",
-		"model":         "backend default", "estimated_seconds": estimatedSeconds,
+		"backend":       "native",
+		"model":         "configured kernel model", "estimated_seconds": estimatedSeconds,
 	}, nil
 }
 
@@ -361,81 +378,20 @@ func (s *Server) buildRecipe(req refineryActionRequest) (index.Recipe, error) {
 }
 
 func (s *Server) updateRecipe(req refineryActionRequest) (any, error) {
-	recipe, err := s.db.Recipe(req.RecipeID)
-	if err != nil {
-		return nil, err
-	}
-	if recipe.Status == refinery.RecipeRunning || recipe.Status == refinery.RecipeArchived {
-		return nil, fmt.Errorf("a %s recipe cannot be edited", recipe.Status)
-	}
-	if strings.TrimSpace(req.Title) != "" {
-		recipe.Title = strings.TrimSpace(req.Title)
-	}
-	if strings.TrimSpace(req.Prompt) != "" {
-		recipe.Request = strings.TrimSpace(req.Prompt)
-	}
-	if len(req.OutputKinds) > 0 {
-		var outputs []index.RecipeOutputSpec
-		for _, kind := range uniqueStrings(req.OutputKinds) {
-			output, ok := refinery.FindTemplate(kind)
-			if !ok {
-				return nil, fmt.Errorf("unknown refinery output %q", kind)
-			}
-			outputs = append(outputs, output)
-		}
-		recipe.Outputs = outputs
-	}
-	recipe.Status = refinery.RecipeEvidenceReview
-	recipe.ApprovedAt = time.Time{}
-	if err := s.db.PutRecipe(&recipe); err != nil {
-		return nil, err
-	}
-	return map[string]any{"recipe": recipe}, nil
+	return (create.Workflow{DB: s.db}).Update(workflowChange(req))
 }
 
 func (s *Server) updateRecipeEvidence(req refineryActionRequest, approve bool) (any, error) {
-	recipe, err := s.db.Recipe(req.RecipeID)
-	if err != nil {
-		return nil, err
-	}
-	if recipe.Status == refinery.RecipeRunning || recipe.Status == refinery.RecipeArchived {
-		return nil, fmt.Errorf("evidence cannot be changed while the recipe is %s", recipe.Status)
-	}
-	ids := uniqueStrings(req.EvidenceIDs)
-	evidence, err := s.db.NuggetsByIDs(ids)
-	if err != nil {
-		return nil, err
-	}
-	if len(evidence) != len(ids) {
-		return nil, fmt.Errorf("one or more selected evidence items no longer exist")
-	}
-	recipe.EvidenceIDs = ids
-	recipe.Status = refinery.RecipeEvidenceReview
-	recipe.ApprovedAt = time.Time{}
-	report := refinery.AssessEvidence(recipe, evidence)
-	if approve {
-		if report.Blocked {
-			return nil, fmt.Errorf("the evidence set is blocked")
-		}
-		recipe.Status = refinery.RecipeApproved
-		recipe.ApprovedAt = time.Now()
-	}
-	if err := s.db.PutRecipe(&recipe); err != nil {
-		return nil, err
-	}
-	detail := "saved"
-	if approve {
-		detail = "approved"
-	}
-	s.db.RecordOp("evidence_"+detail, "", "", 0, 0,
-		fmt.Sprintf("recipe=%s items=%d quality=%.1f", recipe.UID, len(ids), report.Quality), true)
-	return map[string]any{"recipe": recipe, "evidence_report": report}, nil
+	return (create.Workflow{DB: s.db}).SelectEvidence(workflowChange(req), approve)
 }
 
 func (s *Server) reviewRefineryOutput(req refineryActionRequest) (any, error) {
 	output, err := s.db.RefineryOutput(req.OutputID)
 	if err != nil {
 		return nil, err
+	}
+	if output.ProvenancePath != "" && isTextOutputFormat(output.Format) {
+		return (create.Workflow{DB: s.db}).Review(workflowChange(req))
 	}
 	switch req.Decision {
 	case refinery.OutputDraft, refinery.OutputReviewed, refinery.OutputRejected:
@@ -602,6 +558,9 @@ func (s *Server) exportRefineryOutput(req refineryActionRequest) (any, error) {
 	output, err := s.db.RefineryOutput(req.OutputID)
 	if err != nil {
 		return nil, err
+	}
+	if output.ProvenancePath != "" && isTextOutputFormat(output.Format) {
+		return (create.Workflow{DB: s.db}).Export(workflowChange(req))
 	}
 	if output.Status != refinery.OutputReviewed && output.Status != refinery.OutputExported {
 		return nil, fmt.Errorf("review this output before exporting it")
@@ -894,253 +853,25 @@ func valueOr(value, fallback string) string {
 
 // doProduction generates every approved output from one warm model context,
 // while deterministic packs remain free. It always stops at draft review.
-func (s *Server) doProduction(jobID string, req actionRequest) (_ any, returnErr error) {
-	recipe, err := s.db.Recipe(req.RecipeID)
-	if err != nil {
-		return nil, err
-	}
-	evidence, err := s.db.NuggetsByIDs(recipe.EvidenceIDs)
-	if err != nil {
-		return nil, err
-	}
-	estimate, report := s.productionEstimate(recipe, evidence)
-	s.jobs.update(jobID, func(job *Job) { job.Estimate = &estimate })
+func (s *Server) doProduction(jobID string, req actionRequest) (any, error) {
 	if !req.Apply {
-		estimatedSeconds := 0
-		for _, output := range recipe.Outputs {
-			if output.RequiresModel {
-				estimatedSeconds += 60
-			}
-		}
-		return map[string]any{
-			"preview": true, "recipe": recipe, "evidence_report": report,
-			"estimate": estimate, "estimate_text": productionEstimateText(recipe, estimate),
-			"backend":           valueOr(req.Backend, "auto-detect signed-in CLI"),
-			"model":             valueOr(req.Model, "backend default"),
-			"estimated_seconds": estimatedSeconds,
-		}, nil
-	}
-
-	// The pre-spend gates are canonical: every face must refuse the same runs
-	// for the same stated reasons, or "approved" means something different
-	// depending on where the button was.
-	if err := (create.Producer{DB: s.db}).CheckRunnable(recipe, evidence, report); err != nil {
-		return nil, err
-	}
-	claimed, err := s.db.ClaimRecipeForRun(recipe.UID)
-	if err != nil {
-		return nil, err
-	}
-	if !claimed {
-		return nil, fmt.Errorf("this recipe is already running or is no longer approved")
-	}
-	recipe.Status = refinery.RecipeRunning
-
-	run := index.RefineryRun{
-		RecipeID: recipe.UID, Status: "running", Estimate: estimate,
-		Backend: req.Backend, Model: req.Model, Stages: productionStages(recipe.Outputs),
-	}
-	defer func() {
-		if returnErr == nil {
-			return
-		}
-		failActiveStage(&run, returnErr.Error())
-		run.Status = "failed"
-		run.Error = returnErr.Error()
-		run.EndedAt = time.Now()
-		_ = s.db.PutRefineryRun(&run)
-		recipe.Status = refinery.RecipeFailed
-		_ = s.db.PutRecipe(&recipe)
-	}()
-	if err := s.db.PutRefineryRun(&run); err != nil {
-		return nil, err
-	}
-
-	setStage(&run, "evidence", "running", fmt.Sprintf("%d approved items", len(evidence)))
-	_ = s.db.PutRefineryRun(&run)
-	s.jobs.update(jobID, func(job *Job) { job.Progress = "loading approved evidence" })
-	setStage(&run, "evidence", "done", fmt.Sprintf("%d items · %.1f%% quality", len(evidence), report.Quality))
-	_ = s.db.PutRefineryRun(&run)
-
-	modelOutputs := 0
-	for _, output := range recipe.Outputs {
-		if output.RequiresModel {
-			modelOutputs++
-		}
-	}
-
-	var (
-		conversation *agentexec.Conversation
-		modelLabel   = "deterministic"
-		ledger       *cost.Run
-		ledgerDone   bool
-	)
-	var generated []index.RefineryOutput
-	defer func() {
-		if ledger == nil || ledgerDone {
-			return
-		}
-		ledger.Items = len(generated)
-		ledger.EndedAt = time.Now()
-		ledger.OK = returnErr == nil
-		if returnErr != nil {
-			ledger.Note = returnErr.Error()
-		}
-		// A failed ledger write is REPORTED, never discarded. The work is done
-		// and the user holds the output, so failing the job over bookkeeping
-		// would be the wrong trade -- but a silently unrecorded spend is how
-		// `midden cost` quietly stops matching what was actually paid for.
-		//
-		// The module face already does this (internal/module/ledger.go). This
-		// face discarded the same error, so the same failure was visible
-		// through one door and invisible through the other.
-		if err := s.db.PutRun(*ledger); err != nil {
-			s.jobs.update(jobID, func(job *Job) {
-				job.Progress = "model spend was NOT recorded in the cost ledger: " +
-					err.Error() + ". The work completed; only the accounting " +
-					"failed, so `midden cost` will under-report."
-			})
-		}
-		time.Sleep(1500 * time.Millisecond)
-		s.settle(jobID, ledger.UID)
-	}()
-	if modelOutputs > 0 {
-		backend, err := agentexec.Detect(req.Backend)
+		preview, err := (create.Producer{DB: s.db}).Preview(req.RecipeID)
 		if err != nil {
 			return nil, err
 		}
-		runner := &agentexec.Runner{Backend: backend, Model: req.Model, Pure: true, Timeout: 20 * time.Minute}
-		conversation = runner.NewConversation()
-		modelLabel = req.Model
-		if modelLabel == "" {
-			modelLabel = string(backend) + ":default"
-		}
-		run.Backend, run.Model = string(backend), modelLabel
-		ledger = &cost.Run{
-			UID: index.NewUID(), Op: "refinery", Scope: recipe.Title,
-			Backend: string(backend), EstTokens: estimate.RawTokens,
-			StartedAt: time.Now(), CLISessions: []string{conversation.SessionID()},
-		}
-		if err := s.db.PutRun(*ledger); err != nil {
-			return nil, fmt.Errorf("record production cost ledger: %w", err)
-		}
-		setStage(&run, "context", "running", "one warm context for every narrative output")
-		_ = s.db.PutRefineryRun(&run)
-		s.jobs.update(jobID, func(job *Job) { job.Progress = "loading one warm evidence context" })
-		if _, err := conversation.Prime(context.Background(), refinery.EvidencePreamble(recipe, evidence)); err != nil {
-			return nil, fmt.Errorf("load evidence context: %w", err)
-		}
-		setStage(&run, "context", "done", "context loaded once")
-		_ = s.db.PutRefineryRun(&run)
-	} else {
-		setStage(&run, "context", "done", "all selected outputs are deterministic local packs")
-		_ = s.db.PutRefineryRun(&run)
+		return map[string]any{"preview": true, "recipe": preview.Recipe, "evidence_report": preview.Report, "estimate": preview.Estimate, "estimate_text": productionEstimateText(preview.Recipe, preview.Estimate), "backend": "native", "model": "configured kernel model", "estimated_seconds": preview.ModelOutputs * 60}, nil
 	}
-
-	dir := filepath.Join(index.Dir(), "artifacts", "refinery",
-		refinery.Slug(recipe.Title)+"-"+shortID(recipe.UID), shortID(run.UID))
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return nil, err
+	s.agentLoopMu.RLock()
+	model := ""
+	if s.agentCfg != nil {
+		model = s.agentCfg.Agents.Defaults.GetModelName()
 	}
-
-	for i, spec := range recipe.Outputs {
-		stageKey := fmt.Sprintf("output-%d", i)
-		setStage(&run, stageKey, "running", spec.Maker)
-		_ = s.db.PutRefineryRun(&run)
-		s.jobs.update(jobID, func(job *Job) {
-			job.Progress = fmt.Sprintf("creating %d/%d  %s", i+1, len(recipe.Outputs), spec.Title)
-		})
-
-		body, deterministic, err := refinery.DeterministicOutput(spec, recipe, evidence)
-		outputModel := "deterministic"
-		if err != nil {
-			return nil, err
-		}
-		if !deterministic {
-			if conversation == nil {
-				return nil, fmt.Errorf("%s requires a model backend", spec.Title)
-			}
-			response, err := conversation.Ask(context.Background(), refinery.OutputRequest(spec))
-			if err != nil {
-				return nil, fmt.Errorf("%s: %w", spec.Title, err)
-			}
-			body = refine.CleanOutput(response.Output)
-			if strings.TrimSpace(body) == "" {
-				return nil, fmt.Errorf("%s returned an empty draft", spec.Title)
-			}
-			outputModel = modelLabel
-		}
-		redactionSummary := ""
-		if scan := redact.Scan(body); len(scan) > 0 {
-			redacted := redact.Text(body)
-			body = redacted.Text
-			redactionSummary = redact.Summary(scan)
-		}
-		body = refinery.WrapOutput(spec, recipe, body, outputModel, len(evidence))
-		fileName := fmt.Sprintf("%02d-%s%s", i+1, refinery.Slug(spec.Title), refinery.FileExtension(spec))
-		path := filepath.Join(dir, fileName)
-		if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
-			return nil, err
-		}
-		provenancePath := path + ".provenance.json"
-		provenance, err := productionProvenance(recipe, run, spec, evidence, outputModel, redactionSummary)
-		if err != nil {
-			return nil, err
-		}
-		if err := os.WriteFile(provenancePath, provenance, 0o644); err != nil {
-			return nil, err
-		}
-
-		output := index.RefineryOutput{
-			RecipeID: recipe.UID, RunID: run.UID, Kind: spec.Kind,
-			Title: spec.Title, Maker: spec.Maker, Format: spec.Format,
-			Status: refinery.OutputDraft, Path: path, ProvenancePath: provenancePath,
-			EvidenceIDs: append([]string(nil), recipe.EvidenceIDs...), Quality: report.Quality,
-		}
-		if err := s.db.PutRefineryOutput(&output); err != nil {
-			return nil, err
-		}
-		if err := s.db.PutArtifact(index.Artifact{
-			Kind: "refinery:" + spec.Kind, Title: spec.Title, Path: path,
-			Scope: recipe.Workspace, NuggetIDs: recipe.EvidenceIDs, Model: outputModel,
-		}); err != nil {
-			return nil, err
-		}
-		generated = append(generated, output)
-		setStage(&run, stageKey, "done", "draft written with provenance")
-		_ = s.db.PutRefineryRun(&run)
-	}
-
-	if ledger != nil {
-		ledger.Items = len(generated)
-		ledger.EndedAt = time.Now()
-		ledger.OK = true
-		if err := s.db.PutRun(*ledger); err != nil {
-			return nil, fmt.Errorf("finalize production cost ledger: %w", err)
-		}
-		s.jobs.update(jobID, func(job *Job) { job.Progress = "settling production cost" })
-		time.Sleep(1500 * time.Millisecond)
-		s.settle(jobID, ledger.UID)
-		ledgerDone = true
-	}
-
-	setStage(&run, "review", "waiting", fmt.Sprintf("%d draft(s) require human review", len(generated)))
-	run.Status = "done"
-	run.EndedAt = time.Now()
-	if err := s.db.PutRefineryRun(&run); err != nil {
-		return nil, err
-	}
-	recipe.Status = refinery.RecipeReview
-	if err := s.db.PutRecipe(&recipe); err != nil {
-		return nil, err
-	}
-	s.db.RecordOp("production", "", "", 0, 0,
-		fmt.Sprintf("recipe=%s run=%s outputs=%d", recipe.UID, run.UID, len(generated)), true)
+	s.agentLoopMu.RUnlock()
+	w := create.Workflow{DB: s.db, Model: model, Generate: s.generateNative}
+	s.jobs.update(jobID, func(j *Job) { j.Progress = "producing approved evidence-grounded drafts" })
+	result, err := w.Produce(context.Background(), req.RecipeID)
 	s.cache.invalidate()
-	return map[string]any{
-		"recipe": recipe, "run": run, "outputs": generated,
-		"review_required": true,
-	}, nil
+	return result, err
 }
 
 func productionStages(outputs []index.RecipeOutputSpec) []index.RefineryRunStage {

@@ -21,33 +21,42 @@
       </div>
 
       <nav class="primary-nav" aria-label="Product">
-        <span class="nav-section">Recover and create</span>
-        <button class="nav-item active" data-view="recover" type="button">
-          <span class="nav-symbol" aria-hidden="true">R</span><span>Recover</span><span class="nav-count" id="nav-recover-count">0</span>
+        <span class="nav-section">Recovery Workflow</span>
+        <button class="nav-item active" data-view="chat" type="button">
+          <span class="nav-symbol" aria-hidden="true">💬</span><span>Agent Chat</span><span class="nav-count" id="nav-chat-count">—</span>
         </button>
-        <button class="nav-item" data-view="studio" type="button">
-          <span class="nav-symbol" aria-hidden="true">S</span><span>Studio</span><span class="nav-count" id="nav-studio-count">0</span>
+        <button class="nav-item" data-view="mine" type="button">
+          <span class="nav-symbol" aria-hidden="true">⛏</span><span>Mine / Recover</span><span class="nav-count" id="nav-mine-count">0</span>
         </button>
-        <button class="nav-item" data-view="library" type="button">
-          <span class="nav-symbol" aria-hidden="true">L</span><span>Library</span><span class="nav-count" id="nav-library-count">0</span>
+        <button class="nav-item" data-view="analyze" type="button">
+          <span class="nav-symbol" aria-hidden="true">🔬</span><span>Analyze</span><span class="nav-count" id="nav-analyze-count">0</span>
         </button>
-        <button class="nav-item" data-view="cleanup" type="button">
-          <span class="nav-symbol" aria-hidden="true">C</span><span>Cleanup</span><span class="nav-count" id="nav-cleanup-count">0</span>
+        <button class="nav-item" data-view="plan" type="button">
+          <span class="nav-symbol" aria-hidden="true">📋</span><span>Plan / Studio</span><span class="nav-count" id="nav-plan-count">0</span>
+        </button>
+        <button class="nav-item" data-view="create" type="button">
+          <span class="nav-symbol" aria-hidden="true">✨</span><span>Create / Library</span><span class="nav-count" id="nav-create-count">0</span>
         </button>
 
         <span class="nav-section">System</span>
+        <button class="nav-item" data-view="runtime" type="button">
+          <span class="nav-symbol" aria-hidden="true">⚙</span><span>Runtime &amp; Models</span>
+        </button>
+        <button class="nav-item" data-view="cleanup" type="button">
+          <span class="nav-symbol" aria-hidden="true">🧹</span><span>Cleanup</span><span class="nav-count" id="nav-cleanup-count">0</span>
+        </button>
         <button class="nav-item" data-view="activity" type="button">
-          <span class="nav-symbol" aria-hidden="true">A</span><span>Activity</span><span class="nav-count" id="nav-activity-count">0</span>
+          <span class="nav-symbol" aria-hidden="true">📜</span><span>Activity</span><span class="nav-count" id="nav-activity-count">0</span>
         </button>
         <button class="nav-item" data-view="tools" type="button">
-          <span class="nav-symbol" aria-hidden="true">T</span><span>Tools</span><span class="nav-count" id="nav-tools-count">0</span>
+          <span class="nav-symbol" aria-hidden="true">⚙</span><span>Tools</span><span class="nav-count" id="nav-tools-count">0</span>
         </button>
       </nav>
 
       <div class="sidebar-bottom">
         <div class="local-card">
           <strong><span class="status-dot"></span> Local service ready</strong>
-          <span>Source stores remain read-only. Jobs, chat, previews, and exports stay on this machine.</span>
+          <span>Recovery state stays local. Model-backed chat sends selected context to the configured provider.</span>
         </div>
       </div>
     </aside>
@@ -57,7 +66,7 @@
       <header class="topbar">
         <div class="topbar-left">
           <button id="nav-toggle" class="icon-button nav-toggle" type="button" aria-label="Open navigation">Menu</button>
-          <div class="breadcrumb" id="view-title">Recover</div>
+          <div class="breadcrumb" id="view-title">Agent Chat</div>
         </div>
         <div class="topbar-actions">
           <div class="topbar-badges" id="global-badges"></div>
@@ -67,16 +76,25 @@
       <div class="notice-region" id="notice-region" role="status" aria-live="polite" hidden></div>
 
       <main id="main">
-        <section class="view active" id="recover" aria-label="Recover">
-          <div id="recover-content" class="view-content">
-            <div class="loading-shell"><p class="loading-label">Loading recovery state…</p></div>
+        <section class="view" id="runtime" aria-label="Runtime and models">
+          <div id="runtime-content" class="view-content"></div>
+        </section>
+        <section class="view active" id="chat" aria-label="Agent Chat">
+          <div id="chat-content" class="view-content"></div>
+        </section>
+        <section class="view" id="mine" aria-label="Mine">
+          <div id="mine-content" class="view-content">
+            <div class="loading-shell"><p class="loading-label">Loading sessions…</p></div>
           </div>
         </section>
-        <section class="view" id="studio" aria-label="Studio">
-          <div id="studio-content" class="view-content"></div>
+        <section class="view" id="analyze" aria-label="Analyze">
+          <div id="analyze-content" class="view-content"></div>
         </section>
-        <section class="view" id="library" aria-label="Library">
-          <div id="library-content" class="view-content"></div>
+        <section class="view" id="plan" aria-label="Plan">
+          <div id="plan-content" class="view-content"></div>
+        </section>
+        <section class="view" id="create" aria-label="Create">
+          <div id="create-content" class="view-content"></div>
         </section>
         <section class="view" id="cleanup" aria-label="Cleanup">
           <div id="cleanup-content" class="view-content"></div>
@@ -87,6 +105,10 @@
         <section class="view" id="tools" aria-label="Tools">
           <div id="tools-content" class="view-content"></div>
         </section>
+        <!-- Backwards-compatibility containers -->
+        <div id="recover-content" style="display:none"></div>
+        <div id="studio-content" style="display:none"></div>
+        <div id="library-content" style="display:none"></div>
       </main>
     </div>
   </div>

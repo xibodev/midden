@@ -60,7 +60,7 @@ func InstallSkills(t Target, force bool) (*Result, error) {
 	res := &Result{Target: t}
 
 	for _, b := range bundle {
-		content, ok := module.OverlayContent(b.path)
+		content, ok := module.CLISkillContent(b.path)
 		if !ok {
 			return nil, fmt.Errorf("embedded skill %s is missing from this binary", b.path)
 		}
@@ -121,32 +121,42 @@ func UninstallSkills(t Target) (*Result, error) {
 // The command is idempotent on the host side, so re-running it after a rebuild
 // is how an upgrade happens.
 func RegisterWithHost(t Target) (*Result, error) {
+	self, err := SelfPath()
+	if err != nil {
+		return nil, err
+	}
+	return RegisterBinaryWithHost(t, self)
+}
+
+// RegisterBinaryWithHost packages the binary and registers it with the module host.
+func RegisterBinaryWithHost(t Target, binary string) (*Result, error) {
 	if t.Kind != KindModule {
 		return nil, fmt.Errorf("%s is not a module host", t.Name)
 	}
 	if t.BinaryPath == "" {
 		return nil, fmt.Errorf("%s was not found on PATH", t.Name)
 	}
-
-	self, err := SelfPath()
-	if err != nil {
-		return nil, err
+	if strings.TrimSpace(binary) == "" {
+		return nil, fmt.Errorf("module binary path is empty")
 	}
 
-	// The subcommand is HYPHENATED. It was written as "modules add" from a
-	// prose description of the host's interface and never run against the
-	// real binary, which exposes `modules-add` and rejects `modules add`
-	// outright. A command built from a description rather than verified
-	// against the thing it invokes is a wrong answer that looks right.
-	cmd := exec.Command(t.BinaryPath, "modules-add", self)
-	// The host owns its own environment; pass ours through rather than
-	// stripping it, because this is a user-initiated command rather than a
-	// sandboxed module invocation.
+	stageDir, err := os.MkdirTemp("", "midden-package-*")
+	if err != nil {
+		return nil, fmt.Errorf("create package stage dir: %w", err)
+	}
+	defer os.RemoveAll(stageDir)
+
+	packagedBinary, err := PackageModule(binary, stageDir)
+	if err != nil {
+		return nil, fmt.Errorf("package module: %w", err)
+	}
+
+	cmd := exec.Command(t.BinaryPath, "modules-add", packagedBinary)
 	out, err := cmd.CombinedOutput()
 
 	res := &Result{
 		Target:  t,
-		Command: fmt.Sprintf("%s modules-add %s", t.BinaryPath, self),
+		Command: fmt.Sprintf("%s modules-add %s", t.BinaryPath, packagedBinary),
 		Output:  strings.TrimSpace(string(out)),
 	}
 	if err != nil {
@@ -167,7 +177,7 @@ func VerifySkillsInstall(t Target) error {
 		if err != nil {
 			return fmt.Errorf("%s is not installed: %w", b.dir, err)
 		}
-		want, ok := module.OverlayContent(b.path)
+		want, ok := module.CLISkillContent(b.path)
 		if !ok {
 			return fmt.Errorf("embedded skill %s missing from this binary", b.path)
 		}

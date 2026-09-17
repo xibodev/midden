@@ -1318,11 +1318,11 @@ func (s *Server) doReclaim(id string, req actionRequest) (any, error) {
 		}, nil
 	}
 
-	be, err := exec.Detect(req.Backend)
+	runner, err := s.nativeJobRunner(15 * time.Minute)
 	if err != nil {
 		return nil, err
 	}
-	runner := &exec.Runner{Backend: be, Model: req.Model, Pure: true}
+	be := exec.Backend("native")
 	run := cost.Run{UID: index.NewUID(), Op: "reclaim", Scope: req.label(),
 		Backend: string(be), EstTokens: raw, StartedAt: time.Now()}
 
@@ -1432,7 +1432,7 @@ func (s *Server) doRefine(id string, req actionRequest) (any, error) {
 		}, nil
 	}
 
-	be, err := exec.Detect(req.Backend)
+	runner, err := s.nativeJobRunner(15 * time.Minute)
 	if err != nil {
 		return nil, err
 	}
@@ -1441,7 +1441,7 @@ func (s *Server) doRefine(id string, req actionRequest) (any, error) {
 		return nil, err
 	}
 
-	runner := &exec.Runner{Backend: be, Model: req.Model, Pure: true, Timeout: 15 * time.Minute}
+	be := exec.Backend("native")
 	conv := runner.NewConversation()
 	run := cost.Run{UID: index.NewUID(), Op: "refine", Scope: scope,
 		Backend: string(be), EstTokens: raw, StartedAt: time.Now(),
@@ -1612,11 +1612,11 @@ func (s *Server) doSummarize(id string, req actionRequest) (any, error) {
 		}, nil
 	}
 
-	be, err := exec.Detect(req.Backend)
+	runner, err := s.nativeJobRunner(12 * time.Minute)
 	if err != nil {
 		return nil, err
 	}
-	runner := &exec.Runner{Backend: be, Model: req.Model, Pure: true, Timeout: 12 * time.Minute}
+	be := exec.Backend("native")
 	conv := runner.NewConversation()
 	run := cost.Run{UID: index.NewUID(), Op: "summarize",
 		Scope: string(depth) + " " + shortID(sess.ID), Backend: string(be),
@@ -1668,11 +1668,11 @@ func (s *Server) doAsk(id string, req actionRequest) (any, error) {
 		}, nil
 	}
 
-	be, err := exec.Detect(req.Backend)
+	runner, err := s.nativeJobRunner(10 * time.Minute)
 	if err != nil {
 		return nil, err
 	}
-	runner := &exec.Runner{Backend: be, Model: req.Model, Pure: true, Timeout: 10 * time.Minute}
+	be := exec.Backend("native")
 	conv := runner.NewConversation()
 	run := cost.Run{UID: index.NewUID(), Op: "ask", Scope: truncate(q, 40),
 		Backend: string(be), EstTokens: raw, StartedAt: time.Now(),

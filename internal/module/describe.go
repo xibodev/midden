@@ -12,7 +12,7 @@ import (
 )
 
 // Version is Midden's module version, independent of the protocol version.
-const Version = "0.0.1"
+const Version = core.Version
 
 // Capability IDs, namespaced by module.
 const (
@@ -204,6 +204,7 @@ func Describe() Descriptor {
 		Skills:        skills(),
 		Requirements:  []Requirement{},
 	}
+	addWorkflowCapabilities(&d)
 	d.Normalize()
 	return d
 }
@@ -400,11 +401,25 @@ func sessionResultFrom(m *assay.Manifest) AssaySessionResult {
 }
 
 func scopeFromAssayRequest(req AssayRequest) (core.Scope, error) {
+	ids := make([]string, 0, len(req.IDs))
+	for _, id := range req.IDs {
+		if tool, bare, ok := strings.Cut(id, ":"); ok {
+			if req.Tool != "" && req.Tool != tool {
+				return core.Scope{}, fmt.Errorf("mixed tool identities require separate scoped requests")
+			}
+			req.Tool = tool
+			id = bare
+		}
+		if strings.TrimSpace(id) == "" {
+			return core.Scope{}, fmt.Errorf("session id cannot be empty")
+		}
+		ids = append(ids, id)
+	}
 	sc := core.Scope{
 		Days:         req.Days,
 		Workspace:    req.Workspace,
 		Repo:         req.Repo,
-		IDs:          req.IDs,
+		IDs:          ids,
 		IDPrefix:     req.IDPrefix,
 		IncludeNoise: req.IncludeNoise,
 	}

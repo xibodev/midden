@@ -7,7 +7,7 @@
   "result": {
     "module": "midden",
     "name": "Midden",
-    "version": "0.0.1",
+    "version": "0.1.0",
     "build": "standalone",
     "protocol_versions": [
       "xibodev.module/v1"
@@ -134,6 +134,266 @@
           "midden.content-seed"
         ],
         "long_running": false
+      },
+      {
+        "id": "recipes.compose",
+        "title": "Submit authored drafts",
+        "summary": "Store host-authored content for every model-backed output in an approved recipe. No additional model call; retains evidence provenance and stops at draft review.",
+        "request_schema": "xibodev.midden.recipes.compose.request/v1",
+        "result_schema": "xibodev.midden.recipes.compose.result/v1",
+        "artifact_schemas": [],
+        "effects": {
+          "local": true,
+          "network": false,
+          "external_writes": false,
+          "provider": "",
+          "cost_known": true
+        },
+        "skills": [
+          "midden.evidence-selection",
+          "midden.content-seed"
+        ],
+        "long_running": false
+      },
+      {
+        "id": "evidence.list",
+        "title": "List stored evidence",
+        "summary": "Inspect existing mined evidence before planning or re-extracting. Results are bounded and include evidence IDs.",
+        "request_schema": "xibodev.midden.evidence.list.request/v1",
+        "result_schema": "xibodev.midden.evidence.list.result/v1",
+        "artifact_schemas": [],
+        "effects": {
+          "local": true,
+          "network": false,
+          "external_writes": false,
+          "provider": "",
+          "cost_known": true
+        },
+        "skills": [
+          "midden.evidence-selection",
+          "midden.content-seed"
+        ],
+        "long_running": false
+      },
+      {
+        "id": "recipes.list",
+        "title": "List recovery plans",
+        "summary": "List saved recovery production plans and their review status.",
+        "request_schema": "xibodev.midden.recipes.list.request/v1",
+        "result_schema": "xibodev.midden.recipes.list.result/v1",
+        "artifact_schemas": [],
+        "effects": {
+          "local": true,
+          "network": false,
+          "external_writes": false,
+          "provider": "",
+          "cost_known": true
+        },
+        "skills": [
+          "midden.evidence-selection",
+          "midden.content-seed"
+        ],
+        "long_running": false
+      },
+      {
+        "id": "recipes.inspect",
+        "title": "Inspect a recovery plan",
+        "summary": "Read a recipe, its exact evidence, quality report, outputs and production runs.",
+        "request_schema": "xibodev.midden.recipes.inspect.request/v1",
+        "result_schema": "xibodev.midden.recipes.inspect.result/v1",
+        "artifact_schemas": [],
+        "effects": {
+          "local": true,
+          "network": false,
+          "external_writes": false,
+          "provider": "",
+          "cost_known": true
+        },
+        "skills": [
+          "midden.evidence-selection",
+          "midden.content-seed"
+        ],
+        "long_running": false
+      },
+      {
+        "id": "recipes.preview",
+        "title": "Preview a recovery plan",
+        "summary": "Design an evidence-grounded recipe without saving or generating content.",
+        "request_schema": "xibodev.midden.recipes.preview.request/v1",
+        "result_schema": "xibodev.midden.recipes.preview.result/v1",
+        "artifact_schemas": [],
+        "effects": {
+          "local": true,
+          "network": false,
+          "external_writes": false,
+          "provider": "",
+          "cost_known": true
+        },
+        "skills": [
+          "midden.evidence-selection",
+          "midden.content-seed"
+        ],
+        "long_running": false
+      },
+      {
+        "id": "recipes.design",
+        "title": "Save a recovery plan",
+        "summary": "Save a draft recipe from intent, output kinds and evidence. Does not approve evidence or call a model.",
+        "request_schema": "xibodev.midden.recipes.design.request/v1",
+        "result_schema": "xibodev.midden.recipes.design.result/v1",
+        "artifact_schemas": [],
+        "effects": {
+          "local": true,
+          "network": false,
+          "external_writes": false,
+          "provider": "",
+          "cost_known": true
+        },
+        "skills": [
+          "midden.evidence-selection",
+          "midden.content-seed"
+        ],
+        "long_running": false
+      },
+      {
+        "id": "recipes.update",
+        "title": "Revise a recovery plan",
+        "summary": "Revise the purpose or outputs of a saved plan. Invalidates prior evidence approval.",
+        "request_schema": "xibodev.midden.recipes.update.request/v1",
+        "result_schema": "xibodev.midden.recipes.update.result/v1",
+        "artifact_schemas": [],
+        "effects": {
+          "local": true,
+          "network": false,
+          "external_writes": false,
+          "provider": "",
+          "cost_known": true
+        },
+        "skills": [
+          "midden.evidence-selection",
+          "midden.content-seed"
+        ],
+        "long_running": false
+      },
+      {
+        "id": "recipes.evidence",
+        "title": "Select plan evidence",
+        "summary": "Save an exact evidence set. Use decision approved only after the user reviews that set; approval does not produce outputs.",
+        "request_schema": "xibodev.midden.recipes.evidence.request/v1",
+        "result_schema": "xibodev.midden.recipes.evidence.result/v1",
+        "artifact_schemas": [],
+        "effects": {
+          "local": true,
+          "network": false,
+          "external_writes": false,
+          "provider": "",
+          "cost_known": true
+        },
+        "skills": [
+          "midden.evidence-selection",
+          "midden.content-seed"
+        ],
+        "long_running": false
+      },
+      {
+        "id": "recipes.produce",
+        "title": "Produce approved plan",
+        "summary": "Generate drafts from an approved recipe. Deterministic packs need no model; narrative outputs use the host-authorized model. Drafts still require review.",
+        "request_schema": "xibodev.midden.recipes.produce.request/v1",
+        "result_schema": "xibodev.midden.recipes.produce.result/v1",
+        "artifact_schemas": [],
+        "effects": {
+          "local": false,
+          "network": false,
+          "external_writes": false,
+          "provider": "",
+          "cost_known": false
+        },
+        "skills": [
+          "midden.evidence-selection",
+          "midden.content-seed"
+        ],
+        "long_running": false
+      },
+      {
+        "id": "outputs.inspect",
+        "title": "Inspect output and provenance",
+        "summary": "Read draft bytes, provenance and content digest before review or revision.",
+        "request_schema": "xibodev.midden.outputs.inspect.request/v1",
+        "result_schema": "xibodev.midden.outputs.inspect.result/v1",
+        "artifact_schemas": [],
+        "effects": {
+          "local": true,
+          "network": false,
+          "external_writes": false,
+          "provider": "",
+          "cost_known": true
+        },
+        "skills": [
+          "midden.evidence-selection",
+          "midden.content-seed"
+        ],
+        "long_running": false
+      },
+      {
+        "id": "outputs.review",
+        "title": "Revise or review an output",
+        "summary": "Save revised draft text or a user's review decision (draft, reviewed, rejected). Supply expected_digest from inspection to reject stale reviews.",
+        "request_schema": "xibodev.midden.outputs.review.request/v1",
+        "result_schema": "xibodev.midden.outputs.review.result/v1",
+        "artifact_schemas": [],
+        "effects": {
+          "local": true,
+          "network": false,
+          "external_writes": false,
+          "provider": "",
+          "cost_known": true
+        },
+        "skills": [
+          "midden.evidence-selection",
+          "midden.content-seed"
+        ],
+        "long_running": false
+      },
+      {
+        "id": "outputs.export",
+        "title": "Export a reviewed output",
+        "summary": "Copy reviewed, digest-verified content and provenance to the local vault. Never publishes remotely.",
+        "request_schema": "xibodev.midden.outputs.export.request/v1",
+        "result_schema": "xibodev.midden.outputs.export.result/v1",
+        "artifact_schemas": [],
+        "effects": {
+          "local": true,
+          "network": false,
+          "external_writes": false,
+          "provider": "",
+          "cost_known": true
+        },
+        "skills": [
+          "midden.evidence-selection",
+          "midden.content-seed"
+        ],
+        "long_running": false
+      },
+      {
+        "id": "outputs.render",
+        "title": "Render a delivery file",
+        "summary": "Render current Markdown to standalone HTML or slide source to editable PPTX with Pandoc. Tracks source and rendered digests; does not approve or publish.",
+        "request_schema": "xibodev.midden.outputs.render.request/v1",
+        "result_schema": "xibodev.midden.outputs.render.result/v1",
+        "artifact_schemas": [],
+        "effects": {
+          "local": true,
+          "network": false,
+          "external_writes": false,
+          "provider": "",
+          "cost_known": true
+        },
+        "skills": [
+          "midden.evidence-selection",
+          "midden.content-seed"
+        ],
+        "long_running": false
       }
     ],
     "request_schemas": {
@@ -245,6 +505,247 @@
             "description": "Bound on candidate records sent per session. 0 selects the default of 40. This governs real cost more than the session count does."
           }
         }
+      },
+      "xibodev.midden.evidence.list.request/v1": {
+        "$id": "xibodev.midden.evidence.list.request/v1",
+        "additionalProperties": false,
+        "properties": {
+          "workspace": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "xibodev.midden.outputs.export.request/v1": {
+        "$id": "xibodev.midden.outputs.export.request/v1",
+        "additionalProperties": false,
+        "properties": {
+          "destination": {
+            "enum": [
+              "local_vault"
+            ],
+            "type": "string"
+          },
+          "output_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "output_id"
+        ],
+        "type": "object"
+      },
+      "xibodev.midden.outputs.inspect.request/v1": {
+        "$id": "xibodev.midden.outputs.inspect.request/v1",
+        "additionalProperties": false,
+        "properties": {
+          "output_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "output_id"
+        ],
+        "type": "object"
+      },
+      "xibodev.midden.outputs.render.request/v1": {
+        "$id": "xibodev.midden.outputs.render.request/v1",
+        "additionalProperties": false,
+        "properties": {
+          "format": {
+            "enum": [
+              "pptx",
+              "html"
+            ],
+            "type": "string"
+          },
+          "output_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "output_id"
+        ],
+        "type": "object"
+      },
+      "xibodev.midden.outputs.review.request/v1": {
+        "$id": "xibodev.midden.outputs.review.request/v1",
+        "additionalProperties": false,
+        "properties": {
+          "body": {
+            "type": "string"
+          },
+          "decision": {
+            "type": "string"
+          },
+          "evidence_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "expected_digest": {
+            "type": "string"
+          },
+          "output_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "output_id"
+        ],
+        "type": "object"
+      },
+      "xibodev.midden.recipes.compose.request/v1": {
+        "$id": "xibodev.midden.recipes.compose.request/v1",
+        "additionalProperties": false,
+        "properties": {
+          "drafts": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object"
+          },
+          "recipe_id": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "xibodev.midden.recipes.design.request/v1": {
+        "$id": "xibodev.midden.recipes.design.request/v1",
+        "additionalProperties": false,
+        "properties": {
+          "evidence_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "output_kinds": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "prompt": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "workspace": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "xibodev.midden.recipes.evidence.request/v1": {
+        "$id": "xibodev.midden.recipes.evidence.request/v1",
+        "additionalProperties": false,
+        "properties": {
+          "decision": {
+            "type": "string"
+          },
+          "evidence_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "recipe_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "recipe_id"
+        ],
+        "type": "object"
+      },
+      "xibodev.midden.recipes.inspect.request/v1": {
+        "$id": "xibodev.midden.recipes.inspect.request/v1",
+        "additionalProperties": false,
+        "properties": {
+          "recipe_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "recipe_id"
+        ],
+        "type": "object"
+      },
+      "xibodev.midden.recipes.list.request/v1": {
+        "$id": "xibodev.midden.recipes.list.request/v1",
+        "additionalProperties": false,
+        "properties": {},
+        "type": "object"
+      },
+      "xibodev.midden.recipes.preview.request/v1": {
+        "$id": "xibodev.midden.recipes.preview.request/v1",
+        "additionalProperties": false,
+        "properties": {
+          "evidence_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "output_kinds": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "prompt": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "workspace": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "xibodev.midden.recipes.produce.request/v1": {
+        "$id": "xibodev.midden.recipes.produce.request/v1",
+        "additionalProperties": false,
+        "properties": {
+          "recipe_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "recipe_id"
+        ],
+        "type": "object"
+      },
+      "xibodev.midden.recipes.update.request/v1": {
+        "$id": "xibodev.midden.recipes.update.request/v1",
+        "additionalProperties": false,
+        "properties": {
+          "output_kinds": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "prompt": {
+            "type": "string"
+          },
+          "recipe_id": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "recipe_id"
+        ],
+        "type": "object"
       },
       "xibodev.midden.seed.create.request/v1": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -657,6 +1158,58 @@
           }
         }
       },
+      "xibodev.midden.evidence.list.result/v1": {
+        "$id": "xibodev.midden.evidence.list.result/v1",
+        "type": "object"
+      },
+      "xibodev.midden.outputs.export.result/v1": {
+        "$id": "xibodev.midden.outputs.export.result/v1",
+        "type": "object"
+      },
+      "xibodev.midden.outputs.inspect.result/v1": {
+        "$id": "xibodev.midden.outputs.inspect.result/v1",
+        "type": "object"
+      },
+      "xibodev.midden.outputs.render.result/v1": {
+        "$id": "xibodev.midden.outputs.render.result/v1",
+        "type": "object"
+      },
+      "xibodev.midden.outputs.review.result/v1": {
+        "$id": "xibodev.midden.outputs.review.result/v1",
+        "type": "object"
+      },
+      "xibodev.midden.recipes.compose.result/v1": {
+        "$id": "xibodev.midden.recipes.compose.result/v1",
+        "type": "object"
+      },
+      "xibodev.midden.recipes.design.result/v1": {
+        "$id": "xibodev.midden.recipes.design.result/v1",
+        "type": "object"
+      },
+      "xibodev.midden.recipes.evidence.result/v1": {
+        "$id": "xibodev.midden.recipes.evidence.result/v1",
+        "type": "object"
+      },
+      "xibodev.midden.recipes.inspect.result/v1": {
+        "$id": "xibodev.midden.recipes.inspect.result/v1",
+        "type": "object"
+      },
+      "xibodev.midden.recipes.list.result/v1": {
+        "$id": "xibodev.midden.recipes.list.result/v1",
+        "type": "object"
+      },
+      "xibodev.midden.recipes.preview.result/v1": {
+        "$id": "xibodev.midden.recipes.preview.result/v1",
+        "type": "object"
+      },
+      "xibodev.midden.recipes.produce.result/v1": {
+        "$id": "xibodev.midden.recipes.produce.result/v1",
+        "type": "object"
+      },
+      "xibodev.midden.recipes.update.result/v1": {
+        "$id": "xibodev.midden.recipes.update.result/v1",
+        "type": "object"
+      },
       "xibodev.midden.seed.create.result/v1": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "$id": "xibodev.midden.seed.create.result/v1",
@@ -1009,8 +1562,8 @@
         "id": "midden.recovery",
         "title": "Midden session recovery",
         "path": "agents/midden-recovery.md",
-        "digest": "sha256:a1cbc8688e6225888ee4daca38dad211c2bdc8c4c933d65f33681aa9174784b7",
-        "tokens": 1704
+        "digest": "sha256:4234cc4aa97602515e4f4f0bbb427bf6f6f0f6a576b68c2df16203d5239beea0",
+        "tokens": 2031
       }
     ],
     "skills": [
