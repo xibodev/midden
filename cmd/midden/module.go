@@ -26,6 +26,9 @@ func cmdModule(args []string) error {
 	}
 
 	switch args[0] {
+	case "-h", "--help", "help":
+		fmt.Println("Usage: midden module describe --json | invoke <capability> --input <file|-> | package --out <directory>")
+		return nil
 	case "describe":
 		return cmdModuleDescribe(args[1:])
 	case "invoke":
@@ -130,7 +133,7 @@ func cmdModuleDescribe(args []string) error {
 
 func cmdModuleInvoke(args []string) error {
 	fs := flag.NewFlagSet("module invoke", flag.ExitOnError)
-	input := fs.String("input", "", "path to the request JSON document")
+	input := fs.String("input", "", "request JSON file, or - for stdin")
 	if err := fs.Parse(reorderArgs(fs, args)); err != nil {
 		return err
 	}
@@ -141,7 +144,7 @@ func cmdModuleInvoke(args []string) error {
 
 	req := module.Request{Capability: capability}
 	if *input != "" {
-		raw, err := os.ReadFile(*input)
+		raw, err := readAgentJSON(*input, os.Stdin)
 		if err != nil {
 			// A request we cannot read is still a protocol response, not a
 			// crash: the host gets a structured envelope it can route on.

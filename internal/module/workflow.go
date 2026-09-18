@@ -58,7 +58,11 @@ func addWorkflowCapabilities(d *Descriptor) {
 		d.Capabilities = append(d.Capabilities, Capability{ID: c.ID, Title: c.Title, Summary: c.Summary, RequestSchema: requestID, ResultSchema: resultID, Effects: Effects{Local: !c.Model, CostKnown: !c.Model}, Skills: []string{SkillEvidenceSelection, SkillContentSeed}})
 		schema := map[string]any{"$id": requestID, "type": "object", "additionalProperties": false, "properties": map[string]any{
 			"recipe_id": map[string]any{"type": "string"}, "output_id": map[string]any{"type": "string"},
-			"workspace": map[string]any{"type": "string"}, "prompt": map[string]any{"type": "string"}, "title": map[string]any{"type": "string"},
+			"tool":       map[string]any{"type": "string", "enum": []string{"copilot", "claude", "opencode"}},
+			"session_id": map[string]any{"type": "string", "description": "Exact session ID, not a prefix."},
+			"limit":      map[string]any{"type": "integer", "minimum": 1, "maximum": 200},
+			"offset":     map[string]any{"type": "integer", "minimum": 0},
+			"workspace":  map[string]any{"type": "string"}, "prompt": map[string]any{"type": "string"}, "title": map[string]any{"type": "string"},
 			"decision": map[string]any{"type": "string"}, "destination": map[string]any{"type": "string", "enum": []string{"local_vault"}},
 			"body": map[string]any{"type": "string"}, "expected_digest": map[string]any{"type": "string"},
 			"format":       map[string]any{"type": "string", "enum": []string{"pptx", "html"}},
@@ -69,7 +73,7 @@ func addWorkflowCapabilities(d *Descriptor) {
 		properties := schema["properties"].(map[string]any)
 		fields := map[string][]string{
 			"recipes.compose": {"recipe_id", "drafts"},
-			"evidence.list":   {"workspace"}, "recipes.list": {}, "recipes.inspect": {"recipe_id"},
+			"evidence.list":   {"workspace", "tool", "session_id", "limit", "offset"}, "recipes.list": {}, "recipes.inspect": {"recipe_id"},
 			"recipes.preview":  {"workspace", "prompt", "title", "output_kinds", "evidence_ids"},
 			"recipes.design":   {"workspace", "prompt", "title", "output_kinds", "evidence_ids"},
 			"recipes.update":   {"recipe_id", "prompt", "title", "output_kinds"},
@@ -89,9 +93,21 @@ func addWorkflowCapabilities(d *Descriptor) {
 		if c.ID == "recipes.inspect" || c.ID == "recipes.update" || c.ID == "recipes.evidence" || c.ID == "recipes.produce" {
 			schema["required"] = []string{"recipe_id"}
 		}
+		switch c.ID {
+		case "recipes.compose":
+			schema["required"] = []string{"recipe_id", "drafts"}
+		case "recipes.evidence":
+			schema["required"] = []string{"recipe_id", "evidence_ids", "decision"}
+			selected["decision"] = map[string]any{"type": "string", "enum": []string{"saved", "approved"}}
+		case "outputs.review":
+			schema["required"] = []string{"output_id", "decision", "expected_digest"}
+			selected["decision"] = map[string]any{"type": "string", "enum": []string{"draft", "reviewed", "rejected"}}
+		case "outputs.render":
+			schema["required"] = []string{"output_id", "format"}
+		}
 		raw, _ := json.Marshal(schema)
 		d.RequestSchemas[requestID] = raw
-		d.ResultSchemas[resultID], _ = json.Marshal(map[string]any{"$id": resultID, "type": "object"})
+		d.ResultSchemas[resultID] = workflowResultSchema(resultID, c.ID)
 	}
 }
 
@@ -115,9 +131,21 @@ func invokeWorkflow(req Request, cap workflowCapability) Envelope {
 			}
 		}
 		for _, field := range schema.Required {
-			var value string
-			if raw, ok := fields[field]; !ok || json.Unmarshal(raw, &value) != nil || strings.TrimSpace(value) == "" {
+			raw, ok := fields[field]
+			if !ok || strings.TrimSpace(string(raw)) == "null" {
 				return invalidRequest(req, fmt.Errorf("%s is required", field))
+			}
+			var property struct {
+				Type string `json:"type"`
+			}
+			if err := json.Unmarshal(schema.Properties[field], &property); err != nil {
+				return invalidRequest(req, err)
+			}
+			if property.Type == "string" {
+				var value string
+				if json.Unmarshal(raw, &value) != nil || strings.TrimSpace(value) == "" {
+					return invalidRequest(req, fmt.Errorf("%s must be a nonempty string", field))
+				}
 			}
 		}
 	}
@@ -172,8 +200,17 @@ func invokeWorkflow(req Request, cap workflowCapability) Envelope {
 		}
 	case "evidence.list":
 		var items []index.Nugget
-		items, err = db.Nuggets(index.NuggetQuery{Workspace: c.Workspace, Limit: 200})
-		result = map[string]any{"evidence": items, "limit": 200, "possibly_truncated": len(items) == 200}
+		if c.Limit == 0 {
+			c.Limit = 40
+		}
+		if c.Limit < 1 || c.Limit > 200 || c.Offset < 0 {
+			err = fmt.Errorf("limit must be 1..200 and offset nonnegative")
+		} else if c.Tool != "" && c.Tool != "copilot" && c.Tool != "claude" && c.Tool != "opencode" {
+			err = fmt.Errorf("unknown source tool")
+		} else {
+			items, err = db.Nuggets(index.NuggetQuery{Workspace: c.Workspace, Tool: c.Tool, ExactSessionID: c.SessionID, Limit: c.Limit, Offset: c.Offset})
+		}
+		result = map[string]any{"evidence": items, "limit": c.Limit, "offset": c.Offset, "possibly_truncated": len(items) == c.Limit}
 	case "recipes.list":
 		var items []index.Recipe
 		items, err = db.Recipes(100)

@@ -58,6 +58,13 @@ type Operation struct {
 
 // Operations is the canonical inventory. Four, not six, not twenty-nine.
 var Operations = []Operation{
+	{ID: "prepare_host_evidence", Contract: "exact source -> bounded redacted source packet", Deterministic: true},
+	{ID: "compose_host_evidence", Contract: "source packet + host-authored extraction -> stored evidence", Deterministic: true},
+	{ID: "create_editorial_project", Contract: "exact sources + stored evidence -> editorial project", Deterministic: true},
+	{ID: "update_editorial_project", Contract: "revision + exact evidence -> refreshed project", Deterministic: true},
+	{ID: "prepare_editorial_analysis", Contract: "project -> bounded evidence and editorial instructions", Deterministic: true},
+	{ID: "analyze_editorial_evidence", Contract: "project + host-authored analysis -> validated editorial map", Deterministic: true},
+	{ID: "select_editorial_opportunity", Contract: "editorial opportunity -> unapproved production recipe", Deterministic: true},
 	{ID: "compose_recipe", Contract: "approved recipe + host-authored content -> reviewable drafts", Deterministic: true},
 	{ID: "render_output", Contract: "source output -> editable or publishable local delivery file", Deterministic: true},
 	{ID: "plan_recovery", Contract: "intent + stored evidence -> reviewable recipe", Deterministic: true},
@@ -103,9 +110,14 @@ var Operations = []Operation{
 // They are still bound by the effects model -- a capability that projects no
 // Operation is not thereby unregulated.
 var capabilityOperations = map[string]string{
-	"recipes.compose": "compose_recipe",
-	"outputs.render":  "render_output",
-	"evidence.list":   "", "recipes.list": "", "recipes.inspect": "", "outputs.inspect": "",
+	"evidence.prepare": "prepare_host_evidence", "evidence.compose": "compose_host_evidence",
+	"projects.create": "create_editorial_project", "projects.update": "update_editorial_project",
+	"projects.inspect": "", "projects.list": "",
+	"editorial.prepare": "prepare_editorial_analysis", "editorial.analyze": "analyze_editorial_evidence",
+	"editorial.select": "select_editorial_opportunity",
+	"recipes.compose":  "compose_recipe",
+	"outputs.render":   "render_output",
+	"evidence.list":    "", "recipes.list": "", "recipes.inspect": "", "outputs.inspect": "",
 	"recipes.preview": "plan_recovery", "recipes.design": "plan_recovery", "recipes.update": "plan_recovery",
 	"recipes.evidence": "review_evidence", "recipes.produce": "produce_recipe",
 	"outputs.review": "review_output", "outputs.export": "export_output",

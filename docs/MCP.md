@@ -5,6 +5,28 @@ an AI client find and summarize local AI coding sessions without reading raw
 multi-gigabyte stores into context.
 
 The MCP surface does not call a model and does not mutate a source store.
+The default tools remain read-only. An explicit `--workflow` opt-in adds the
+local evidence-to-content workflow described below.
+
+## Opt-in agentic production
+
+Start `midden mcp --workflow --home <absolute-state-directory>` to expose
+`midden_evidence_prepare`, `midden_evidence_compose`, project/editorial operations,
+and the shared recipe, composition, review, rendering and local-export tools.
+Tool names are capability names prefixed by `midden_` with dots replaced by
+underscores. Each tool uses the module's input schema and returns its envelope.
+
+The server operator fixes the writable state root at startup; a tool call cannot
+override it. Mutations affect Midden state only. Model subprocess extraction,
+publishing, installation and cleanup are not exposed. The host agent performs
+semantic work between prepare/compose operations and owns its model budget.
+For production use, configure the host's per-tool approval policy for state
+changes, evidence approvals, draft reviews and local exports. Turning on workflow
+tools does not mean every output is approved.
+
+See [Editorial workflow](EDITORIAL_WORKFLOW.md). Configure MCP `args` as
+`["mcp", "--workflow", "--home", "C:\\absolute\\midden-state"]` on Windows;
+leave `["mcp"]` unchanged when only recovery tools are wanted.
 
 ## Before registration
 
@@ -116,8 +138,8 @@ and hand off instead.
 - `midden mcp` is expected to wait quietly when run by hand.
 - Tool output is deterministic extraction, not a model answer.
 - Source databases are opened read-only.
-- The server does not expose refinery production, cleanup, integration probes,
-  or any mutation.
+- The default server does not expose mutations. The opt-in workflow exposes
+  local composition and review, but not cleanup or integration probes.
 - A brief can recover context from a transcript too large for its original CLI
   to resume.
 - Claude live-session detection prevents an agent from being told to resume a

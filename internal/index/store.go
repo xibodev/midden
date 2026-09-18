@@ -101,11 +101,14 @@ func (d *DB) PutNuggets(ns []Nugget) error {
 
 // NuggetQuery narrows a nugget lookup.
 type NuggetQuery struct {
-	Kind      string
-	SessionID string
-	Workspace string
-	Search    string
-	Limit     int
+	Kind           string
+	SessionID      string
+	ExactSessionID string
+	Tool           string
+	Workspace      string
+	Search         string
+	Limit          int
+	Offset         int
 }
 
 // Nuggets returns stored nuggets matching a query, newest first.
@@ -121,6 +124,14 @@ func (d *DB) Nuggets(q NuggetQuery) ([]Nugget, error) {
 	if q.SessionID != "" {
 		where = append(where, `session_id LIKE ? ESCAPE '\'`)
 		args = append(args, escapeLike(q.SessionID)+"%")
+	}
+	if q.ExactSessionID != "" {
+		where = append(where, "session_id = ?")
+		args = append(args, q.ExactSessionID)
+	}
+	if q.Tool != "" {
+		where = append(where, "tool = ?")
+		args = append(args, q.Tool)
 	}
 	if q.Workspace != "" {
 		where = append(where, `workspace LIKE ? ESCAPE '\'`)
@@ -141,6 +152,9 @@ func (d *DB) Nuggets(q NuggetQuery) ([]Nugget, error) {
 	sqlStr += " ORDER BY created_at DESC"
 	if q.Limit > 0 {
 		sqlStr += fmt.Sprintf(" LIMIT %d", q.Limit)
+		if q.Offset > 0 {
+			sqlStr += fmt.Sprintf(" OFFSET %d", q.Offset)
+		}
 	}
 
 	rows, err := d.sql.Query(sqlStr, args...)

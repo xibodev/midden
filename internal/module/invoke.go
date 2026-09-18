@@ -356,6 +356,9 @@ func Invoke(req Request) Envelope {
 		}, UnknownCost())
 	}
 
+	if capability, ok := agentCapabilityByID(req.Capability); ok {
+		return invokeAgent(req, capability)
+	}
 	if capability, ok := workflowCapabilityByID(req.Capability); ok {
 		return invokeWorkflow(req, capability)
 	}

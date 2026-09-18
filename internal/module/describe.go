@@ -133,7 +133,7 @@ func Describe() Descriptor {
 			{
 				ID:              CapContentProduce,
 				Title:           "Produce content from mined evidence",
-				Summary:         "Write a document from mined evidence: tutorials, ADRs, slide decks, diagrams, video briefs, handbooks, and deterministic packs and manifests. Seven kinds are free and model-free; twelve are written by a model through an AI CLI the user is already signed in to, and those need subprocess authority granted for the invocation. Call content.types first for the split.",
+				Summary:         "Write a document from stored evidence. Call content.types for the shared content vocabulary and each kind's model requirement. Narrative outputs require an authorized runtime; prefer recipes.compose when the host agent authors the draft.",
 				RequestSchema:   SchemaContentProduceRequest,
 				ResultSchema:    SchemaContentProduceResult,
 				ArtifactSchemas: []string{ArtifactContentOutput},
@@ -205,6 +205,7 @@ func Describe() Descriptor {
 		Requirements:  []Requirement{},
 	}
 	addWorkflowCapabilities(&d)
+	addAgentCapabilities(&d)
 	d.Normalize()
 	return d
 }

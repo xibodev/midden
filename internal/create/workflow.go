@@ -28,6 +28,10 @@ type Workflow struct {
 }
 
 type Change struct {
+	Tool        string   `json:"tool,omitempty"`
+	SessionID   string   `json:"session_id,omitempty"`
+	Limit       int      `json:"limit,omitempty"`
+	Offset      int      `json:"offset,omitempty"`
 	RecipeID    string   `json:"recipe_id,omitempty"`
 	OutputID    string   `json:"output_id,omitempty"`
 	Workspace   string   `json:"workspace,omitempty"`

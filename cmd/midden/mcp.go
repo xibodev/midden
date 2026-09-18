@@ -9,10 +9,14 @@ package main
 import (
 	"bufio"
 	"encoding/json"
+	"flag"
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
+
+	"github.com/mekjr1/midden/internal/index"
 )
 
 const mcpProtocolVersion = "2024-11-05"
@@ -76,13 +80,30 @@ func errResult(format string, a ...any) toolResult {
 // Nothing may be written to stdout except protocol messages, so diagnostics go
 // to stderr.
 func cmdMCP(args []string) error {
+	fs := flag.NewFlagSet("mcp", flag.ContinueOnError)
+	workflow := fs.Bool("workflow", false, "opt in to local evidence, project, recipe, review and export tools; no model subprocess")
+	home := fs.String("home", index.Dir(), "state root for opt-in workflow tools")
+	if err := fs.Parse(args); err != nil {
+		if err == flag.ErrHelp {
+			return nil
+		}
+		return err
+	}
+	if fs.NArg() != 0 {
+		return fmt.Errorf("unexpected MCP arguments")
+	}
+	root, err := filepath.Abs(*home)
+	if err != nil {
+		return err
+	}
+	options := mcpOptions{Workflow: *workflow, Home: root}
 	in := bufio.NewReaderSize(os.Stdin, 1<<20)
 	out := json.NewEncoder(os.Stdout)
 
 	for {
 		line, err := in.ReadBytes('\n')
 		if len(strings.TrimSpace(string(line))) > 0 {
-			handleRPC(line, out)
+			handleRPCWithOptions(line, out, options)
 		}
 		if err == io.EOF {
 			return nil
@@ -94,6 +115,10 @@ func cmdMCP(args []string) error {
 }
 
 func handleRPC(line []byte, out *json.Encoder) {
+	handleRPCWithOptions(line, out, mcpOptions{})
+}
+
+func handleRPCWithOptions(line []byte, out *json.Encoder, options mcpOptions) {
 	var req rpcRequest
 	if json.Unmarshal(line, &req) != nil {
 		out.Encode(rpcResponse{
@@ -123,7 +148,11 @@ func handleRPC(line []byte, out *json.Encoder) {
 		}
 
 	case "tools/list":
-		resp.Result = map[string]any{"tools": mcpTools()}
+		tools := mcpTools()
+		if options.Workflow {
+			tools = append(tools, workflowMCPTools()...)
+		}
+		resp.Result = map[string]any{"tools": tools}
 
 	case "tools/call":
 		var p struct {
@@ -134,7 +163,20 @@ func handleRPC(line []byte, out *json.Encoder) {
 			resp.Error = &rpcError{Code: errInvalidRequest, Message: "bad params"}
 			break
 		}
-		resp.Result = callTool(p.Name, p.Arguments)
+		workflowTool := false
+		if options.Workflow {
+			for _, tool := range workflowMCPTools() {
+				if tool.Name == p.Name {
+					workflowTool = true
+					break
+				}
+			}
+		}
+		if workflowTool {
+			resp.Result = callWorkflowTool(p.Name, p.Arguments, options)
+		} else {
+			resp.Result = callTool(p.Name, p.Arguments)
+		}
 
 	case "ping":
 		resp.Result = map[string]any{}
