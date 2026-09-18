@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 
 	"github.com/mekjr1/midden/internal/core"
+	"github.com/mekjr1/midden/internal/create"
 	"github.com/mekjr1/midden/internal/refinery"
 )
 
@@ -201,6 +202,9 @@ func DescribeV2() V2Descriptor {
 		Kind: string(KindText), MediaType: "text/markdown",
 	}
 	d.ArtifactKinds[SeedSchemaID] = V2ArtifactKind{
+		Kind: string(KindText), MediaType: "application/json",
+	}
+	d.ArtifactKinds[create.HandoffSchema] = V2ArtifactKind{
 		Kind: string(KindText), MediaType: "application/json",
 	}
 	return d

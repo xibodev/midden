@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/mekjr1/midden/internal/content"
+	"github.com/mekjr1/midden/internal/create"
 )
 
 var localID = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]{0,79}$`)
@@ -222,8 +223,16 @@ func (w Workflow) validateAnalysis(p Project, a Analysis) error {
 			if !linked {
 				return fmt.Errorf("chapter output must belong to its selected opportunity")
 			}
+			if err := w.validateOutputEvidence(p, v.OutputID); err != nil {
+				return err
+			}
 			if v.Status == "complete" && o.Status != "reviewed" && o.Status != "exported" {
 				return fmt.Errorf("chapter output is not reviewed")
+			}
+			if v.Status == "complete" {
+				if _, err := (create.Workflow{DB: w.DB}).ReviewedSource(v.OutputID); err != nil {
+					return err
+				}
 			}
 		}
 	}
@@ -264,10 +273,33 @@ func subset(a Analysis, o Opportunity) Analysis {
 			out.Arcs = append(out.Arcs, v)
 		}
 	}
+	// Close the claim/gap relation so an omitted convenience link cannot hide
+	// a known caveat. Related claims may themselves bring additional gaps.
+	for changed := true; changed; {
+		changed = false
+		for _, v := range a.Gaps {
+			linked := contains(o.GapIDs, v.ID)
+			for _, id := range v.ClaimIDs {
+				linked = linked || contains(o.ClaimIDs, id)
+			}
+			if !linked {
+				continue
+			}
+			if !contains(o.GapIDs, v.ID) {
+				o.GapIDs = append(o.GapIDs, v.ID)
+				changed = true
+			}
+			for _, id := range v.ClaimIDs {
+				if !contains(o.ClaimIDs, id) {
+					o.ClaimIDs = append(o.ClaimIDs, id)
+					changed = true
+				}
+			}
+		}
+	}
 	for _, v := range a.Gaps {
 		if contains(o.GapIDs, v.ID) {
 			out.Gaps = append(out.Gaps, v)
-			o.ClaimIDs = append(o.ClaimIDs, v.ClaimIDs...)
 		}
 	}
 	for _, v := range a.Claims {

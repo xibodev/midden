@@ -1,8 +1,13 @@
 package index
 
 import (
+	"crypto/sha256"
+	"database/sql"
+	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"sort"
 	"time"
 )
 
@@ -19,6 +24,13 @@ CREATE TABLE IF NOT EXISTS editorial_revisions (
   revision INTEGER NOT NULL,
   document TEXT NOT NULL,
   PRIMARY KEY(project_id, revision)
+);
+CREATE TABLE IF NOT EXISTS editorial_recipe_scope (
+  recipe_id TEXT PRIMARY KEY REFERENCES refinery_recipes(uid),
+  project_id TEXT NOT NULL,
+  revision INTEGER NOT NULL,
+  evidence_ids TEXT NOT NULL,
+  FOREIGN KEY(project_id,revision) REFERENCES editorial_revisions(project_id,revision)
 );`)
 	return err
 }
@@ -71,8 +83,69 @@ VALUES(?,?,?,?,?,?,?,?,?,NULL)`, recipe.UID, recipe.Title, recipe.Workspace, rec
 		if err != nil {
 			return err
 		}
+		if _, err = tx.Exec("INSERT INTO editorial_recipe_scope(recipe_id,project_id,revision,evidence_ids) VALUES(?,?,?,?)",
+			recipe.UID, id, expected+1, string(evidence)); err != nil {
+			return err
+		}
 	}
 	return tx.Commit()
+}
+
+func EvidenceDigest(items []Nugget) (string, error) {
+	items = append([]Nugget(nil), items...)
+	sort.Slice(items, func(i, j int) bool { return items[i].UID < items[j].UID })
+	raw, err := json.Marshal(items)
+	if err != nil {
+		return "", err
+	}
+	sum := sha256.Sum256(raw)
+	return "sha256:" + hex.EncodeToString(sum[:]), nil
+}
+
+// CheckEditorialRecipeScope applies only to recipes originating in editorial
+// projects. Ordinary recipes retain their existing evidence-selection behavior.
+func (d *DB) CheckEditorialRecipeScope(recipeID string, selected []string) error {
+	var allowedRaw, projectRaw string
+	err := d.sql.QueryRow(`SELECT s.evidence_ids,r.document FROM editorial_recipe_scope s
+JOIN editorial_revisions r ON r.project_id=s.project_id AND r.revision=s.revision WHERE s.recipe_id=?`, recipeID).Scan(&allowedRaw, &projectRaw)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	var allowed []string
+	if err = json.Unmarshal([]byte(allowedRaw), &allowed); err != nil {
+		return err
+	}
+	set := map[string]bool{}
+	for _, id := range allowed {
+		set[id] = true
+	}
+	for _, id := range selected {
+		if !set[id] {
+			return fmt.Errorf("evidence %s is outside the selected editorial opportunity; select a new opportunity instead", id)
+		}
+	}
+	var project struct {
+		EvidenceIDs    []string `json:"evidence_ids"`
+		EvidenceDigest string   `json:"evidence_digest"`
+	}
+	if err = json.Unmarshal([]byte(projectRaw), &project); err != nil {
+		return err
+	}
+	items, err := d.NuggetsByIDs(project.EvidenceIDs)
+	if err != nil {
+		return err
+	}
+	digest, err := EvidenceDigest(items)
+	if err != nil {
+		return err
+	}
+	if len(items) != len(project.EvidenceIDs) || digest != project.EvidenceDigest {
+		return fmt.Errorf("editorial source evidence changed; refresh and reselect before production")
+	}
+	return nil
 }
 
 func (d *DB) Editorial(id string, revision int) (json.RawMessage, error) {

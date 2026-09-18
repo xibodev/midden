@@ -1,8 +1,6 @@
 package editorial
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"sort"
@@ -271,8 +269,8 @@ func (w Workflow) evidence(p Project) ([]index.Nugget, string, error) {
 	if len(raw) > 256*1024 {
 		return nil, "", fmt.Errorf("selected evidence exceeds 256 KiB; narrow the selection")
 	}
-	sum := sha256.Sum256(raw)
-	return ns, "sha256:" + hex.EncodeToString(sum[:]), nil
+	digest, err := index.EvidenceDigest(ns)
+	return ns, digest, err
 }
 
 func contains(values []string, s string) bool {

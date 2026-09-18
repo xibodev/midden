@@ -392,7 +392,7 @@ type EvidenceReport struct {
 
 // AssessEvidence scores confidence separately from claim coverage.
 func AssessEvidence(recipe index.Recipe, nuggets []index.Nugget) EvidenceReport {
-	report := EvidenceReport{Selected: len(nuggets), ByKind: map[string]int{}}
+	report := EvidenceReport{Selected: len(nuggets), ByKind: map[string]int{}, NeedsReview: []string{}, Warnings: []string{}}
 	if len(nuggets) == 0 {
 		report.Blocked = true
 		report.Warnings = []string{"No evidence is selected. Mine or select evidence before running this recipe."}

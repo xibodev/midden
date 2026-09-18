@@ -64,7 +64,8 @@ and risks. Open gaps need explicit `acknowledge_gaps` to proceed with disclosure
 Inspect the recipe, present its exact evidence to the operator, and use
 `recipes.evidence` with `decision: approved` only after that review. The host
 authors drafts and submits `recipes.compose`; no nested model is needed.
-Deterministic packs use the same recipe lifecycle.
+Deterministic packs use the same recipe lifecycle; submit `"drafts": {}` for a
+deterministic-only recipe. Every narrative output still requires an authored draft.
 
 Inspect each output and check material claims against the cited evidence.
 `outputs.review` requires an inspected `expected_digest` and a decision.
@@ -87,6 +88,29 @@ or exported output belonging to that project's selected opportunity. Persist
 partial progress; do not write a book merely because the corpus is large.
 `projects.inspect` accepts an optional historical `revision` for comparison.
 
+## Local production handoffs
+
+`handoffs.create` takes `project_id`, `expected_revision`, a `target`, and
+explicit `output_ids`. It verifies the outputs belong to the project's selected
+opportunities and that their reviewed bytes are unchanged. Quarto chapter
+dependencies must appear before dependents. It writes a local portable directory:
+
+```text
+manifest.json         output identities, relative paths and digests
+editorial.json        selected historical analyses, not the whole corpus
+sources/              reviewed editable source and provenance sidecars
+README.md             adapter instructions and unresolved delivery boundaries
+_quarto.yml           only for a Quarto book handoff
+```
+
+Supported targets are `markdown`, `quarto`, `pandoc`, `d2`, and `openmontage`.
+This last target is a **file-based brief**, not a native OpenMontage project or
+an integration certification. It requires reviewed video-brief or slide source.
+No adapter launches software, installs dependencies, uploads, or publishes.
+The assembled handoff stays `unreviewed`; reviewed sources do not establish that
+the book, diagram, presentation, or video has been rendered or is ready to publish.
+Handoffs are recorded in the existing artifact inventory.
+
 ## Limits and acceptance
 
 Projects contain at most 25 exact sources and 300 selected evidence items, with
@@ -99,3 +123,9 @@ Synthetic tests exercise the source-to-review/export lifecycle, stale digests,
 scope confinement, reversed decisions, chapter dependencies and retry safety.
 They do not establish narrative quality or live acceptance in every host.
 Do not commit private sessions, screenshots or extracted work as fixtures.
+
+Feature branches targeting `staging` have a dedicated **Stage agentic bundle**
+workflow. It runs focused checks and packages only the headless binary and declared
+skills/overlay into staging artifacts. It does not publish a release or deploy
+Pages. The full Go suite remains opt-in through its `full_tests` dispatch input;
+the repository's existing release validation is unchanged.

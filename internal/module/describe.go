@@ -133,7 +133,7 @@ func Describe() Descriptor {
 			{
 				ID:              CapContentProduce,
 				Title:           "Produce content from mined evidence",
-				Summary:         "Write a document from stored evidence. Call content.types for the shared content vocabulary and each kind's model requirement. Narrative outputs require an authorized runtime; prefer recipes.compose when the host agent authors the draft.",
+				Summary:         "Write a document from stored evidence. Deterministic packs are free and model-free; narrative outputs require an authorized model runtime. Call content.types for each kind's requirements and prefer recipes.compose when the host agent authors the draft.",
 				RequestSchema:   SchemaContentProduceRequest,
 				ResultSchema:    SchemaContentProduceResult,
 				ArtifactSchemas: []string{ArtifactContentOutput},

@@ -192,7 +192,7 @@ func invokeWorkflow(req Request, cap workflowCapability) Envelope {
 	var result any
 	switch cap.ID {
 	case "recipes.compose":
-		if len(c.Drafts) == 0 {
+		if c.Drafts == nil {
 			err = fmt.Errorf("drafts keyed by output kind are required")
 		} else {
 			w.Drafts = c.Drafts

@@ -5,11 +5,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
 	"time"
 
+	"github.com/mekjr1/midden/internal/create"
 	"github.com/mekjr1/midden/internal/editorial"
 	"github.com/mekjr1/midden/internal/index"
 )
@@ -51,6 +53,7 @@ type agentCapability struct {
 func shape[T any]() reflect.Type { return reflect.TypeFor[T]() }
 
 var agentCapabilities = []agentCapability{
+	{"handoffs.create", "Package reviewed project outputs with editorial context and provenance for Markdown, Quarto, Pandoc, D2 or an operator-controlled OpenMontage workspace. Local source files only; never renders, transfers or publishes.", "create_editorial_handoff", true, shape[editorial.HandoffRequest](), shape[create.HandoffResult]()},
 	{"evidence.prepare", "Prepare bounded, redacted source excerpts for the host agent. Exact source required; no model or writes.", "prepare_host_evidence", false, shape[EvidencePrepareInput](), shape[EvidencePacket]()},
 	{"evidence.compose", "Validate source-record citations and store host-authored extraction. Requires the current packet digest; never calls a model.", "compose_host_evidence", true, shape[EvidenceComposeInput](), shape[EvidenceComposed]()},
 	{"projects.create", "Create an exact multi-session editorial corpus from stored evidence. Human review and publication remain separate.", "create_editorial_project", true, shape[editorial.CreateRequest](), shape[editorial.Project]()},
@@ -84,8 +87,13 @@ func addAgentCapabilities(d *Descriptor) {
 	for _, c := range agentCapabilities {
 		requestID := "xibodev.midden." + c.ID + ".request/v1"
 		resultID := "xibodev.midden." + c.ID + ".result/v1"
-		d.Capabilities = append(d.Capabilities, Capability{ID: c.ID, Title: c.ID, Summary: c.Summary, RequestSchema: requestID,
-			ResultSchema: resultID, Effects: Effects{Local: true, CostKnown: true}, Skills: []string{SkillEditorial, SkillEvidenceSelection}})
+		capability := Capability{ID: c.ID, Title: c.ID, Summary: c.Summary, RequestSchema: requestID,
+			ResultSchema: resultID, Effects: Effects{Local: true, CostKnown: true}, Skills: []string{SkillEditorial, SkillEvidenceSelection}}
+		if c.ID == "handoffs.create" {
+			capability.ArtifactSchemas = []string{create.HandoffSchema}
+			d.ArtifactSchemas[create.HandoffSchema] = typedSchema(create.HandoffSchema, shape[create.HandoffManifest]())
+		}
+		d.Capabilities = append(d.Capabilities, capability)
 		d.RequestSchemas[requestID] = typedSchema(requestID, c.Input)
 		d.ResultSchemas[resultID] = typedSchema(resultID, c.Output)
 	}
@@ -212,6 +220,8 @@ func invokeAgent(req Request, cap agentCapability) Envelope {
 	w := editorial.Workflow{DB: db}
 	var result any
 	switch c := input.(type) {
+	case *editorial.HandoffRequest:
+		result, err = w.Handoff(*c)
 	case *EvidenceComposeInput:
 		result, err = composeHostEvidence(*c, req, db)
 	case *editorial.CreateRequest:
@@ -260,5 +270,16 @@ func invokeAgent(req Request, cap agentCapability) Envelope {
 	if err != nil {
 		return invalidRequest(req, err)
 	}
-	return successEnvelope(req, result, nil)
+	env := successEnvelope(req, result, nil)
+	if handoff, ok := result.(create.HandoffResult); ok {
+		info, statErr := os.Stat(filepath.Join(root.Path, filepath.FromSlash(handoff.ManifestPath)))
+		if statErr != nil {
+			return invalidRequest(req, statErr)
+		}
+		env.Execution.Artifacts = append(env.Execution.Artifacts, Artifact{
+			ID: "editorial-handoff", Kind: create.HandoffSchema, Path: handoff.ManifestPath, Root: RootMiddenHome,
+			MediaType: "application/json", Bytes: info.Size(), Digest: handoff.ManifestDigest,
+		})
+	}
+	return env
 }

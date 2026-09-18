@@ -112,6 +112,15 @@ func TestAgentWorkflowFromSourceToReviewedExportWithoutNestedModel(t *testing.T)
 	if err != nil || !filepath.IsLocal(rel) {
 		t.Fatalf("export left explicit state root: %s", exported.Path)
 	}
+	var handoff struct {
+		Path        string `json:"path"`
+		ReviewState string `json:"review_state"`
+	}
+	decode("handoffs.create", map[string]any{"project_id": selection.Project.ID, "expected_revision": selection.Project.Revision,
+		"target": "markdown", "output_ids": []string{output.UID}}, &handoff)
+	if handoff.Path == "" || handoff.ReviewState != "unreviewed" {
+		t.Fatalf("bad handoff state: %+v", handoff)
+	}
 }
 
 func TestAgentWorkflowRejectsMissingWriteAuthorityAndIgnoredFields(t *testing.T) {

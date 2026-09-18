@@ -116,7 +116,7 @@
       {
         "id": "content.produce",
         "title": "Produce content from mined evidence",
-        "summary": "Write a document from mined evidence: tutorials, ADRs, slide decks, diagrams, video briefs, handbooks, and deterministic packs and manifests. Seven kinds are free and model-free; twelve are written by a model through an AI CLI the user is already signed in to, and those need subprocess authority granted for the invocation. Call content.types first for the split.",
+        "summary": "Write a document from stored evidence. Deterministic packs are free and model-free; narrative outputs require an authorized model runtime. Call content.types for each kind's requirements and prefer recipes.compose when the host agent authors the draft.",
         "request_schema": "xibodev.midden.content.produce.request/v1",
         "result_schema": "xibodev.midden.content.produce.result/v1",
         "artifact_schemas": [
@@ -394,6 +394,208 @@
           "midden.content-seed"
         ],
         "long_running": false
+      },
+      {
+        "id": "handoffs.create",
+        "title": "handoffs.create",
+        "summary": "Package reviewed project outputs with editorial context and provenance for Markdown, Quarto, Pandoc, D2 or an operator-controlled OpenMontage workspace. Local source files only; never renders, transfers or publishes.",
+        "request_schema": "xibodev.midden.handoffs.create.request/v1",
+        "result_schema": "xibodev.midden.handoffs.create.result/v1",
+        "artifact_schemas": [
+          "xibodev.midden.handoff/v1"
+        ],
+        "effects": {
+          "local": true,
+          "network": false,
+          "external_writes": false,
+          "provider": "",
+          "cost_known": true
+        },
+        "skills": [
+          "midden.editorial-production",
+          "midden.evidence-selection"
+        ],
+        "long_running": false
+      },
+      {
+        "id": "evidence.prepare",
+        "title": "evidence.prepare",
+        "summary": "Prepare bounded, redacted source excerpts for the host agent. Exact source required; no model or writes.",
+        "request_schema": "xibodev.midden.evidence.prepare.request/v1",
+        "result_schema": "xibodev.midden.evidence.prepare.result/v1",
+        "artifact_schemas": [],
+        "effects": {
+          "local": true,
+          "network": false,
+          "external_writes": false,
+          "provider": "",
+          "cost_known": true
+        },
+        "skills": [
+          "midden.editorial-production",
+          "midden.evidence-selection"
+        ],
+        "long_running": false
+      },
+      {
+        "id": "evidence.compose",
+        "title": "evidence.compose",
+        "summary": "Validate source-record citations and store host-authored extraction. Requires the current packet digest; never calls a model.",
+        "request_schema": "xibodev.midden.evidence.compose.request/v1",
+        "result_schema": "xibodev.midden.evidence.compose.result/v1",
+        "artifact_schemas": [],
+        "effects": {
+          "local": true,
+          "network": false,
+          "external_writes": false,
+          "provider": "",
+          "cost_known": true
+        },
+        "skills": [
+          "midden.editorial-production",
+          "midden.evidence-selection"
+        ],
+        "long_running": false
+      },
+      {
+        "id": "projects.create",
+        "title": "projects.create",
+        "summary": "Create an exact multi-session editorial corpus from stored evidence. Human review and publication remain separate.",
+        "request_schema": "xibodev.midden.projects.create.request/v1",
+        "result_schema": "xibodev.midden.projects.create.result/v1",
+        "artifact_schemas": [],
+        "effects": {
+          "local": true,
+          "network": false,
+          "external_writes": false,
+          "provider": "",
+          "cost_known": true
+        },
+        "skills": [
+          "midden.editorial-production",
+          "midden.evidence-selection"
+        ],
+        "long_running": false
+      },
+      {
+        "id": "projects.update",
+        "title": "projects.update",
+        "summary": "Replace a corpus or goal using a revision fence. Preserves history and marks previous analysis stale.",
+        "request_schema": "xibodev.midden.projects.update.request/v1",
+        "result_schema": "xibodev.midden.projects.update.result/v1",
+        "artifact_schemas": [],
+        "effects": {
+          "local": true,
+          "network": false,
+          "external_writes": false,
+          "provider": "",
+          "cost_known": true
+        },
+        "skills": [
+          "midden.editorial-production",
+          "midden.evidence-selection"
+        ],
+        "long_running": false
+      },
+      {
+        "id": "projects.list",
+        "title": "projects.list",
+        "summary": "List bounded editorial project summaries with total, offset and limit.",
+        "request_schema": "xibodev.midden.projects.list.request/v1",
+        "result_schema": "xibodev.midden.projects.list.result/v1",
+        "artifact_schemas": [],
+        "effects": {
+          "local": true,
+          "network": false,
+          "external_writes": false,
+          "provider": "",
+          "cost_known": true
+        },
+        "skills": [
+          "midden.editorial-production",
+          "midden.evidence-selection"
+        ],
+        "long_running": false
+      },
+      {
+        "id": "projects.inspect",
+        "title": "projects.inspect",
+        "summary": "Inspect a project or historical revision, including opportunities, chapter plans and recipe links.",
+        "request_schema": "xibodev.midden.projects.inspect.request/v1",
+        "result_schema": "xibodev.midden.projects.inspect.result/v1",
+        "artifact_schemas": [],
+        "effects": {
+          "local": true,
+          "network": false,
+          "external_writes": false,
+          "provider": "",
+          "cost_known": true
+        },
+        "skills": [
+          "midden.editorial-production",
+          "midden.evidence-selection"
+        ],
+        "long_running": false
+      },
+      {
+        "id": "editorial.prepare",
+        "title": "editorial.prepare",
+        "summary": "Prepare bounded evidence and investigative guidance for the host agent. Reports scope and estimated input tokens; no nested model call.",
+        "request_schema": "xibodev.midden.editorial.prepare.request/v1",
+        "result_schema": "xibodev.midden.editorial.prepare.result/v1",
+        "artifact_schemas": [],
+        "effects": {
+          "local": true,
+          "network": false,
+          "external_writes": false,
+          "provider": "",
+          "cost_known": true
+        },
+        "skills": [
+          "midden.editorial-production",
+          "midden.evidence-selection"
+        ],
+        "long_running": false
+      },
+      {
+        "id": "editorial.analyze",
+        "title": "editorial.analyze",
+        "summary": "Store host-authored editorial analysis after validating claims, source references, reversals and chapter dependencies. Not editorial approval.",
+        "request_schema": "xibodev.midden.editorial.analyze.request/v1",
+        "result_schema": "xibodev.midden.editorial.analyze.result/v1",
+        "artifact_schemas": [],
+        "effects": {
+          "local": true,
+          "network": false,
+          "external_writes": false,
+          "provider": "",
+          "cost_known": true
+        },
+        "skills": [
+          "midden.editorial-production",
+          "midden.evidence-selection"
+        ],
+        "long_running": false
+      },
+      {
+        "id": "editorial.select",
+        "title": "editorial.select",
+        "summary": "Select one opportunity into a draft recipe. Does not approve its evidence or produce content. Unresolved gaps need explicit disclosure.",
+        "request_schema": "xibodev.midden.editorial.select.request/v1",
+        "result_schema": "xibodev.midden.editorial.select.result/v1",
+        "artifact_schemas": [],
+        "effects": {
+          "local": true,
+          "network": false,
+          "external_writes": false,
+          "provider": "",
+          "cost_known": true
+        },
+        "skills": [
+          "midden.editorial-production",
+          "midden.evidence-selection"
+        ],
+        "long_running": false
       }
     ],
     "request_schemas": {
@@ -401,7 +603,7 @@
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "$id": "xibodev.midden.content.produce.request/v1",
         "title": "Content production request",
-        "description": "Write one document from stored evidence. Deterministic; calls no model. Requires the midden_home root.",
+        "description": "Write one document from stored evidence. Deterministic packs call no model; narrative kinds require an explicitly authorized model runtime. Requires the midden_home root. Prefer recipes.compose for host-authored drafts.",
         "type": "object",
         "additionalProperties": false,
         "required": [
@@ -410,7 +612,7 @@
         "properties": {
           "kind": {
             "type": "string",
-            "description": "Output type from content.types. Model-backed kinds are refused rather than produced weakly."
+            "description": "Output type from content.types. Inspect requires_model and free_kinds before authorizing production."
           },
           "title": {
             "type": "string"
@@ -452,6 +654,528 @@
         "type": "object",
         "properties": {},
         "additionalProperties": false
+      },
+      "xibodev.midden.editorial.analyze.request/v1": {
+        "$id": "xibodev.midden.editorial.analyze.request/v1",
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "analysis": {
+            "anyOf": [
+              {
+                "additionalProperties": false,
+                "properties": {
+                  "arcs": {
+                    "items": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "evidence_ids": {
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
+                        },
+                        "id": {
+                          "type": "string"
+                        },
+                        "summary": {
+                          "type": "string"
+                        },
+                        "title": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "title",
+                        "summary",
+                        "evidence_ids"
+                      ],
+                      "type": "object"
+                    },
+                    "type": "array"
+                  },
+                  "assets": {
+                    "items": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "availability": {
+                          "enum": [
+                            "referenced",
+                            "missing"
+                          ],
+                          "type": "string"
+                        },
+                        "cluster": {
+                          "type": "string"
+                        },
+                        "evidence_id": {
+                          "type": "string"
+                        },
+                        "id": {
+                          "type": "string"
+                        },
+                        "kind": {
+                          "enum": [
+                            "image",
+                            "code",
+                            "document",
+                            "diagram",
+                            "video",
+                            "other"
+                          ],
+                          "type": "string"
+                        },
+                        "label": {
+                          "type": "string"
+                        },
+                        "locator": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "label",
+                        "kind",
+                        "evidence_id",
+                        "locator",
+                        "availability"
+                      ],
+                      "type": "object"
+                    },
+                    "type": "array"
+                  },
+                  "chapters": {
+                    "items": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "depends_on": {
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
+                        },
+                        "id": {
+                          "type": "string"
+                        },
+                        "notes": {
+                          "type": "string"
+                        },
+                        "opportunity_id": {
+                          "type": "string"
+                        },
+                        "output_id": {
+                          "type": "string"
+                        },
+                        "status": {
+                          "enum": [
+                            "planned",
+                            "drafting",
+                            "review",
+                            "complete"
+                          ],
+                          "type": "string"
+                        },
+                        "title": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "title",
+                        "opportunity_id",
+                        "status"
+                      ],
+                      "type": "object"
+                    },
+                    "type": "array"
+                  },
+                  "claims": {
+                    "items": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "contradicting_ids": {
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
+                        },
+                        "id": {
+                          "type": "string"
+                        },
+                        "status": {
+                          "enum": [
+                            "supported",
+                            "contested",
+                            "unverified"
+                          ],
+                          "type": "string"
+                        },
+                        "supporting_ids": {
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
+                        },
+                        "text": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "text",
+                        "status",
+                        "supporting_ids"
+                      ],
+                      "type": "object"
+                    },
+                    "type": "array"
+                  },
+                  "decisions": {
+                    "items": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "evidence_ids": {
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
+                        },
+                        "id": {
+                          "type": "string"
+                        },
+                        "rationale": {
+                          "type": "string"
+                        },
+                        "statement": {
+                          "type": "string"
+                        },
+                        "status": {
+                          "enum": [
+                            "proposed",
+                            "accepted",
+                            "superseded",
+                            "rejected",
+                            "uncertain"
+                          ],
+                          "type": "string"
+                        },
+                        "supersedes": {
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "statement",
+                        "rationale",
+                        "status",
+                        "evidence_ids"
+                      ],
+                      "type": "object"
+                    },
+                    "type": "array"
+                  },
+                  "gaps": {
+                    "items": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "claim_ids": {
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
+                        },
+                        "detail": {
+                          "type": "string"
+                        },
+                        "evidence_ids": {
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
+                        },
+                        "id": {
+                          "type": "string"
+                        },
+                        "status": {
+                          "enum": [
+                            "open",
+                            "disclosed",
+                            "resolved"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "detail",
+                        "status"
+                      ],
+                      "type": "object"
+                    },
+                    "type": "array"
+                  },
+                  "opportunities": {
+                    "items": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "arc_ids": {
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
+                        },
+                        "asset_ids": {
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
+                        },
+                        "audience": {
+                          "type": "string"
+                        },
+                        "claim_ids": {
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
+                        },
+                        "decision_ids": {
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
+                        },
+                        "effort": {
+                          "enum": [
+                            "small",
+                            "medium",
+                            "large"
+                          ],
+                          "type": "string"
+                        },
+                        "formats": {
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
+                        },
+                        "gap_ids": {
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
+                        },
+                        "hook": {
+                          "type": "string"
+                        },
+                        "id": {
+                          "type": "string"
+                        },
+                        "purpose": {
+                          "type": "string"
+                        },
+                        "rationale": {
+                          "type": "string"
+                        },
+                        "risks": {
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
+                        },
+                        "title": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "title",
+                        "hook",
+                        "audience",
+                        "purpose",
+                        "formats",
+                        "arc_ids",
+                        "claim_ids",
+                        "rationale",
+                        "effort",
+                        "risks"
+                      ],
+                      "type": "object"
+                    },
+                    "type": "array"
+                  }
+                },
+                "required": [
+                  "arcs",
+                  "decisions",
+                  "claims",
+                  "assets",
+                  "gaps",
+                  "opportunities",
+                  "chapters"
+                ],
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "expected_revision": {
+            "type": "integer"
+          },
+          "project_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "project_id",
+          "expected_revision",
+          "analysis"
+        ],
+        "type": "object"
+      },
+      "xibodev.midden.editorial.prepare.request/v1": {
+        "$id": "xibodev.midden.editorial.prepare.request/v1",
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "project_id": {
+            "type": "string"
+          },
+          "revision": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "project_id"
+        ],
+        "type": "object"
+      },
+      "xibodev.midden.editorial.select.request/v1": {
+        "$id": "xibodev.midden.editorial.select.request/v1",
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "acknowledge_gaps": {
+            "type": "boolean"
+          },
+          "expected_revision": {
+            "type": "integer"
+          },
+          "opportunity_id": {
+            "type": "string"
+          },
+          "output_kinds": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "project_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "project_id",
+          "expected_revision",
+          "opportunity_id",
+          "output_kinds"
+        ],
+        "type": "object"
+      },
+      "xibodev.midden.evidence.compose.request/v1": {
+        "$id": "xibodev.midden.evidence.compose.request/v1",
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "expected_digest": {
+            "type": "string"
+          },
+          "items": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "body": {
+                  "type": "string"
+                },
+                "confidence": {
+                  "type": "number"
+                },
+                "kind": {
+                  "enum": [
+                    "decision",
+                    "error_fix",
+                    "command",
+                    "gotcha",
+                    "dead_end",
+                    "artifact",
+                    "brief"
+                  ],
+                  "type": "string"
+                },
+                "record_ids": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "tags": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "title": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "kind",
+                "title",
+                "body",
+                "confidence",
+                "record_ids"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "max_records": {
+            "type": "integer"
+          },
+          "source": {
+            "additionalProperties": false,
+            "properties": {
+              "session_id": {
+                "type": "string"
+              },
+              "tool": {
+                "enum": [
+                  "copilot",
+                  "claude",
+                  "opencode"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "tool",
+              "session_id"
+            ],
+            "type": "object"
+          }
+        },
+        "required": [
+          "source",
+          "expected_digest",
+          "items"
+        ],
+        "type": "object"
       },
       "xibodev.midden.evidence.extract.request/v1": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -510,10 +1234,102 @@
         "$id": "xibodev.midden.evidence.list.request/v1",
         "additionalProperties": false,
         "properties": {
+          "limit": {
+            "maximum": 200,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "offset": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "session_id": {
+            "description": "Exact session ID, not a prefix.",
+            "type": "string"
+          },
+          "tool": {
+            "enum": [
+              "copilot",
+              "claude",
+              "opencode"
+            ],
+            "type": "string"
+          },
           "workspace": {
             "type": "string"
           }
         },
+        "type": "object"
+      },
+      "xibodev.midden.evidence.prepare.request/v1": {
+        "$id": "xibodev.midden.evidence.prepare.request/v1",
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "max_records": {
+            "type": "integer"
+          },
+          "source": {
+            "additionalProperties": false,
+            "properties": {
+              "session_id": {
+                "type": "string"
+              },
+              "tool": {
+                "enum": [
+                  "copilot",
+                  "claude",
+                  "opencode"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "tool",
+              "session_id"
+            ],
+            "type": "object"
+          }
+        },
+        "required": [
+          "source"
+        ],
+        "type": "object"
+      },
+      "xibodev.midden.handoffs.create.request/v1": {
+        "$id": "xibodev.midden.handoffs.create.request/v1",
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "expected_revision": {
+            "type": "integer"
+          },
+          "output_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "project_id": {
+            "type": "string"
+          },
+          "target": {
+            "enum": [
+              "markdown",
+              "quarto",
+              "pandoc",
+              "d2",
+              "openmontage"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "project_id",
+          "expected_revision",
+          "target",
+          "output_ids"
+        ],
         "type": "object"
       },
       "xibodev.midden.outputs.export.request/v1": {
@@ -564,7 +1380,8 @@
           }
         },
         "required": [
-          "output_id"
+          "output_id",
+          "format"
         ],
         "type": "object"
       },
@@ -576,6 +1393,11 @@
             "type": "string"
           },
           "decision": {
+            "enum": [
+              "draft",
+              "reviewed",
+              "rejected"
+            ],
             "type": "string"
           },
           "evidence_ids": {
@@ -592,7 +1414,147 @@
           }
         },
         "required": [
-          "output_id"
+          "output_id",
+          "decision",
+          "expected_digest"
+        ],
+        "type": "object"
+      },
+      "xibodev.midden.projects.create.request/v1": {
+        "$id": "xibodev.midden.projects.create.request/v1",
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "evidence_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "goal": {
+            "type": "string"
+          },
+          "sources": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "session_id": {
+                  "type": "string"
+                },
+                "tool": {
+                  "enum": [
+                    "copilot",
+                    "claude",
+                    "opencode"
+                  ],
+                  "type": "string"
+                }
+              },
+              "required": [
+                "tool",
+                "session_id"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "title": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "title",
+          "goal",
+          "sources",
+          "evidence_ids"
+        ],
+        "type": "object"
+      },
+      "xibodev.midden.projects.inspect.request/v1": {
+        "$id": "xibodev.midden.projects.inspect.request/v1",
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "project_id": {
+            "type": "string"
+          },
+          "revision": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "project_id"
+        ],
+        "type": "object"
+      },
+      "xibodev.midden.projects.list.request/v1": {
+        "$id": "xibodev.midden.projects.list.request/v1",
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "limit": {
+            "type": "integer"
+          },
+          "offset": {
+            "type": "integer"
+          }
+        },
+        "required": [],
+        "type": "object"
+      },
+      "xibodev.midden.projects.update.request/v1": {
+        "$id": "xibodev.midden.projects.update.request/v1",
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "evidence_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "expected_revision": {
+            "type": "integer"
+          },
+          "goal": {
+            "type": "string"
+          },
+          "project_id": {
+            "type": "string"
+          },
+          "sources": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "session_id": {
+                  "type": "string"
+                },
+                "tool": {
+                  "enum": [
+                    "copilot",
+                    "claude",
+                    "opencode"
+                  ],
+                  "type": "string"
+                }
+              },
+              "required": [
+                "tool",
+                "session_id"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "title": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "project_id",
+          "expected_revision",
+          "sources",
+          "evidence_ids"
         ],
         "type": "object"
       },
@@ -610,6 +1572,10 @@
             "type": "string"
           }
         },
+        "required": [
+          "recipe_id",
+          "drafts"
+        ],
         "type": "object"
       },
       "xibodev.midden.recipes.design.request/v1": {
@@ -645,6 +1611,10 @@
         "additionalProperties": false,
         "properties": {
           "decision": {
+            "enum": [
+              "saved",
+              "approved"
+            ],
             "type": "string"
           },
           "evidence_ids": {
@@ -658,7 +1628,9 @@
           }
         },
         "required": [
-          "recipe_id"
+          "recipe_id",
+          "evidence_ids",
+          "decision"
         ],
         "type": "object"
       },
@@ -1075,6 +2047,1176 @@
           }
         }
       },
+      "xibodev.midden.editorial.analyze.result/v1": {
+        "$id": "xibodev.midden.editorial.analyze.result/v1",
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "analysis": {
+            "anyOf": [
+              {
+                "additionalProperties": false,
+                "properties": {
+                  "arcs": {
+                    "items": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "evidence_ids": {
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
+                        },
+                        "id": {
+                          "type": "string"
+                        },
+                        "summary": {
+                          "type": "string"
+                        },
+                        "title": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "title",
+                        "summary",
+                        "evidence_ids"
+                      ],
+                      "type": "object"
+                    },
+                    "type": "array"
+                  },
+                  "assets": {
+                    "items": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "availability": {
+                          "enum": [
+                            "referenced",
+                            "missing"
+                          ],
+                          "type": "string"
+                        },
+                        "cluster": {
+                          "type": "string"
+                        },
+                        "evidence_id": {
+                          "type": "string"
+                        },
+                        "id": {
+                          "type": "string"
+                        },
+                        "kind": {
+                          "enum": [
+                            "image",
+                            "code",
+                            "document",
+                            "diagram",
+                            "video",
+                            "other"
+                          ],
+                          "type": "string"
+                        },
+                        "label": {
+                          "type": "string"
+                        },
+                        "locator": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "label",
+                        "kind",
+                        "evidence_id",
+                        "locator",
+                        "availability"
+                      ],
+                      "type": "object"
+                    },
+                    "type": "array"
+                  },
+                  "chapters": {
+                    "items": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "depends_on": {
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
+                        },
+                        "id": {
+                          "type": "string"
+                        },
+                        "notes": {
+                          "type": "string"
+                        },
+                        "opportunity_id": {
+                          "type": "string"
+                        },
+                        "output_id": {
+                          "type": "string"
+                        },
+                        "status": {
+                          "enum": [
+                            "planned",
+                            "drafting",
+                            "review",
+                            "complete"
+                          ],
+                          "type": "string"
+                        },
+                        "title": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "title",
+                        "opportunity_id",
+                        "status"
+                      ],
+                      "type": "object"
+                    },
+                    "type": "array"
+                  },
+                  "claims": {
+                    "items": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "contradicting_ids": {
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
+                        },
+                        "id": {
+                          "type": "string"
+                        },
+                        "status": {
+                          "enum": [
+                            "supported",
+                            "contested",
+                            "unverified"
+                          ],
+                          "type": "string"
+                        },
+                        "supporting_ids": {
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
+                        },
+                        "text": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "text",
+                        "status",
+                        "supporting_ids"
+                      ],
+                      "type": "object"
+                    },
+                    "type": "array"
+                  },
+                  "decisions": {
+                    "items": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "evidence_ids": {
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
+                        },
+                        "id": {
+                          "type": "string"
+                        },
+                        "rationale": {
+                          "type": "string"
+                        },
+                        "statement": {
+                          "type": "string"
+                        },
+                        "status": {
+                          "enum": [
+                            "proposed",
+                            "accepted",
+                            "superseded",
+                            "rejected",
+                            "uncertain"
+                          ],
+                          "type": "string"
+                        },
+                        "supersedes": {
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "statement",
+                        "rationale",
+                        "status",
+                        "evidence_ids"
+                      ],
+                      "type": "object"
+                    },
+                    "type": "array"
+                  },
+                  "gaps": {
+                    "items": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "claim_ids": {
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
+                        },
+                        "detail": {
+                          "type": "string"
+                        },
+                        "evidence_ids": {
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
+                        },
+                        "id": {
+                          "type": "string"
+                        },
+                        "status": {
+                          "enum": [
+                            "open",
+                            "disclosed",
+                            "resolved"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "detail",
+                        "status"
+                      ],
+                      "type": "object"
+                    },
+                    "type": "array"
+                  },
+                  "opportunities": {
+                    "items": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "arc_ids": {
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
+                        },
+                        "asset_ids": {
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
+                        },
+                        "audience": {
+                          "type": "string"
+                        },
+                        "claim_ids": {
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
+                        },
+                        "decision_ids": {
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
+                        },
+                        "effort": {
+                          "enum": [
+                            "small",
+                            "medium",
+                            "large"
+                          ],
+                          "type": "string"
+                        },
+                        "formats": {
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
+                        },
+                        "gap_ids": {
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
+                        },
+                        "hook": {
+                          "type": "string"
+                        },
+                        "id": {
+                          "type": "string"
+                        },
+                        "purpose": {
+                          "type": "string"
+                        },
+                        "rationale": {
+                          "type": "string"
+                        },
+                        "risks": {
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
+                        },
+                        "title": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "title",
+                        "hook",
+                        "audience",
+                        "purpose",
+                        "formats",
+                        "arc_ids",
+                        "claim_ids",
+                        "rationale",
+                        "effort",
+                        "risks"
+                      ],
+                      "type": "object"
+                    },
+                    "type": "array"
+                  }
+                },
+                "required": [
+                  "arcs",
+                  "decisions",
+                  "claims",
+                  "assets",
+                  "gaps",
+                  "opportunities",
+                  "chapters"
+                ],
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "analysis_stale": {
+            "type": "boolean"
+          },
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "evidence_digest": {
+            "type": "string"
+          },
+          "evidence_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "goal": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "revision": {
+            "type": "integer"
+          },
+          "schema": {
+            "type": "string"
+          },
+          "selections": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "analysis_revision": {
+                  "type": "integer"
+                },
+                "opportunity_id": {
+                  "type": "string"
+                },
+                "recipe_id": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "opportunity_id",
+                "analysis_revision",
+                "recipe_id"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "sources": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "session_id": {
+                  "type": "string"
+                },
+                "tool": {
+                  "enum": [
+                    "copilot",
+                    "claude",
+                    "opencode"
+                  ],
+                  "type": "string"
+                }
+              },
+              "required": [
+                "tool",
+                "session_id"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "title": {
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "schema",
+          "id",
+          "title",
+          "goal",
+          "revision",
+          "sources",
+          "evidence_ids",
+          "evidence_digest",
+          "analysis",
+          "analysis_stale",
+          "selections",
+          "created_at",
+          "updated_at"
+        ],
+        "type": "object"
+      },
+      "xibodev.midden.editorial.prepare.result/v1": {
+        "$id": "xibodev.midden.editorial.prepare.result/v1",
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "est_input_tokens": {
+            "type": "integer"
+          },
+          "evidence_count": {
+            "type": "integer"
+          },
+          "evidence_digest": {
+            "type": "string"
+          },
+          "project_id": {
+            "type": "string"
+          },
+          "prompt": {
+            "type": "string"
+          },
+          "revision": {
+            "type": "integer"
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "project_id",
+          "revision",
+          "evidence_digest",
+          "evidence_count",
+          "est_input_tokens",
+          "prompt",
+          "warnings"
+        ],
+        "type": "object"
+      },
+      "xibodev.midden.editorial.select.result/v1": {
+        "$id": "xibodev.midden.editorial.select.result/v1",
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "project": {
+            "additionalProperties": false,
+            "properties": {
+              "analysis": {
+                "anyOf": [
+                  {
+                    "additionalProperties": false,
+                    "properties": {
+                      "arcs": {
+                        "items": {
+                          "additionalProperties": false,
+                          "properties": {
+                            "evidence_ids": {
+                              "items": {
+                                "type": "string"
+                              },
+                              "type": "array"
+                            },
+                            "id": {
+                              "type": "string"
+                            },
+                            "summary": {
+                              "type": "string"
+                            },
+                            "title": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "id",
+                            "title",
+                            "summary",
+                            "evidence_ids"
+                          ],
+                          "type": "object"
+                        },
+                        "type": "array"
+                      },
+                      "assets": {
+                        "items": {
+                          "additionalProperties": false,
+                          "properties": {
+                            "availability": {
+                              "enum": [
+                                "referenced",
+                                "missing"
+                              ],
+                              "type": "string"
+                            },
+                            "cluster": {
+                              "type": "string"
+                            },
+                            "evidence_id": {
+                              "type": "string"
+                            },
+                            "id": {
+                              "type": "string"
+                            },
+                            "kind": {
+                              "enum": [
+                                "image",
+                                "code",
+                                "document",
+                                "diagram",
+                                "video",
+                                "other"
+                              ],
+                              "type": "string"
+                            },
+                            "label": {
+                              "type": "string"
+                            },
+                            "locator": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "id",
+                            "label",
+                            "kind",
+                            "evidence_id",
+                            "locator",
+                            "availability"
+                          ],
+                          "type": "object"
+                        },
+                        "type": "array"
+                      },
+                      "chapters": {
+                        "items": {
+                          "additionalProperties": false,
+                          "properties": {
+                            "depends_on": {
+                              "items": {
+                                "type": "string"
+                              },
+                              "type": "array"
+                            },
+                            "id": {
+                              "type": "string"
+                            },
+                            "notes": {
+                              "type": "string"
+                            },
+                            "opportunity_id": {
+                              "type": "string"
+                            },
+                            "output_id": {
+                              "type": "string"
+                            },
+                            "status": {
+                              "enum": [
+                                "planned",
+                                "drafting",
+                                "review",
+                                "complete"
+                              ],
+                              "type": "string"
+                            },
+                            "title": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "id",
+                            "title",
+                            "opportunity_id",
+                            "status"
+                          ],
+                          "type": "object"
+                        },
+                        "type": "array"
+                      },
+                      "claims": {
+                        "items": {
+                          "additionalProperties": false,
+                          "properties": {
+                            "contradicting_ids": {
+                              "items": {
+                                "type": "string"
+                              },
+                              "type": "array"
+                            },
+                            "id": {
+                              "type": "string"
+                            },
+                            "status": {
+                              "enum": [
+                                "supported",
+                                "contested",
+                                "unverified"
+                              ],
+                              "type": "string"
+                            },
+                            "supporting_ids": {
+                              "items": {
+                                "type": "string"
+                              },
+                              "type": "array"
+                            },
+                            "text": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "id",
+                            "text",
+                            "status",
+                            "supporting_ids"
+                          ],
+                          "type": "object"
+                        },
+                        "type": "array"
+                      },
+                      "decisions": {
+                        "items": {
+                          "additionalProperties": false,
+                          "properties": {
+                            "evidence_ids": {
+                              "items": {
+                                "type": "string"
+                              },
+                              "type": "array"
+                            },
+                            "id": {
+                              "type": "string"
+                            },
+                            "rationale": {
+                              "type": "string"
+                            },
+                            "statement": {
+                              "type": "string"
+                            },
+                            "status": {
+                              "enum": [
+                                "proposed",
+                                "accepted",
+                                "superseded",
+                                "rejected",
+                                "uncertain"
+                              ],
+                              "type": "string"
+                            },
+                            "supersedes": {
+                              "items": {
+                                "type": "string"
+                              },
+                              "type": "array"
+                            }
+                          },
+                          "required": [
+                            "id",
+                            "statement",
+                            "rationale",
+                            "status",
+                            "evidence_ids"
+                          ],
+                          "type": "object"
+                        },
+                        "type": "array"
+                      },
+                      "gaps": {
+                        "items": {
+                          "additionalProperties": false,
+                          "properties": {
+                            "claim_ids": {
+                              "items": {
+                                "type": "string"
+                              },
+                              "type": "array"
+                            },
+                            "detail": {
+                              "type": "string"
+                            },
+                            "evidence_ids": {
+                              "items": {
+                                "type": "string"
+                              },
+                              "type": "array"
+                            },
+                            "id": {
+                              "type": "string"
+                            },
+                            "status": {
+                              "enum": [
+                                "open",
+                                "disclosed",
+                                "resolved"
+                              ],
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "id",
+                            "detail",
+                            "status"
+                          ],
+                          "type": "object"
+                        },
+                        "type": "array"
+                      },
+                      "opportunities": {
+                        "items": {
+                          "additionalProperties": false,
+                          "properties": {
+                            "arc_ids": {
+                              "items": {
+                                "type": "string"
+                              },
+                              "type": "array"
+                            },
+                            "asset_ids": {
+                              "items": {
+                                "type": "string"
+                              },
+                              "type": "array"
+                            },
+                            "audience": {
+                              "type": "string"
+                            },
+                            "claim_ids": {
+                              "items": {
+                                "type": "string"
+                              },
+                              "type": "array"
+                            },
+                            "decision_ids": {
+                              "items": {
+                                "type": "string"
+                              },
+                              "type": "array"
+                            },
+                            "effort": {
+                              "enum": [
+                                "small",
+                                "medium",
+                                "large"
+                              ],
+                              "type": "string"
+                            },
+                            "formats": {
+                              "items": {
+                                "type": "string"
+                              },
+                              "type": "array"
+                            },
+                            "gap_ids": {
+                              "items": {
+                                "type": "string"
+                              },
+                              "type": "array"
+                            },
+                            "hook": {
+                              "type": "string"
+                            },
+                            "id": {
+                              "type": "string"
+                            },
+                            "purpose": {
+                              "type": "string"
+                            },
+                            "rationale": {
+                              "type": "string"
+                            },
+                            "risks": {
+                              "items": {
+                                "type": "string"
+                              },
+                              "type": "array"
+                            },
+                            "title": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "id",
+                            "title",
+                            "hook",
+                            "audience",
+                            "purpose",
+                            "formats",
+                            "arc_ids",
+                            "claim_ids",
+                            "rationale",
+                            "effort",
+                            "risks"
+                          ],
+                          "type": "object"
+                        },
+                        "type": "array"
+                      }
+                    },
+                    "required": [
+                      "arcs",
+                      "decisions",
+                      "claims",
+                      "assets",
+                      "gaps",
+                      "opportunities",
+                      "chapters"
+                    ],
+                    "type": "object"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "analysis_stale": {
+                "type": "boolean"
+              },
+              "created_at": {
+                "format": "date-time",
+                "type": "string"
+              },
+              "evidence_digest": {
+                "type": "string"
+              },
+              "evidence_ids": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "goal": {
+                "type": "string"
+              },
+              "id": {
+                "type": "string"
+              },
+              "revision": {
+                "type": "integer"
+              },
+              "schema": {
+                "type": "string"
+              },
+              "selections": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "analysis_revision": {
+                      "type": "integer"
+                    },
+                    "opportunity_id": {
+                      "type": "string"
+                    },
+                    "recipe_id": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "opportunity_id",
+                    "analysis_revision",
+                    "recipe_id"
+                  ],
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              "sources": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "session_id": {
+                      "type": "string"
+                    },
+                    "tool": {
+                      "enum": [
+                        "copilot",
+                        "claude",
+                        "opencode"
+                      ],
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "tool",
+                    "session_id"
+                  ],
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              "title": {
+                "type": "string"
+              },
+              "updated_at": {
+                "format": "date-time",
+                "type": "string"
+              }
+            },
+            "required": [
+              "schema",
+              "id",
+              "title",
+              "goal",
+              "revision",
+              "sources",
+              "evidence_ids",
+              "evidence_digest",
+              "analysis",
+              "analysis_stale",
+              "selections",
+              "created_at",
+              "updated_at"
+            ],
+            "type": "object"
+          },
+          "recipe": {
+            "additionalProperties": false,
+            "properties": {
+              "approved_at": {
+                "format": "date-time",
+                "type": "string"
+              },
+              "created_at": {
+                "format": "date-time",
+                "type": "string"
+              },
+              "evidence_ids": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "outputs": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "audience": {
+                      "type": "string"
+                    },
+                    "cost_class": {
+                      "type": "string"
+                    },
+                    "format": {
+                      "type": "string"
+                    },
+                    "kind": {
+                      "type": "string"
+                    },
+                    "maker": {
+                      "type": "string"
+                    },
+                    "requires_model": {
+                      "type": "boolean"
+                    },
+                    "title": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "kind",
+                    "title",
+                    "audience",
+                    "maker",
+                    "format",
+                    "cost_class",
+                    "requires_model"
+                  ],
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              "request": {
+                "type": "string"
+              },
+              "status": {
+                "type": "string"
+              },
+              "title": {
+                "type": "string"
+              },
+              "uid": {
+                "type": "string"
+              },
+              "updated_at": {
+                "format": "date-time",
+                "type": "string"
+              },
+              "workspace": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "uid",
+              "title",
+              "workspace",
+              "request",
+              "status",
+              "outputs",
+              "evidence_ids",
+              "created_at",
+              "updated_at"
+            ],
+            "type": "object"
+          }
+        },
+        "required": [
+          "project",
+          "recipe"
+        ],
+        "type": "object"
+      },
+      "xibodev.midden.evidence.compose.result/v1": {
+        "$id": "xibodev.midden.evidence.compose.result/v1",
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "evidence": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "body": {
+                  "type": "string"
+                },
+                "confidence": {
+                  "type": "number"
+                },
+                "created_at": {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                "kind": {
+                  "type": "string"
+                },
+                "model": {
+                  "type": "string"
+                },
+                "redacted": {
+                  "type": "boolean"
+                },
+                "repo": {
+                  "type": "string"
+                },
+                "session_id": {
+                  "type": "string"
+                },
+                "tags": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "title": {
+                  "type": "string"
+                },
+                "tool": {
+                  "type": "string"
+                },
+                "turn_ref": {
+                  "type": "string"
+                },
+                "uid": {
+                  "type": "string"
+                },
+                "workspace": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "uid",
+                "tool",
+                "session_id",
+                "kind",
+                "title",
+                "body",
+                "confidence",
+                "model",
+                "redacted",
+                "created_at"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "packet_digest": {
+            "type": "string"
+          },
+          "review_state": {
+            "type": "string"
+          },
+          "stored": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "evidence",
+          "stored",
+          "packet_digest",
+          "review_state"
+        ],
+        "type": "object"
+      },
       "xibodev.midden.evidence.extract.result/v1": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "$id": "xibodev.midden.evidence.extract.result/v1",
@@ -1160,54 +3302,3860 @@
       },
       "xibodev.midden.evidence.list.result/v1": {
         "$id": "xibodev.midden.evidence.list.result/v1",
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "evidence": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "body": {
+                  "type": "string"
+                },
+                "confidence": {
+                  "type": "number"
+                },
+                "created_at": {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                "kind": {
+                  "type": "string"
+                },
+                "model": {
+                  "type": "string"
+                },
+                "redacted": {
+                  "type": "boolean"
+                },
+                "repo": {
+                  "type": "string"
+                },
+                "session_id": {
+                  "type": "string"
+                },
+                "tags": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "title": {
+                  "type": "string"
+                },
+                "tool": {
+                  "type": "string"
+                },
+                "turn_ref": {
+                  "type": "string"
+                },
+                "uid": {
+                  "type": "string"
+                },
+                "workspace": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "uid",
+                "tool",
+                "session_id",
+                "kind",
+                "title",
+                "body",
+                "confidence",
+                "model",
+                "redacted",
+                "created_at"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "limit": {
+            "type": "integer"
+          },
+          "offset": {
+            "type": "integer"
+          },
+          "possibly_truncated": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "evidence",
+          "limit",
+          "offset",
+          "possibly_truncated"
+        ],
+        "type": "object"
+      },
+      "xibodev.midden.evidence.prepare.result/v1": {
+        "$id": "xibodev.midden.evidence.prepare.result/v1",
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "digest": {
+            "type": "string"
+          },
+          "est_slice_tokens": {
+            "type": "integer"
+          },
+          "max_records": {
+            "type": "integer"
+          },
+          "records": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "excerpt": {
+                  "type": "string"
+                },
+                "id": {
+                  "type": "string"
+                },
+                "kind": {
+                  "type": "string"
+                },
+                "role": {
+                  "type": "string"
+                },
+                "time": {
+                  "format": "date-time",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "kind",
+                "role",
+                "time",
+                "excerpt"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "signal_bytes": {
+            "type": "integer"
+          },
+          "signal_records": {
+            "type": "integer"
+          },
+          "slice_bytes": {
+            "type": "integer"
+          },
+          "source": {
+            "additionalProperties": false,
+            "properties": {
+              "session_id": {
+                "type": "string"
+              },
+              "tool": {
+                "enum": [
+                  "copilot",
+                  "claude",
+                  "opencode"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "tool",
+              "session_id"
+            ],
+            "type": "object"
+          },
+          "total_records": {
+            "type": "integer"
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "source",
+          "digest",
+          "max_records",
+          "records",
+          "total_records",
+          "signal_records",
+          "signal_bytes",
+          "slice_bytes",
+          "est_slice_tokens",
+          "warnings"
+        ],
+        "type": "object"
+      },
+      "xibodev.midden.handoffs.create.result/v1": {
+        "$id": "xibodev.midden.handoffs.create.result/v1",
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "manifest_digest": {
+            "type": "string"
+          },
+          "manifest_path": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          },
+          "review_state": {
+            "type": "string"
+          },
+          "root": {
+            "type": "string"
+          },
+          "target": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "root",
+          "path",
+          "manifest_path",
+          "manifest_digest",
+          "target",
+          "review_state"
+        ],
         "type": "object"
       },
       "xibodev.midden.outputs.export.result/v1": {
         "$id": "xibodev.midden.outputs.export.result/v1",
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "destination": {
+            "type": "string"
+          },
+          "output": {
+            "additionalProperties": false,
+            "properties": {
+              "created_at": {
+                "format": "date-time",
+                "type": "string"
+              },
+              "evidence_ids": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "exported_at": {
+                "format": "date-time",
+                "type": "string"
+              },
+              "format": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string"
+              },
+              "maker": {
+                "type": "string"
+              },
+              "path": {
+                "type": "string"
+              },
+              "provenance_path": {
+                "type": "string"
+              },
+              "quality": {
+                "type": "number"
+              },
+              "recipe_id": {
+                "type": "string"
+              },
+              "reviewed_at": {
+                "format": "date-time",
+                "type": "string"
+              },
+              "run_id": {
+                "type": "string"
+              },
+              "status": {
+                "type": "string"
+              },
+              "title": {
+                "type": "string"
+              },
+              "uid": {
+                "type": "string"
+              },
+              "updated_at": {
+                "format": "date-time",
+                "type": "string"
+              }
+            },
+            "required": [
+              "uid",
+              "recipe_id",
+              "kind",
+              "title",
+              "maker",
+              "format",
+              "status",
+              "path",
+              "evidence_ids",
+              "quality",
+              "created_at",
+              "updated_at"
+            ],
+            "type": "object"
+          },
+          "path": {
+            "type": "string"
+          },
+          "provenance_path": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "output",
+          "path",
+          "provenance_path",
+          "destination"
+        ],
         "type": "object"
       },
       "xibodev.midden.outputs.inspect.result/v1": {
         "$id": "xibodev.midden.outputs.inspect.result/v1",
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "body": {
+            "type": "string"
+          },
+          "content_digest": {
+            "type": "string"
+          },
+          "output": {
+            "additionalProperties": false,
+            "properties": {
+              "created_at": {
+                "format": "date-time",
+                "type": "string"
+              },
+              "evidence_ids": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "exported_at": {
+                "format": "date-time",
+                "type": "string"
+              },
+              "format": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string"
+              },
+              "maker": {
+                "type": "string"
+              },
+              "path": {
+                "type": "string"
+              },
+              "provenance_path": {
+                "type": "string"
+              },
+              "quality": {
+                "type": "number"
+              },
+              "recipe_id": {
+                "type": "string"
+              },
+              "reviewed_at": {
+                "format": "date-time",
+                "type": "string"
+              },
+              "run_id": {
+                "type": "string"
+              },
+              "status": {
+                "type": "string"
+              },
+              "title": {
+                "type": "string"
+              },
+              "uid": {
+                "type": "string"
+              },
+              "updated_at": {
+                "format": "date-time",
+                "type": "string"
+              }
+            },
+            "required": [
+              "uid",
+              "recipe_id",
+              "kind",
+              "title",
+              "maker",
+              "format",
+              "status",
+              "path",
+              "evidence_ids",
+              "quality",
+              "created_at",
+              "updated_at"
+            ],
+            "type": "object"
+          },
+          "provenance": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "output",
+          "body",
+          "provenance",
+          "content_digest"
+        ],
         "type": "object"
       },
       "xibodev.midden.outputs.render.result/v1": {
         "$id": "xibodev.midden.outputs.render.result/v1",
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "bytes": {
+            "type": "integer"
+          },
+          "format": {
+            "type": "string"
+          },
+          "output_id": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          },
+          "provenance_path": {
+            "type": "string"
+          },
+          "rendered_digest": {
+            "type": "string"
+          },
+          "review_state": {
+            "type": "string"
+          },
+          "slides": {
+            "type": "integer"
+          },
+          "source_digest": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "output_id",
+          "format",
+          "path",
+          "bytes",
+          "slides",
+          "source_digest",
+          "rendered_digest",
+          "provenance_path",
+          "review_state"
+        ],
         "type": "object"
       },
       "xibodev.midden.outputs.review.result/v1": {
         "$id": "xibodev.midden.outputs.review.result/v1",
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "content_digest": {
+            "type": "string"
+          },
+          "output": {
+            "additionalProperties": false,
+            "properties": {
+              "created_at": {
+                "format": "date-time",
+                "type": "string"
+              },
+              "evidence_ids": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "exported_at": {
+                "format": "date-time",
+                "type": "string"
+              },
+              "format": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string"
+              },
+              "maker": {
+                "type": "string"
+              },
+              "path": {
+                "type": "string"
+              },
+              "provenance_path": {
+                "type": "string"
+              },
+              "quality": {
+                "type": "number"
+              },
+              "recipe_id": {
+                "type": "string"
+              },
+              "reviewed_at": {
+                "format": "date-time",
+                "type": "string"
+              },
+              "run_id": {
+                "type": "string"
+              },
+              "status": {
+                "type": "string"
+              },
+              "title": {
+                "type": "string"
+              },
+              "uid": {
+                "type": "string"
+              },
+              "updated_at": {
+                "format": "date-time",
+                "type": "string"
+              }
+            },
+            "required": [
+              "uid",
+              "recipe_id",
+              "kind",
+              "title",
+              "maker",
+              "format",
+              "status",
+              "path",
+              "evidence_ids",
+              "quality",
+              "created_at",
+              "updated_at"
+            ],
+            "type": "object"
+          }
+        },
+        "required": [
+          "output",
+          "content_digest"
+        ],
+        "type": "object"
+      },
+      "xibodev.midden.projects.create.result/v1": {
+        "$id": "xibodev.midden.projects.create.result/v1",
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "analysis": {
+            "anyOf": [
+              {
+                "additionalProperties": false,
+                "properties": {
+                  "arcs": {
+                    "items": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "evidence_ids": {
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
+                        },
+                        "id": {
+                          "type": "string"
+                        },
+                        "summary": {
+                          "type": "string"
+                        },
+                        "title": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "title",
+                        "summary",
+                        "evidence_ids"
+                      ],
+                      "type": "object"
+                    },
+                    "type": "array"
+                  },
+                  "assets": {
+                    "items": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "availability": {
+                          "enum": [
+                            "referenced",
+                            "missing"
+                          ],
+                          "type": "string"
+                        },
+                        "cluster": {
+                          "type": "string"
+                        },
+                        "evidence_id": {
+                          "type": "string"
+                        },
+                        "id": {
+                          "type": "string"
+                        },
+                        "kind": {
+                          "enum": [
+                            "image",
+                            "code",
+                            "document",
+                            "diagram",
+                            "video",
+                            "other"
+                          ],
+                          "type": "string"
+                        },
+                        "label": {
+                          "type": "string"
+                        },
+                        "locator": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "label",
+                        "kind",
+                        "evidence_id",
+                        "locator",
+                        "availability"
+                      ],
+                      "type": "object"
+                    },
+                    "type": "array"
+                  },
+                  "chapters": {
+                    "items": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "depends_on": {
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
+                        },
+                        "id": {
+                          "type": "string"
+                        },
+                        "notes": {
+                          "type": "string"
+                        },
+                        "opportunity_id": {
+                          "type": "string"
+                        },
+                        "output_id": {
+                          "type": "string"
+                        },
+                        "status": {
+                          "enum": [
+                            "planned",
+                            "drafting",
+                            "review",
+                            "complete"
+                          ],
+                          "type": "string"
+                        },
+                        "title": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "title",
+                        "opportunity_id",
+                        "status"
+                      ],
+                      "type": "object"
+                    },
+                    "type": "array"
+                  },
+                  "claims": {
+                    "items": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "contradicting_ids": {
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
+                        },
+                        "id": {
+                          "type": "string"
+                        },
+                        "status": {
+                          "enum": [
+                            "supported",
+                            "contested",
+                            "unverified"
+                          ],
+                          "type": "string"
+                        },
+                        "supporting_ids": {
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
+                        },
+                        "text": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "text",
+                        "status",
+                        "supporting_ids"
+                      ],
+                      "type": "object"
+                    },
+                    "type": "array"
+                  },
+                  "decisions": {
+                    "items": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "evidence_ids": {
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
+                        },
+                        "id": {
+                          "type": "string"
+                        },
+                        "rationale": {
+                          "type": "string"
+                        },
+                        "statement": {
+                          "type": "string"
+                        },
+                        "status": {
+                          "enum": [
+                            "proposed",
+                            "accepted",
+                            "superseded",
+                            "rejected",
+                            "uncertain"
+                          ],
+                          "type": "string"
+                        },
+                        "supersedes": {
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "statement",
+                        "rationale",
+                        "status",
+                        "evidence_ids"
+                      ],
+                      "type": "object"
+                    },
+                    "type": "array"
+                  },
+                  "gaps": {
+                    "items": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "claim_ids": {
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
+                        },
+                        "detail": {
+                          "type": "string"
+                        },
+                        "evidence_ids": {
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
+                        },
+                        "id": {
+                          "type": "string"
+                        },
+                        "status": {
+                          "enum": [
+                            "open",
+                            "disclosed",
+                            "resolved"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "detail",
+                        "status"
+                      ],
+                      "type": "object"
+                    },
+                    "type": "array"
+                  },
+                  "opportunities": {
+                    "items": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "arc_ids": {
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
+                        },
+                        "asset_ids": {
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
+                        },
+                        "audience": {
+                          "type": "string"
+                        },
+                        "claim_ids": {
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
+                        },
+                        "decision_ids": {
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
+                        },
+                        "effort": {
+                          "enum": [
+                            "small",
+                            "medium",
+                            "large"
+                          ],
+                          "type": "string"
+                        },
+                        "formats": {
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
+                        },
+                        "gap_ids": {
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
+                        },
+                        "hook": {
+                          "type": "string"
+                        },
+                        "id": {
+                          "type": "string"
+                        },
+                        "purpose": {
+                          "type": "string"
+                        },
+                        "rationale": {
+                          "type": "string"
+                        },
+                        "risks": {
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
+                        },
+                        "title": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "title",
+                        "hook",
+                        "audience",
+                        "purpose",
+                        "formats",
+                        "arc_ids",
+                        "claim_ids",
+                        "rationale",
+                        "effort",
+                        "risks"
+                      ],
+                      "type": "object"
+                    },
+                    "type": "array"
+                  }
+                },
+                "required": [
+                  "arcs",
+                  "decisions",
+                  "claims",
+                  "assets",
+                  "gaps",
+                  "opportunities",
+                  "chapters"
+                ],
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "analysis_stale": {
+            "type": "boolean"
+          },
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "evidence_digest": {
+            "type": "string"
+          },
+          "evidence_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "goal": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "revision": {
+            "type": "integer"
+          },
+          "schema": {
+            "type": "string"
+          },
+          "selections": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "analysis_revision": {
+                  "type": "integer"
+                },
+                "opportunity_id": {
+                  "type": "string"
+                },
+                "recipe_id": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "opportunity_id",
+                "analysis_revision",
+                "recipe_id"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "sources": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "session_id": {
+                  "type": "string"
+                },
+                "tool": {
+                  "enum": [
+                    "copilot",
+                    "claude",
+                    "opencode"
+                  ],
+                  "type": "string"
+                }
+              },
+              "required": [
+                "tool",
+                "session_id"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "title": {
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "schema",
+          "id",
+          "title",
+          "goal",
+          "revision",
+          "sources",
+          "evidence_ids",
+          "evidence_digest",
+          "analysis",
+          "analysis_stale",
+          "selections",
+          "created_at",
+          "updated_at"
+        ],
+        "type": "object"
+      },
+      "xibodev.midden.projects.inspect.result/v1": {
+        "$id": "xibodev.midden.projects.inspect.result/v1",
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "analysis": {
+            "anyOf": [
+              {
+                "additionalProperties": false,
+                "properties": {
+                  "arcs": {
+                    "items": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "evidence_ids": {
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
+                        },
+                        "id": {
+                          "type": "string"
+                        },
+                        "summary": {
+                          "type": "string"
+                        },
+                        "title": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "title",
+                        "summary",
+                        "evidence_ids"
+                      ],
+                      "type": "object"
+                    },
+                    "type": "array"
+                  },
+                  "assets": {
+                    "items": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "availability": {
+                          "enum": [
+                            "referenced",
+                            "missing"
+                          ],
+                          "type": "string"
+                        },
+                        "cluster": {
+                          "type": "string"
+                        },
+                        "evidence_id": {
+                          "type": "string"
+                        },
+                        "id": {
+                          "type": "string"
+                        },
+                        "kind": {
+                          "enum": [
+                            "image",
+                            "code",
+                            "document",
+                            "diagram",
+                            "video",
+                            "other"
+                          ],
+                          "type": "string"
+                        },
+                        "label": {
+                          "type": "string"
+                        },
+                        "locator": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "label",
+                        "kind",
+                        "evidence_id",
+                        "locator",
+                        "availability"
+                      ],
+                      "type": "object"
+                    },
+                    "type": "array"
+                  },
+                  "chapters": {
+                    "items": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "depends_on": {
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
+                        },
+                        "id": {
+                          "type": "string"
+                        },
+                        "notes": {
+                          "type": "string"
+                        },
+                        "opportunity_id": {
+                          "type": "string"
+                        },
+                        "output_id": {
+                          "type": "string"
+                        },
+                        "status": {
+                          "enum": [
+                            "planned",
+                            "drafting",
+                            "review",
+                            "complete"
+                          ],
+                          "type": "string"
+                        },
+                        "title": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "title",
+                        "opportunity_id",
+                        "status"
+                      ],
+                      "type": "object"
+                    },
+                    "type": "array"
+                  },
+                  "claims": {
+                    "items": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "contradicting_ids": {
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
+                        },
+                        "id": {
+                          "type": "string"
+                        },
+                        "status": {
+                          "enum": [
+                            "supported",
+                            "contested",
+                            "unverified"
+                          ],
+                          "type": "string"
+                        },
+                        "supporting_ids": {
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
+                        },
+                        "text": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "text",
+                        "status",
+                        "supporting_ids"
+                      ],
+                      "type": "object"
+                    },
+                    "type": "array"
+                  },
+                  "decisions": {
+                    "items": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "evidence_ids": {
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
+                        },
+                        "id": {
+                          "type": "string"
+                        },
+                        "rationale": {
+                          "type": "string"
+                        },
+                        "statement": {
+                          "type": "string"
+                        },
+                        "status": {
+                          "enum": [
+                            "proposed",
+                            "accepted",
+                            "superseded",
+                            "rejected",
+                            "uncertain"
+                          ],
+                          "type": "string"
+                        },
+                        "supersedes": {
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "statement",
+                        "rationale",
+                        "status",
+                        "evidence_ids"
+                      ],
+                      "type": "object"
+                    },
+                    "type": "array"
+                  },
+                  "gaps": {
+                    "items": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "claim_ids": {
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
+                        },
+                        "detail": {
+                          "type": "string"
+                        },
+                        "evidence_ids": {
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
+                        },
+                        "id": {
+                          "type": "string"
+                        },
+                        "status": {
+                          "enum": [
+                            "open",
+                            "disclosed",
+                            "resolved"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "detail",
+                        "status"
+                      ],
+                      "type": "object"
+                    },
+                    "type": "array"
+                  },
+                  "opportunities": {
+                    "items": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "arc_ids": {
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
+                        },
+                        "asset_ids": {
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
+                        },
+                        "audience": {
+                          "type": "string"
+                        },
+                        "claim_ids": {
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
+                        },
+                        "decision_ids": {
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
+                        },
+                        "effort": {
+                          "enum": [
+                            "small",
+                            "medium",
+                            "large"
+                          ],
+                          "type": "string"
+                        },
+                        "formats": {
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
+                        },
+                        "gap_ids": {
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
+                        },
+                        "hook": {
+                          "type": "string"
+                        },
+                        "id": {
+                          "type": "string"
+                        },
+                        "purpose": {
+                          "type": "string"
+                        },
+                        "rationale": {
+                          "type": "string"
+                        },
+                        "risks": {
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
+                        },
+                        "title": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "title",
+                        "hook",
+                        "audience",
+                        "purpose",
+                        "formats",
+                        "arc_ids",
+                        "claim_ids",
+                        "rationale",
+                        "effort",
+                        "risks"
+                      ],
+                      "type": "object"
+                    },
+                    "type": "array"
+                  }
+                },
+                "required": [
+                  "arcs",
+                  "decisions",
+                  "claims",
+                  "assets",
+                  "gaps",
+                  "opportunities",
+                  "chapters"
+                ],
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "analysis_stale": {
+            "type": "boolean"
+          },
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "evidence_digest": {
+            "type": "string"
+          },
+          "evidence_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "goal": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "revision": {
+            "type": "integer"
+          },
+          "schema": {
+            "type": "string"
+          },
+          "selections": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "analysis_revision": {
+                  "type": "integer"
+                },
+                "opportunity_id": {
+                  "type": "string"
+                },
+                "recipe_id": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "opportunity_id",
+                "analysis_revision",
+                "recipe_id"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "sources": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "session_id": {
+                  "type": "string"
+                },
+                "tool": {
+                  "enum": [
+                    "copilot",
+                    "claude",
+                    "opencode"
+                  ],
+                  "type": "string"
+                }
+              },
+              "required": [
+                "tool",
+                "session_id"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "title": {
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "schema",
+          "id",
+          "title",
+          "goal",
+          "revision",
+          "sources",
+          "evidence_ids",
+          "evidence_digest",
+          "analysis",
+          "analysis_stale",
+          "selections",
+          "created_at",
+          "updated_at"
+        ],
+        "type": "object"
+      },
+      "xibodev.midden.projects.list.result/v1": {
+        "$id": "xibodev.midden.projects.list.result/v1",
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "limit": {
+            "type": "integer"
+          },
+          "offset": {
+            "type": "integer"
+          },
+          "projects": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "analysis_stale": {
+                  "type": "boolean"
+                },
+                "evidence_count": {
+                  "type": "integer"
+                },
+                "goal": {
+                  "type": "string"
+                },
+                "id": {
+                  "type": "string"
+                },
+                "revision": {
+                  "type": "integer"
+                },
+                "source_count": {
+                  "type": "integer"
+                },
+                "title": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "title",
+                "goal",
+                "revision",
+                "source_count",
+                "evidence_count",
+                "analysis_stale"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "total": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "projects",
+          "total",
+          "limit",
+          "offset"
+        ],
+        "type": "object"
+      },
+      "xibodev.midden.projects.update.result/v1": {
+        "$id": "xibodev.midden.projects.update.result/v1",
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "analysis": {
+            "anyOf": [
+              {
+                "additionalProperties": false,
+                "properties": {
+                  "arcs": {
+                    "items": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "evidence_ids": {
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
+                        },
+                        "id": {
+                          "type": "string"
+                        },
+                        "summary": {
+                          "type": "string"
+                        },
+                        "title": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "title",
+                        "summary",
+                        "evidence_ids"
+                      ],
+                      "type": "object"
+                    },
+                    "type": "array"
+                  },
+                  "assets": {
+                    "items": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "availability": {
+                          "enum": [
+                            "referenced",
+                            "missing"
+                          ],
+                          "type": "string"
+                        },
+                        "cluster": {
+                          "type": "string"
+                        },
+                        "evidence_id": {
+                          "type": "string"
+                        },
+                        "id": {
+                          "type": "string"
+                        },
+                        "kind": {
+                          "enum": [
+                            "image",
+                            "code",
+                            "document",
+                            "diagram",
+                            "video",
+                            "other"
+                          ],
+                          "type": "string"
+                        },
+                        "label": {
+                          "type": "string"
+                        },
+                        "locator": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "label",
+                        "kind",
+                        "evidence_id",
+                        "locator",
+                        "availability"
+                      ],
+                      "type": "object"
+                    },
+                    "type": "array"
+                  },
+                  "chapters": {
+                    "items": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "depends_on": {
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
+                        },
+                        "id": {
+                          "type": "string"
+                        },
+                        "notes": {
+                          "type": "string"
+                        },
+                        "opportunity_id": {
+                          "type": "string"
+                        },
+                        "output_id": {
+                          "type": "string"
+                        },
+                        "status": {
+                          "enum": [
+                            "planned",
+                            "drafting",
+                            "review",
+                            "complete"
+                          ],
+                          "type": "string"
+                        },
+                        "title": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "title",
+                        "opportunity_id",
+                        "status"
+                      ],
+                      "type": "object"
+                    },
+                    "type": "array"
+                  },
+                  "claims": {
+                    "items": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "contradicting_ids": {
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
+                        },
+                        "id": {
+                          "type": "string"
+                        },
+                        "status": {
+                          "enum": [
+                            "supported",
+                            "contested",
+                            "unverified"
+                          ],
+                          "type": "string"
+                        },
+                        "supporting_ids": {
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
+                        },
+                        "text": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "text",
+                        "status",
+                        "supporting_ids"
+                      ],
+                      "type": "object"
+                    },
+                    "type": "array"
+                  },
+                  "decisions": {
+                    "items": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "evidence_ids": {
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
+                        },
+                        "id": {
+                          "type": "string"
+                        },
+                        "rationale": {
+                          "type": "string"
+                        },
+                        "statement": {
+                          "type": "string"
+                        },
+                        "status": {
+                          "enum": [
+                            "proposed",
+                            "accepted",
+                            "superseded",
+                            "rejected",
+                            "uncertain"
+                          ],
+                          "type": "string"
+                        },
+                        "supersedes": {
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "statement",
+                        "rationale",
+                        "status",
+                        "evidence_ids"
+                      ],
+                      "type": "object"
+                    },
+                    "type": "array"
+                  },
+                  "gaps": {
+                    "items": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "claim_ids": {
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
+                        },
+                        "detail": {
+                          "type": "string"
+                        },
+                        "evidence_ids": {
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
+                        },
+                        "id": {
+                          "type": "string"
+                        },
+                        "status": {
+                          "enum": [
+                            "open",
+                            "disclosed",
+                            "resolved"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "detail",
+                        "status"
+                      ],
+                      "type": "object"
+                    },
+                    "type": "array"
+                  },
+                  "opportunities": {
+                    "items": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "arc_ids": {
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
+                        },
+                        "asset_ids": {
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
+                        },
+                        "audience": {
+                          "type": "string"
+                        },
+                        "claim_ids": {
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
+                        },
+                        "decision_ids": {
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
+                        },
+                        "effort": {
+                          "enum": [
+                            "small",
+                            "medium",
+                            "large"
+                          ],
+                          "type": "string"
+                        },
+                        "formats": {
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
+                        },
+                        "gap_ids": {
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
+                        },
+                        "hook": {
+                          "type": "string"
+                        },
+                        "id": {
+                          "type": "string"
+                        },
+                        "purpose": {
+                          "type": "string"
+                        },
+                        "rationale": {
+                          "type": "string"
+                        },
+                        "risks": {
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
+                        },
+                        "title": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "title",
+                        "hook",
+                        "audience",
+                        "purpose",
+                        "formats",
+                        "arc_ids",
+                        "claim_ids",
+                        "rationale",
+                        "effort",
+                        "risks"
+                      ],
+                      "type": "object"
+                    },
+                    "type": "array"
+                  }
+                },
+                "required": [
+                  "arcs",
+                  "decisions",
+                  "claims",
+                  "assets",
+                  "gaps",
+                  "opportunities",
+                  "chapters"
+                ],
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "analysis_stale": {
+            "type": "boolean"
+          },
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "evidence_digest": {
+            "type": "string"
+          },
+          "evidence_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "goal": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "revision": {
+            "type": "integer"
+          },
+          "schema": {
+            "type": "string"
+          },
+          "selections": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "analysis_revision": {
+                  "type": "integer"
+                },
+                "opportunity_id": {
+                  "type": "string"
+                },
+                "recipe_id": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "opportunity_id",
+                "analysis_revision",
+                "recipe_id"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "sources": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "session_id": {
+                  "type": "string"
+                },
+                "tool": {
+                  "enum": [
+                    "copilot",
+                    "claude",
+                    "opencode"
+                  ],
+                  "type": "string"
+                }
+              },
+              "required": [
+                "tool",
+                "session_id"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "title": {
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "schema",
+          "id",
+          "title",
+          "goal",
+          "revision",
+          "sources",
+          "evidence_ids",
+          "evidence_digest",
+          "analysis",
+          "analysis_stale",
+          "selections",
+          "created_at",
+          "updated_at"
+        ],
         "type": "object"
       },
       "xibodev.midden.recipes.compose.result/v1": {
         "$id": "xibodev.midden.recipes.compose.result/v1",
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "outputs": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "created_at": {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                "evidence_ids": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "exported_at": {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                "format": {
+                  "type": "string"
+                },
+                "kind": {
+                  "type": "string"
+                },
+                "maker": {
+                  "type": "string"
+                },
+                "path": {
+                  "type": "string"
+                },
+                "provenance_path": {
+                  "type": "string"
+                },
+                "quality": {
+                  "type": "number"
+                },
+                "recipe_id": {
+                  "type": "string"
+                },
+                "reviewed_at": {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                "run_id": {
+                  "type": "string"
+                },
+                "status": {
+                  "type": "string"
+                },
+                "title": {
+                  "type": "string"
+                },
+                "uid": {
+                  "type": "string"
+                },
+                "updated_at": {
+                  "format": "date-time",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "uid",
+                "recipe_id",
+                "kind",
+                "title",
+                "maker",
+                "format",
+                "status",
+                "path",
+                "evidence_ids",
+                "quality",
+                "created_at",
+                "updated_at"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "recipe": {
+            "additionalProperties": false,
+            "properties": {
+              "approved_at": {
+                "format": "date-time",
+                "type": "string"
+              },
+              "created_at": {
+                "format": "date-time",
+                "type": "string"
+              },
+              "evidence_ids": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "outputs": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "audience": {
+                      "type": "string"
+                    },
+                    "cost_class": {
+                      "type": "string"
+                    },
+                    "format": {
+                      "type": "string"
+                    },
+                    "kind": {
+                      "type": "string"
+                    },
+                    "maker": {
+                      "type": "string"
+                    },
+                    "requires_model": {
+                      "type": "boolean"
+                    },
+                    "title": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "kind",
+                    "title",
+                    "audience",
+                    "maker",
+                    "format",
+                    "cost_class",
+                    "requires_model"
+                  ],
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              "request": {
+                "type": "string"
+              },
+              "status": {
+                "type": "string"
+              },
+              "title": {
+                "type": "string"
+              },
+              "uid": {
+                "type": "string"
+              },
+              "updated_at": {
+                "format": "date-time",
+                "type": "string"
+              },
+              "workspace": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "uid",
+              "title",
+              "workspace",
+              "request",
+              "status",
+              "outputs",
+              "evidence_ids",
+              "created_at",
+              "updated_at"
+            ],
+            "type": "object"
+          },
+          "review_required": {
+            "type": "boolean"
+          },
+          "run": {
+            "additionalProperties": false,
+            "properties": {
+              "backend": {
+                "type": "string"
+              },
+              "ended_at": {
+                "format": "date-time",
+                "type": "string"
+              },
+              "error": {
+                "type": "string"
+              },
+              "estimate": {
+                "additionalProperties": false,
+                "properties": {
+                  "factor": {
+                    "type": "number"
+                  },
+                  "high": {
+                    "type": "integer"
+                  },
+                  "low": {
+                    "type": "integer"
+                  },
+                  "mid": {
+                    "type": "integer"
+                  },
+                  "op": {
+                    "type": "string"
+                  },
+                  "raw_tokens": {
+                    "type": "integer"
+                  },
+                  "samples": {
+                    "type": "integer"
+                  },
+                  "unit": {
+                    "type": "string"
+                  },
+                  "unit_mid": {
+                    "type": "number"
+                  }
+                },
+                "required": [
+                  "op",
+                  "raw_tokens",
+                  "low",
+                  "mid",
+                  "high",
+                  "factor",
+                  "samples"
+                ],
+                "type": "object"
+              },
+              "model": {
+                "type": "string"
+              },
+              "recipe_id": {
+                "type": "string"
+              },
+              "stages": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "detail": {
+                      "type": "string"
+                    },
+                    "ended_at": {
+                      "format": "date-time",
+                      "type": "string"
+                    },
+                    "key": {
+                      "type": "string"
+                    },
+                    "label": {
+                      "type": "string"
+                    },
+                    "started_at": {
+                      "format": "date-time",
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "key",
+                    "label",
+                    "status"
+                  ],
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              "started_at": {
+                "format": "date-time",
+                "type": "string"
+              },
+              "status": {
+                "type": "string"
+              },
+              "uid": {
+                "type": "string"
+              },
+              "updated_at": {
+                "format": "date-time",
+                "type": "string"
+              }
+            },
+            "required": [
+              "uid",
+              "recipe_id",
+              "status",
+              "estimate",
+              "stages",
+              "started_at",
+              "updated_at"
+            ],
+            "type": "object"
+          }
+        },
+        "required": [
+          "recipe",
+          "run",
+          "outputs",
+          "review_required"
+        ],
         "type": "object"
       },
       "xibodev.midden.recipes.design.result/v1": {
         "$id": "xibodev.midden.recipes.design.result/v1",
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "estimate": {
+            "additionalProperties": false,
+            "properties": {
+              "factor": {
+                "type": "number"
+              },
+              "high": {
+                "type": "integer"
+              },
+              "low": {
+                "type": "integer"
+              },
+              "mid": {
+                "type": "integer"
+              },
+              "op": {
+                "type": "string"
+              },
+              "raw_tokens": {
+                "type": "integer"
+              },
+              "samples": {
+                "type": "integer"
+              },
+              "unit": {
+                "type": "string"
+              },
+              "unit_mid": {
+                "type": "number"
+              }
+            },
+            "required": [
+              "op",
+              "raw_tokens",
+              "low",
+              "mid",
+              "high",
+              "factor",
+              "samples"
+            ],
+            "type": "object"
+          },
+          "evidence_report": {
+            "additionalProperties": false,
+            "properties": {
+              "blocked": {
+                "type": "boolean"
+              },
+              "by_kind": {
+                "additionalProperties": {
+                  "type": "integer"
+                },
+                "type": "object"
+              },
+              "coverage": {
+                "type": "number"
+              },
+              "mean_confidence": {
+                "type": "number"
+              },
+              "needs_review": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "quality": {
+                "type": "number"
+              },
+              "selected": {
+                "type": "integer"
+              },
+              "warnings": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              }
+            },
+            "required": [
+              "selected",
+              "mean_confidence",
+              "coverage",
+              "quality",
+              "by_kind",
+              "needs_review",
+              "warnings",
+              "blocked"
+            ],
+            "type": "object"
+          },
+          "preview": {
+            "type": "boolean"
+          },
+          "recipe": {
+            "additionalProperties": false,
+            "properties": {
+              "approved_at": {
+                "format": "date-time",
+                "type": "string"
+              },
+              "created_at": {
+                "format": "date-time",
+                "type": "string"
+              },
+              "evidence_ids": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "outputs": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "audience": {
+                      "type": "string"
+                    },
+                    "cost_class": {
+                      "type": "string"
+                    },
+                    "format": {
+                      "type": "string"
+                    },
+                    "kind": {
+                      "type": "string"
+                    },
+                    "maker": {
+                      "type": "string"
+                    },
+                    "requires_model": {
+                      "type": "boolean"
+                    },
+                    "title": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "kind",
+                    "title",
+                    "audience",
+                    "maker",
+                    "format",
+                    "cost_class",
+                    "requires_model"
+                  ],
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              "request": {
+                "type": "string"
+              },
+              "status": {
+                "type": "string"
+              },
+              "title": {
+                "type": "string"
+              },
+              "uid": {
+                "type": "string"
+              },
+              "updated_at": {
+                "format": "date-time",
+                "type": "string"
+              },
+              "workspace": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "uid",
+              "title",
+              "workspace",
+              "request",
+              "status",
+              "outputs",
+              "evidence_ids",
+              "created_at",
+              "updated_at"
+            ],
+            "type": "object"
+          }
+        },
+        "required": [
+          "recipe",
+          "evidence_report",
+          "estimate",
+          "preview"
+        ],
         "type": "object"
       },
       "xibodev.midden.recipes.evidence.result/v1": {
         "$id": "xibodev.midden.recipes.evidence.result/v1",
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "evidence_report": {
+            "additionalProperties": false,
+            "properties": {
+              "blocked": {
+                "type": "boolean"
+              },
+              "by_kind": {
+                "additionalProperties": {
+                  "type": "integer"
+                },
+                "type": "object"
+              },
+              "coverage": {
+                "type": "number"
+              },
+              "mean_confidence": {
+                "type": "number"
+              },
+              "needs_review": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "quality": {
+                "type": "number"
+              },
+              "selected": {
+                "type": "integer"
+              },
+              "warnings": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              }
+            },
+            "required": [
+              "selected",
+              "mean_confidence",
+              "coverage",
+              "quality",
+              "by_kind",
+              "needs_review",
+              "warnings",
+              "blocked"
+            ],
+            "type": "object"
+          },
+          "recipe": {
+            "additionalProperties": false,
+            "properties": {
+              "approved_at": {
+                "format": "date-time",
+                "type": "string"
+              },
+              "created_at": {
+                "format": "date-time",
+                "type": "string"
+              },
+              "evidence_ids": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "outputs": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "audience": {
+                      "type": "string"
+                    },
+                    "cost_class": {
+                      "type": "string"
+                    },
+                    "format": {
+                      "type": "string"
+                    },
+                    "kind": {
+                      "type": "string"
+                    },
+                    "maker": {
+                      "type": "string"
+                    },
+                    "requires_model": {
+                      "type": "boolean"
+                    },
+                    "title": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "kind",
+                    "title",
+                    "audience",
+                    "maker",
+                    "format",
+                    "cost_class",
+                    "requires_model"
+                  ],
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              "request": {
+                "type": "string"
+              },
+              "status": {
+                "type": "string"
+              },
+              "title": {
+                "type": "string"
+              },
+              "uid": {
+                "type": "string"
+              },
+              "updated_at": {
+                "format": "date-time",
+                "type": "string"
+              },
+              "workspace": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "uid",
+              "title",
+              "workspace",
+              "request",
+              "status",
+              "outputs",
+              "evidence_ids",
+              "created_at",
+              "updated_at"
+            ],
+            "type": "object"
+          }
+        },
+        "required": [
+          "recipe",
+          "evidence_report"
+        ],
         "type": "object"
       },
       "xibodev.midden.recipes.inspect.result/v1": {
         "$id": "xibodev.midden.recipes.inspect.result/v1",
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "estimate": {
+            "additionalProperties": false,
+            "properties": {
+              "factor": {
+                "type": "number"
+              },
+              "high": {
+                "type": "integer"
+              },
+              "low": {
+                "type": "integer"
+              },
+              "mid": {
+                "type": "integer"
+              },
+              "op": {
+                "type": "string"
+              },
+              "raw_tokens": {
+                "type": "integer"
+              },
+              "samples": {
+                "type": "integer"
+              },
+              "unit": {
+                "type": "string"
+              },
+              "unit_mid": {
+                "type": "number"
+              }
+            },
+            "required": [
+              "op",
+              "raw_tokens",
+              "low",
+              "mid",
+              "high",
+              "factor",
+              "samples"
+            ],
+            "type": "object"
+          },
+          "evidence": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "body": {
+                  "type": "string"
+                },
+                "confidence": {
+                  "type": "number"
+                },
+                "created_at": {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                "kind": {
+                  "type": "string"
+                },
+                "model": {
+                  "type": "string"
+                },
+                "redacted": {
+                  "type": "boolean"
+                },
+                "repo": {
+                  "type": "string"
+                },
+                "session_id": {
+                  "type": "string"
+                },
+                "tags": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "title": {
+                  "type": "string"
+                },
+                "tool": {
+                  "type": "string"
+                },
+                "turn_ref": {
+                  "type": "string"
+                },
+                "uid": {
+                  "type": "string"
+                },
+                "workspace": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "uid",
+                "tool",
+                "session_id",
+                "kind",
+                "title",
+                "body",
+                "confidence",
+                "model",
+                "redacted",
+                "created_at"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "evidence_report": {
+            "additionalProperties": false,
+            "properties": {
+              "blocked": {
+                "type": "boolean"
+              },
+              "by_kind": {
+                "additionalProperties": {
+                  "type": "integer"
+                },
+                "type": "object"
+              },
+              "coverage": {
+                "type": "number"
+              },
+              "mean_confidence": {
+                "type": "number"
+              },
+              "needs_review": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "quality": {
+                "type": "number"
+              },
+              "selected": {
+                "type": "integer"
+              },
+              "warnings": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              }
+            },
+            "required": [
+              "selected",
+              "mean_confidence",
+              "coverage",
+              "quality",
+              "by_kind",
+              "needs_review",
+              "warnings",
+              "blocked"
+            ],
+            "type": "object"
+          },
+          "outputs": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "created_at": {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                "evidence_ids": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "exported_at": {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                "format": {
+                  "type": "string"
+                },
+                "kind": {
+                  "type": "string"
+                },
+                "maker": {
+                  "type": "string"
+                },
+                "path": {
+                  "type": "string"
+                },
+                "provenance_path": {
+                  "type": "string"
+                },
+                "quality": {
+                  "type": "number"
+                },
+                "recipe_id": {
+                  "type": "string"
+                },
+                "reviewed_at": {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                "run_id": {
+                  "type": "string"
+                },
+                "status": {
+                  "type": "string"
+                },
+                "title": {
+                  "type": "string"
+                },
+                "uid": {
+                  "type": "string"
+                },
+                "updated_at": {
+                  "format": "date-time",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "uid",
+                "recipe_id",
+                "kind",
+                "title",
+                "maker",
+                "format",
+                "status",
+                "path",
+                "evidence_ids",
+                "quality",
+                "created_at",
+                "updated_at"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "recipe": {
+            "additionalProperties": false,
+            "properties": {
+              "approved_at": {
+                "format": "date-time",
+                "type": "string"
+              },
+              "created_at": {
+                "format": "date-time",
+                "type": "string"
+              },
+              "evidence_ids": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "outputs": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "audience": {
+                      "type": "string"
+                    },
+                    "cost_class": {
+                      "type": "string"
+                    },
+                    "format": {
+                      "type": "string"
+                    },
+                    "kind": {
+                      "type": "string"
+                    },
+                    "maker": {
+                      "type": "string"
+                    },
+                    "requires_model": {
+                      "type": "boolean"
+                    },
+                    "title": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "kind",
+                    "title",
+                    "audience",
+                    "maker",
+                    "format",
+                    "cost_class",
+                    "requires_model"
+                  ],
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              "request": {
+                "type": "string"
+              },
+              "status": {
+                "type": "string"
+              },
+              "title": {
+                "type": "string"
+              },
+              "uid": {
+                "type": "string"
+              },
+              "updated_at": {
+                "format": "date-time",
+                "type": "string"
+              },
+              "workspace": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "uid",
+              "title",
+              "workspace",
+              "request",
+              "status",
+              "outputs",
+              "evidence_ids",
+              "created_at",
+              "updated_at"
+            ],
+            "type": "object"
+          },
+          "runs": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "backend": {
+                  "type": "string"
+                },
+                "ended_at": {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                "error": {
+                  "type": "string"
+                },
+                "estimate": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "factor": {
+                      "type": "number"
+                    },
+                    "high": {
+                      "type": "integer"
+                    },
+                    "low": {
+                      "type": "integer"
+                    },
+                    "mid": {
+                      "type": "integer"
+                    },
+                    "op": {
+                      "type": "string"
+                    },
+                    "raw_tokens": {
+                      "type": "integer"
+                    },
+                    "samples": {
+                      "type": "integer"
+                    },
+                    "unit": {
+                      "type": "string"
+                    },
+                    "unit_mid": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "op",
+                    "raw_tokens",
+                    "low",
+                    "mid",
+                    "high",
+                    "factor",
+                    "samples"
+                  ],
+                  "type": "object"
+                },
+                "model": {
+                  "type": "string"
+                },
+                "recipe_id": {
+                  "type": "string"
+                },
+                "stages": {
+                  "items": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "detail": {
+                        "type": "string"
+                      },
+                      "ended_at": {
+                        "format": "date-time",
+                        "type": "string"
+                      },
+                      "key": {
+                        "type": "string"
+                      },
+                      "label": {
+                        "type": "string"
+                      },
+                      "started_at": {
+                        "format": "date-time",
+                        "type": "string"
+                      },
+                      "status": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "key",
+                      "label",
+                      "status"
+                    ],
+                    "type": "object"
+                  },
+                  "type": "array"
+                },
+                "started_at": {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                "status": {
+                  "type": "string"
+                },
+                "uid": {
+                  "type": "string"
+                },
+                "updated_at": {
+                  "format": "date-time",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "uid",
+                "recipe_id",
+                "status",
+                "estimate",
+                "stages",
+                "started_at",
+                "updated_at"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "recipe",
+          "evidence",
+          "outputs",
+          "runs",
+          "estimate",
+          "evidence_report"
+        ],
         "type": "object"
       },
       "xibodev.midden.recipes.list.result/v1": {
         "$id": "xibodev.midden.recipes.list.result/v1",
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "limit": {
+            "type": "integer"
+          },
+          "possibly_truncated": {
+            "type": "boolean"
+          },
+          "recipes": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "approved_at": {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                "created_at": {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                "evidence_ids": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "outputs": {
+                  "items": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "audience": {
+                        "type": "string"
+                      },
+                      "cost_class": {
+                        "type": "string"
+                      },
+                      "format": {
+                        "type": "string"
+                      },
+                      "kind": {
+                        "type": "string"
+                      },
+                      "maker": {
+                        "type": "string"
+                      },
+                      "requires_model": {
+                        "type": "boolean"
+                      },
+                      "title": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "kind",
+                      "title",
+                      "audience",
+                      "maker",
+                      "format",
+                      "cost_class",
+                      "requires_model"
+                    ],
+                    "type": "object"
+                  },
+                  "type": "array"
+                },
+                "request": {
+                  "type": "string"
+                },
+                "status": {
+                  "type": "string"
+                },
+                "title": {
+                  "type": "string"
+                },
+                "uid": {
+                  "type": "string"
+                },
+                "updated_at": {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                "workspace": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "uid",
+                "title",
+                "workspace",
+                "request",
+                "status",
+                "outputs",
+                "evidence_ids",
+                "created_at",
+                "updated_at"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "recipes",
+          "limit",
+          "possibly_truncated"
+        ],
         "type": "object"
       },
       "xibodev.midden.recipes.preview.result/v1": {
         "$id": "xibodev.midden.recipes.preview.result/v1",
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "estimate": {
+            "additionalProperties": false,
+            "properties": {
+              "factor": {
+                "type": "number"
+              },
+              "high": {
+                "type": "integer"
+              },
+              "low": {
+                "type": "integer"
+              },
+              "mid": {
+                "type": "integer"
+              },
+              "op": {
+                "type": "string"
+              },
+              "raw_tokens": {
+                "type": "integer"
+              },
+              "samples": {
+                "type": "integer"
+              },
+              "unit": {
+                "type": "string"
+              },
+              "unit_mid": {
+                "type": "number"
+              }
+            },
+            "required": [
+              "op",
+              "raw_tokens",
+              "low",
+              "mid",
+              "high",
+              "factor",
+              "samples"
+            ],
+            "type": "object"
+          },
+          "evidence_report": {
+            "additionalProperties": false,
+            "properties": {
+              "blocked": {
+                "type": "boolean"
+              },
+              "by_kind": {
+                "additionalProperties": {
+                  "type": "integer"
+                },
+                "type": "object"
+              },
+              "coverage": {
+                "type": "number"
+              },
+              "mean_confidence": {
+                "type": "number"
+              },
+              "needs_review": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "quality": {
+                "type": "number"
+              },
+              "selected": {
+                "type": "integer"
+              },
+              "warnings": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              }
+            },
+            "required": [
+              "selected",
+              "mean_confidence",
+              "coverage",
+              "quality",
+              "by_kind",
+              "needs_review",
+              "warnings",
+              "blocked"
+            ],
+            "type": "object"
+          },
+          "preview": {
+            "type": "boolean"
+          },
+          "recipe": {
+            "additionalProperties": false,
+            "properties": {
+              "approved_at": {
+                "format": "date-time",
+                "type": "string"
+              },
+              "created_at": {
+                "format": "date-time",
+                "type": "string"
+              },
+              "evidence_ids": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "outputs": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "audience": {
+                      "type": "string"
+                    },
+                    "cost_class": {
+                      "type": "string"
+                    },
+                    "format": {
+                      "type": "string"
+                    },
+                    "kind": {
+                      "type": "string"
+                    },
+                    "maker": {
+                      "type": "string"
+                    },
+                    "requires_model": {
+                      "type": "boolean"
+                    },
+                    "title": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "kind",
+                    "title",
+                    "audience",
+                    "maker",
+                    "format",
+                    "cost_class",
+                    "requires_model"
+                  ],
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              "request": {
+                "type": "string"
+              },
+              "status": {
+                "type": "string"
+              },
+              "title": {
+                "type": "string"
+              },
+              "uid": {
+                "type": "string"
+              },
+              "updated_at": {
+                "format": "date-time",
+                "type": "string"
+              },
+              "workspace": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "uid",
+              "title",
+              "workspace",
+              "request",
+              "status",
+              "outputs",
+              "evidence_ids",
+              "created_at",
+              "updated_at"
+            ],
+            "type": "object"
+          }
+        },
+        "required": [
+          "recipe",
+          "evidence_report",
+          "estimate",
+          "preview"
+        ],
         "type": "object"
       },
       "xibodev.midden.recipes.produce.result/v1": {
         "$id": "xibodev.midden.recipes.produce.result/v1",
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "outputs": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "created_at": {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                "evidence_ids": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "exported_at": {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                "format": {
+                  "type": "string"
+                },
+                "kind": {
+                  "type": "string"
+                },
+                "maker": {
+                  "type": "string"
+                },
+                "path": {
+                  "type": "string"
+                },
+                "provenance_path": {
+                  "type": "string"
+                },
+                "quality": {
+                  "type": "number"
+                },
+                "recipe_id": {
+                  "type": "string"
+                },
+                "reviewed_at": {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                "run_id": {
+                  "type": "string"
+                },
+                "status": {
+                  "type": "string"
+                },
+                "title": {
+                  "type": "string"
+                },
+                "uid": {
+                  "type": "string"
+                },
+                "updated_at": {
+                  "format": "date-time",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "uid",
+                "recipe_id",
+                "kind",
+                "title",
+                "maker",
+                "format",
+                "status",
+                "path",
+                "evidence_ids",
+                "quality",
+                "created_at",
+                "updated_at"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "recipe": {
+            "additionalProperties": false,
+            "properties": {
+              "approved_at": {
+                "format": "date-time",
+                "type": "string"
+              },
+              "created_at": {
+                "format": "date-time",
+                "type": "string"
+              },
+              "evidence_ids": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "outputs": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "audience": {
+                      "type": "string"
+                    },
+                    "cost_class": {
+                      "type": "string"
+                    },
+                    "format": {
+                      "type": "string"
+                    },
+                    "kind": {
+                      "type": "string"
+                    },
+                    "maker": {
+                      "type": "string"
+                    },
+                    "requires_model": {
+                      "type": "boolean"
+                    },
+                    "title": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "kind",
+                    "title",
+                    "audience",
+                    "maker",
+                    "format",
+                    "cost_class",
+                    "requires_model"
+                  ],
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              "request": {
+                "type": "string"
+              },
+              "status": {
+                "type": "string"
+              },
+              "title": {
+                "type": "string"
+              },
+              "uid": {
+                "type": "string"
+              },
+              "updated_at": {
+                "format": "date-time",
+                "type": "string"
+              },
+              "workspace": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "uid",
+              "title",
+              "workspace",
+              "request",
+              "status",
+              "outputs",
+              "evidence_ids",
+              "created_at",
+              "updated_at"
+            ],
+            "type": "object"
+          },
+          "review_required": {
+            "type": "boolean"
+          },
+          "run": {
+            "additionalProperties": false,
+            "properties": {
+              "backend": {
+                "type": "string"
+              },
+              "ended_at": {
+                "format": "date-time",
+                "type": "string"
+              },
+              "error": {
+                "type": "string"
+              },
+              "estimate": {
+                "additionalProperties": false,
+                "properties": {
+                  "factor": {
+                    "type": "number"
+                  },
+                  "high": {
+                    "type": "integer"
+                  },
+                  "low": {
+                    "type": "integer"
+                  },
+                  "mid": {
+                    "type": "integer"
+                  },
+                  "op": {
+                    "type": "string"
+                  },
+                  "raw_tokens": {
+                    "type": "integer"
+                  },
+                  "samples": {
+                    "type": "integer"
+                  },
+                  "unit": {
+                    "type": "string"
+                  },
+                  "unit_mid": {
+                    "type": "number"
+                  }
+                },
+                "required": [
+                  "op",
+                  "raw_tokens",
+                  "low",
+                  "mid",
+                  "high",
+                  "factor",
+                  "samples"
+                ],
+                "type": "object"
+              },
+              "model": {
+                "type": "string"
+              },
+              "recipe_id": {
+                "type": "string"
+              },
+              "stages": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "detail": {
+                      "type": "string"
+                    },
+                    "ended_at": {
+                      "format": "date-time",
+                      "type": "string"
+                    },
+                    "key": {
+                      "type": "string"
+                    },
+                    "label": {
+                      "type": "string"
+                    },
+                    "started_at": {
+                      "format": "date-time",
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "key",
+                    "label",
+                    "status"
+                  ],
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              "started_at": {
+                "format": "date-time",
+                "type": "string"
+              },
+              "status": {
+                "type": "string"
+              },
+              "uid": {
+                "type": "string"
+              },
+              "updated_at": {
+                "format": "date-time",
+                "type": "string"
+              }
+            },
+            "required": [
+              "uid",
+              "recipe_id",
+              "status",
+              "estimate",
+              "stages",
+              "started_at",
+              "updated_at"
+            ],
+            "type": "object"
+          }
+        },
+        "required": [
+          "recipe",
+          "run",
+          "outputs",
+          "review_required"
+        ],
         "type": "object"
       },
       "xibodev.midden.recipes.update.result/v1": {
         "$id": "xibodev.midden.recipes.update.result/v1",
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "recipe": {
+            "additionalProperties": false,
+            "properties": {
+              "approved_at": {
+                "format": "date-time",
+                "type": "string"
+              },
+              "created_at": {
+                "format": "date-time",
+                "type": "string"
+              },
+              "evidence_ids": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "outputs": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "audience": {
+                      "type": "string"
+                    },
+                    "cost_class": {
+                      "type": "string"
+                    },
+                    "format": {
+                      "type": "string"
+                    },
+                    "kind": {
+                      "type": "string"
+                    },
+                    "maker": {
+                      "type": "string"
+                    },
+                    "requires_model": {
+                      "type": "boolean"
+                    },
+                    "title": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "kind",
+                    "title",
+                    "audience",
+                    "maker",
+                    "format",
+                    "cost_class",
+                    "requires_model"
+                  ],
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              "request": {
+                "type": "string"
+              },
+              "status": {
+                "type": "string"
+              },
+              "title": {
+                "type": "string"
+              },
+              "uid": {
+                "type": "string"
+              },
+              "updated_at": {
+                "format": "date-time",
+                "type": "string"
+              },
+              "workspace": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "uid",
+              "title",
+              "workspace",
+              "request",
+              "status",
+              "outputs",
+              "evidence_ids",
+              "created_at",
+              "updated_at"
+            ],
+            "type": "object"
+          }
+        },
+        "required": [
+          "recipe"
+        ],
         "type": "object"
       },
       "xibodev.midden.seed.create.result/v1": {
@@ -1498,6 +7446,87 @@
           }
         }
       },
+      "xibodev.midden.handoff/v1": {
+        "$id": "xibodev.midden.handoff/v1",
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "editorial_digest": {
+            "type": "string"
+          },
+          "editorial_path": {
+            "type": "string"
+          },
+          "outputs": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "content_digest": {
+                  "type": "string"
+                },
+                "id": {
+                  "type": "string"
+                },
+                "kind": {
+                  "type": "string"
+                },
+                "path": {
+                  "type": "string"
+                },
+                "provenance_path": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "kind",
+                "path",
+                "provenance_path",
+                "content_digest"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "project_id": {
+            "type": "string"
+          },
+          "project_revision": {
+            "type": "integer"
+          },
+          "review_state": {
+            "type": "string"
+          },
+          "schema": {
+            "type": "string"
+          },
+          "target": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "schema",
+          "target",
+          "title",
+          "project_id",
+          "project_revision",
+          "review_state",
+          "editorial_path",
+          "editorial_digest",
+          "outputs",
+          "warnings"
+        ],
+        "type": "object"
+      },
       "xibodev.midden.seed/v1": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "$id": "xibodev.midden.seed/v1",
@@ -1562,11 +7591,19 @@
         "id": "midden.recovery",
         "title": "Midden session recovery",
         "path": "agents/midden-recovery.md",
-        "digest": "sha256:4234cc4aa97602515e4f4f0bbb427bf6f6f0f6a576b68c2df16203d5239beea0",
-        "tokens": 2031
+        "digest": "sha256:a965ee45fe5551be909722ea0866f5c6c318f448b9825930714e651d1fd4c2df",
+        "tokens": 2188
       }
     ],
     "skills": [
+      {
+        "id": "midden.editorial-production",
+        "title": "Editorial production",
+        "summary": "Use when discovering stories, lessons, content opportunities, or long-form projects in agentic history.",
+        "path": "skills/editorial-production/SKILL.md",
+        "digest": "sha256:3f743055b8e856de204be71edb5aadfbd8fa976f9312f62578966956f01a1484",
+        "tokens": 1041
+      },
       {
         "id": "midden.session-recovery",
         "title": "Recovering a session",

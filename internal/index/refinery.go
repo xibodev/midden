@@ -117,6 +117,15 @@ type RefineryRun struct {
 	EndedAt   time.Time          `json:"ended_at,omitempty"`
 }
 
+func (r RefineryRun) MarshalJSON() ([]byte, error) {
+	type wire RefineryRun
+	value := wire(r)
+	if value.Stages == nil {
+		value.Stages = []RefineryRunStage{}
+	}
+	return json.Marshal(value)
+}
+
 // RefineryOutput is one generated draft and its review/export state.
 type RefineryOutput struct {
 	UID            string    `json:"uid"`

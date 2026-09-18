@@ -5,6 +5,9 @@ description: Recover past agentic-CLI sessions and produce evidence-grounded con
 
 # Midden: session recovery
 
+For open-ended content work, start with `midden-editorial-production`; use this
+guidance for recovery mechanics and the shared review lifecycle.
+
 Midden inventories past agentic-CLI sessions and prepares them for reuse and
 content production. Inventory, assay, and seeds are deterministic; evidence
 extraction and narrative production use the host's authorized model runtime. Source stores
@@ -23,13 +26,18 @@ meaning, and packages it so work can continue in a fresh session.
   artifact and bookkeeping, and report reclaimable yield. Free and model-free.
 - `seed.create` — build a portable content seed from selected sessions.
 - `evidence.extract` — extract bounded, redacted evidence into Midden's index
-  through the host's authorized model runtime. Required before producing from a fresh index.
+  through an explicitly authorized model runtime. This is an alternative, not
+  a prerequisite when the host uses `evidence.prepare` and `evidence.compose`.
+- `evidence.prepare` / `evidence.compose` — prepare bounded source excerpts and
+  persist the host agent's cited extraction without a nested model invocation.
 - `content.types` — list the documents Midden can write from mined evidence,
   which are free and which cost a model call. Call before producing.
 - `content.produce` — write one of them.
 
 Inventory, assay, seeds, and the content-type catalog are model-free.
-Extraction always uses a model; production depends on the selected content type.
+Semantic extraction is the host's work; preparation and submission are
+deterministic. The explicit extraction driver and narrative generation can use
+a model. Production depends on the selected content type.
 
 ## Rules that matter
 
@@ -105,9 +113,11 @@ export through the available product or host workflow. Report missing revision,
 rendering, or export support explicitly; a seed or a draft is not a completed
 content-production workflow.
 
-Seven kinds are deterministic and free — notebook, retrieval, eval, sft and
-preference packs, and the privacy and provenance manifests. Twelve are written
-by a model supplied by the host. Standalone uses the embedded kernel; detached
+Deterministic kinds include notebook, retrieval, eval, sft and preference packs,
+and privacy and provenance manifests. Read `content.types` for the current
+registry instead of assuming fixed counts. Narrative work is authored by the
+host and submitted through `recipes.compose`, or explicitly delegated to a
+model runtime. Standalone uses the embedded kernel; detached
 CLI/module execution requires an explicitly granted driver. The host manages
 provider credentials. Missing runtime authority is an error, never an invitation
 to silently choose another provider or fabricate output.

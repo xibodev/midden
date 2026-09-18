@@ -181,6 +181,7 @@ SPENDING LESS
 
 	fmt.Print(`
 EXAMPLES
+  midden agent list                  Discover the agent-first workflow
   midden start                       Guided first run
   midden doctor                      What is wrong right now
   midden ls --days 7 --group         Recent sessions, grouped by tool

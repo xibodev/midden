@@ -150,7 +150,7 @@ func OverlayContent(path string) ([]byte, bool) {
 // native prompt contributor. Capability names are stable; hosts adapt invocation.
 func WorkflowGuidance() string {
 	var b strings.Builder
-	b.WriteString("\n## Evidence-to-output workflow\n\nInspect existing evidence and recipes before re-extracting. Ask for the recovery goal, exact source scope, audience and intended deliverables. Assay source material before model-backed extraction. A preview, saved recipe, approved evidence set, draft, reviewed output and exported file are different states.\n\n")
+	b.WriteString("\n## Evidence-to-output workflow\n\nInspect existing evidence and projects before re-extracting. Establish the goal and exact source scope; discover worthwhile stories before forcing a format. For open-ended content use midden-editorial-production: evidence.prepare/compose, projects.create/inspect, editorial.prepare/analyze, and editorial.select. The host authors semantic analysis; Midden validates and persists it without a nested model. Selection creates a draft recipe, not approval. A preview, saved recipe, approved evidence set, draft, reviewed output and exported file are different states.\n\n")
 	for _, cap := range workflowCapabilities {
 		fmt.Fprintf(&b, "- `%s`: %s\n", cap.ID, cap.Summary)
 	}

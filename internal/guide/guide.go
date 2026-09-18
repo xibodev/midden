@@ -74,6 +74,7 @@ var Commands = []Command{
 	{"cost", Free, "advise", "What midden has spent, and estimate accuracy"},
 	{"ask", Spends, "advise", "Ask a question about your own history"},
 	{"ops", Free, "advise", "Audit log of every mutating operation"},
+	{"agent", Free, "surface", "Discover and run the host-authored editorial workflow"},
 	{"ui", Free, "surface", "Serve the web interface on loopback"},
 	{"mcp", Free, "surface", "Run as an MCP server for other AI CLIs"},
 	{"start", Free, "surface", "Guided first run"},

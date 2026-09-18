@@ -167,6 +167,13 @@ func composeHostEvidence(input EvidenceComposeInput, req Request, db *index.DB) 
 			}
 		}
 		title, body := redact.Text(item.Title), redact.Text(item.Body)
+		tags := make([]string, 0, len(item.Tags))
+		redacted := title.Redacted || body.Redacted
+		for _, tag := range item.Tags {
+			value := redact.Text(tag)
+			tags = append(tags, value.Text)
+			redacted = redacted || value.Redacted
+		}
 		refRaw, err := json.Marshal(struct {
 			Packet  string   `json:"packet_digest"`
 			Records []string `json:"record_ids"`
@@ -184,11 +191,21 @@ func composeHostEvidence(input EvidenceComposeInput, req Request, db *index.DB) 
 		}
 		seen[id] = true
 		n := index.Nugget{UID: id, Tool: string(source.Tool), SessionID: source.ID, Kind: item.Kind, Title: title.Text, Body: body.Text,
-			Tags: item.Tags, Workspace: source.Dir, Repo: source.Repo, Confidence: item.Confidence, Model: "host-authored",
-			Redacted: title.Redacted || body.Redacted, TurnRef: string(refRaw), CreatedAt: time.Now().UTC()}
+			Tags: tags, Workspace: source.Dir, Repo: source.Repo, Confidence: item.Confidence, Model: "host-authored",
+			Redacted: redacted, TurnRef: string(refRaw), CreatedAt: time.Now().UTC()}
 		out.Evidence = append(out.Evidence, n)
 	}
 	out.Stored, err = db.PutHostEvidence(out.Evidence)
+	if err != nil {
+		return out, err
+	}
+	if len(out.Evidence) > 0 {
+		ids := make([]string, 0, len(out.Evidence))
+		for _, n := range out.Evidence {
+			ids = append(ids, n.UID)
+		}
+		out.Evidence, err = db.NuggetsByIDs(ids)
+	}
 	out.PacketDigest = packet.Digest
 	return out, err
 }

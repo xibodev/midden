@@ -129,6 +129,9 @@ func (w Workflow) SelectEvidence(c Change, approve bool) (any, error) {
 		return nil, fmt.Errorf("evidence cannot be changed while recipe is %s", r.Status)
 	}
 	ids := uniqueStrings(c.EvidenceIDs)
+	if err = w.DB.CheckEditorialRecipeScope(r.UID, ids); err != nil {
+		return nil, err
+	}
 	evidence, err := w.DB.NuggetsByIDs(ids)
 	if err != nil {
 		return nil, err
@@ -156,6 +159,9 @@ func (w Workflow) SelectEvidence(c Change, approve bool) (any, error) {
 func (w Workflow) Produce(ctx context.Context, id string) (result any, err error) {
 	r, e := w.DB.Recipe(id)
 	if e != nil {
+		return nil, e
+	}
+	if e = w.DB.CheckEditorialRecipeScope(r.UID, r.EvidenceIDs); e != nil {
 		return nil, e
 	}
 	evidence, e := w.DB.NuggetsByIDs(r.EvidenceIDs)

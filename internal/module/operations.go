@@ -1,5 +1,7 @@
 package module
 
+import "github.com/mekjr1/midden/internal/create"
+
 // Canonical Operation inventory, machine-readable.
 //
 // Layer 1 of the architecture: what Midden DOES, independent of how any face
@@ -58,6 +60,7 @@ type Operation struct {
 
 // Operations is the canonical inventory. Four, not six, not twenty-nine.
 var Operations = []Operation{
+	{ID: "create_editorial_handoff", Contract: "reviewed project outputs -> portable local production handoff", Deterministic: true, Produces: []string{create.HandoffSchema}},
 	{ID: "prepare_host_evidence", Contract: "exact source -> bounded redacted source packet", Deterministic: true},
 	{ID: "compose_host_evidence", Contract: "source packet + host-authored extraction -> stored evidence", Deterministic: true},
 	{ID: "create_editorial_project", Contract: "exact sources + stored evidence -> editorial project", Deterministic: true},
@@ -110,6 +113,7 @@ var Operations = []Operation{
 // They are still bound by the effects model -- a capability that projects no
 // Operation is not thereby unregulated.
 var capabilityOperations = map[string]string{
+	"handoffs.create":  "create_editorial_handoff",
 	"evidence.prepare": "prepare_host_evidence", "evidence.compose": "compose_host_evidence",
 	"projects.create": "create_editorial_project", "projects.update": "update_editorial_project",
 	"projects.inspect": "", "projects.list": "",
