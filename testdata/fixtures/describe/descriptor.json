@@ -398,7 +398,7 @@
       {
         "id": "handoffs.create",
         "title": "handoffs.create",
-        "summary": "Package reviewed project outputs with editorial context and provenance for Markdown, Quarto, Pandoc, D2 or an operator-controlled OpenMontage workspace. Local source files only; never renders, transfers or publishes.",
+        "summary": "Package reviewed project outputs with editorial context and provenance for Markdown, Quarto, Pandoc or D2. Local source files only; never renders, transfers or publishes.",
         "request_schema": "xibodev.midden.handoffs.create.request/v1",
         "result_schema": "xibodev.midden.handoffs.create.result/v1",
         "artifact_schemas": [
@@ -1318,8 +1318,7 @@
               "markdown",
               "quarto",
               "pandoc",
-              "d2",
-              "openmontage"
+              "d2"
             ],
             "type": "string"
           }

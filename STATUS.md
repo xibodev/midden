@@ -9,8 +9,8 @@ evidence, content composition, review, export, and provenance.
 
 The script installers own download verification, host skill registration,
 optional dependencies, PATH, upgrade, and uninstall. Go owns product behavior.
-Facet is a separately installed sister project; the old OpenMontage integration
-has been retired without deleting users' legacy files.
+Facet is a separately installed sister project. Retired integrations are not
+advertised or started; existing user files are left untouched.
 
 ## Release evidence
 

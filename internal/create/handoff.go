@@ -99,7 +99,7 @@ func (w Workflow) ReviewedSource(id string) (ReviewedSnapshot, error) {
 func (w Workflow) BuildHandoff(projectID string, revision int, title, target string, ids []string, editorial json.RawMessage) (HandoffResult, error) {
 	var result HandoffResult
 	switch target {
-	case "markdown", "quarto", "pandoc", "d2", "openmontage":
+	case "markdown", "quarto", "pandoc", "d2":
 	default:
 		return result, fmt.Errorf("unsupported handoff target %q", target)
 	}
@@ -121,10 +121,6 @@ func (w Workflow) BuildHandoff(projectID string, revision int, title, target str
 		case "d2":
 			if snapshot.Output.Format != "d2" {
 				return result, fmt.Errorf("D2 handoff requires diagram source")
-			}
-		case "openmontage":
-			if snapshot.Output.Kind != "video_brief" && snapshot.Output.Kind != "slides" {
-				return result, fmt.Errorf("video handoff requires a reviewed video brief or slides")
 			}
 		}
 		totalBytes += len(snapshot.Body) + len(snapshot.Provenance)
@@ -189,8 +185,6 @@ func (w Workflow) BuildHandoff(projectID string, revision int, title, target str
 		instructions += "With separately installed Pandoc, combine the listed Markdown files in order into the intended format, then inspect the result. No command has been executed.\n"
 	case "d2":
 		instructions += "Render each sources/*.d2 file with separately installed D2, then inspect the diagrams. Source approval is not visual verification.\n"
-	case "openmontage":
-		instructions += "Give this folder to an operator-controlled OpenMontage workspace. Start from the reviewed scene/script sources, resolve editorial gaps and supply approved assets. This is a file-based production brief, not a native OpenMontage project or a rendered video. No dependency, provider, upload, or paid generation is authorized by this handoff.\n"
 	default:
 		instructions += "The ordered Markdown files and provenance are editable sources. Re-review changes before publication.\n"
 	}

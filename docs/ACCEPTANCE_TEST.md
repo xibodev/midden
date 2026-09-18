@@ -1,5 +1,9 @@
 # Optional manual desktop walkthrough
 
+Studio is paused. For current staging acceptance, use the
+[clean agentic test](AGENTIC_ACCEPTANCE.md) instead. This desktop walkthrough is
+retained for a future Studio evaluation.
+
 This walkthrough is for subjective usability feedback and real-person product
 critique. It is not required to complete the build, tests, or engineering
 release gate.

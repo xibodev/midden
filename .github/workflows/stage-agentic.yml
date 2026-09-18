@@ -55,6 +55,12 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           Copy-Item -LiteralPath LICENSE -Destination (Join-Path $package 'LICENSE')
           Copy-Item -LiteralPath docs/EDITORIAL_WORKFLOW.md -Destination (Join-Path $package 'EDITORIAL_WORKFLOW.md')
+          Copy-Item -LiteralPath docs/AGENTIC_ACCEPTANCE.md -Destination (Join-Path $package 'AGENTIC_ACCEPTANCE.md')
+          Copy-Item -LiteralPath install.ps1 -Destination (Join-Path $package 'install.ps1')
+          Copy-Item -LiteralPath install.sh -Destination (Join-Path $package 'install.sh')
+          $installerMetadata = Join-Path $package 'installer'
+          New-Item -ItemType Directory -Path $installerMetadata | Out-Null
+          Copy-Item -LiteralPath installer/manifest.tsv -Destination (Join-Path $installerMetadata 'manifest.tsv')
           & $binary agent schema editorial.analyze
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           $checksums = Get-ChildItem -LiteralPath $package -File -Recurse |

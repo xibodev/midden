@@ -207,6 +207,7 @@ backend selection, ports, environment variables, and backup guidance.
 - [MCP setup](docs/MCP.md)
 - [Optional integrations](docs/INTEGRATIONS.md)
 - [Development](docs/DEVELOPMENT.md)
+- [Clean agentic staging test](docs/AGENTIC_ACCEPTANCE.md)
 - [Optional manual walkthrough](docs/ACCEPTANCE_TEST.md)
 - [Release status](STATUS.md)
 

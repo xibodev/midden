@@ -103,9 +103,9 @@ README.md             adapter instructions and unresolved delivery boundaries
 _quarto.yml           only for a Quarto book handoff
 ```
 
-Supported targets are `markdown`, `quarto`, `pandoc`, `d2`, and `openmontage`.
-This last target is a **file-based brief**, not a native OpenMontage project or
-an integration certification. It requires reviewed video-brief or slide source.
+Supported targets are `markdown`, `quarto`, `pandoc`, and `d2`.
+Generic video briefs remain Markdown content and can use the `markdown` target.
+They are source documents, not rendered videos or a video-runtime integration.
 No adapter launches software, installs dependencies, uploads, or publishes.
 The assembled handoff stays `unreviewed`; reviewed sources do not establish that
 the book, diagram, presentation, or video has been rendered or is ready to publish.

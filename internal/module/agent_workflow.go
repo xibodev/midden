@@ -53,7 +53,7 @@ type agentCapability struct {
 func shape[T any]() reflect.Type { return reflect.TypeFor[T]() }
 
 var agentCapabilities = []agentCapability{
-	{"handoffs.create", "Package reviewed project outputs with editorial context and provenance for Markdown, Quarto, Pandoc, D2 or an operator-controlled OpenMontage workspace. Local source files only; never renders, transfers or publishes.", "create_editorial_handoff", true, shape[editorial.HandoffRequest](), shape[create.HandoffResult]()},
+	{"handoffs.create", "Package reviewed project outputs with editorial context and provenance for Markdown, Quarto, Pandoc or D2. Local source files only; never renders, transfers or publishes.", "create_editorial_handoff", true, shape[editorial.HandoffRequest](), shape[create.HandoffResult]()},
 	{"evidence.prepare", "Prepare bounded, redacted source excerpts for the host agent. Exact source required; no model or writes.", "prepare_host_evidence", false, shape[EvidencePrepareInput](), shape[EvidencePacket]()},
 	{"evidence.compose", "Validate source-record citations and store host-authored extraction. Requires the current packet digest; never calls a model.", "compose_host_evidence", true, shape[EvidenceComposeInput](), shape[EvidenceComposed]()},
 	{"projects.create", "Create an exact multi-session editorial corpus from stored evidence. Human review and publication remain separate.", "create_editorial_project", true, shape[editorial.CreateRequest](), shape[editorial.Project]()},

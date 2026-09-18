@@ -10,7 +10,7 @@ import (
 type HandoffRequest struct {
 	ProjectID        string   `json:"project_id"`
 	ExpectedRevision int      `json:"expected_revision"`
-	Target           string   `json:"target" enum:"markdown,quarto,pandoc,d2,openmontage"`
+	Target           string   `json:"target" enum:"markdown,quarto,pandoc,d2"`
 	OutputIDs        []string `json:"output_ids"`
 }
 
