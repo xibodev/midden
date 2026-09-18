@@ -7,7 +7,7 @@ Midden still reads the operator's normal session stores read-only.
 
 ## 1. Obtain the current successful staging bundle
 
-Prerequisites: Windows PowerShell 5.1 or PowerShell 7, authenticated GitHub CLI
+Prerequisites: Windows PowerShell 5.1 or PowerShell 7, Git, authenticated GitHub CLI
 (`gh`), and Copilot CLI. Go, Pandoc, D2, and Studio are not required for this first
 Markdown journey. Open a **new PowerShell window** so environment overrides end
 when the window closes.
@@ -31,6 +31,8 @@ $lab = Join-Path $HOME ('midden-tests\' + [guid]::NewGuid().ToString('N'))
 $bundle = Join-Path $lab 'bundle'
 $workspace = Join-Path $lab 'workspace'
 New-Item -ItemType Directory -Path $bundle, $workspace | Out-Null
+git init --quiet $workspace
+if ($LASTEXITCODE -ne 0) { throw 'Cannot establish an isolated project boundary.' }
 gh run download $run --repo $repo --name $artifact --dir $bundle
 if ($LASTEXITCODE -ne 0) { throw 'Staging download failed.' }
 
@@ -75,7 +77,7 @@ $midden = Join-Path $bin 'midden.exe'
 & $midden agent schema handoffs.create
 & $midden agent content.types --home $state
 & $midden agent projects.list --home $state
-copilot -C $workspace skill list
+copilot -C $workspace --no-custom-instructions skill list
 ```
 
 Pass when:
@@ -84,8 +86,9 @@ Pass when:
   and lab state**, not the stable installation;
 - handoff targets are exactly `markdown`, `quarto`, `pandoc`, and `d2`;
 - `content.types` reports zero evidence and `projects.list` reports zero projects;
-- `midden-editorial-production` is discovered under this workspace's
-  `.github\skills` directory.
+- the four Midden skills are discovered under this workspace's `.github\skills`
+  directory, without unrelated inherited project skills. Copilot's built-ins
+  can remain available.
 
 `content.types` initializes the empty Midden index without model use.
 The installer does not change the user PATH, personal skills, existing Midden
@@ -103,9 +106,10 @@ copilot -C $workspace --mode interactive --no-custom-instructions `
 Do not resume this implementation conversation or use automatic all-tool
 approval. A fresh Copilot profile may request sign-in; use its normal login
 flow rather than copying credentials or configuration from the old profile.
-Use `/skills` to confirm the project skill source if needed. Existing personal
-skill locations outside the Copilot profile may still be discoverable; select
-the project-installed entry explicitly.
+Use `/skills` to confirm the project skill source if needed. The new Git
+repository stops inheritance from parent project directories; a fresh Copilot
+profile avoids the old personal Midden install. Check for additional globally
+configured skill locations and select the project-installed entry explicitly.
 
 For the first prompt, use one **closed** session:
 
