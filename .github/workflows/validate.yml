@@ -23,6 +23,9 @@ jobs:
           - os: windows-latest
             shell: powershell
             program: pwsh
+          - os: windows-latest
+            shell: powershell
+            program: powershell
           - os: ubuntu-latest
             shell: bash
             program: /bin/bash

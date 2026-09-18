@@ -14,7 +14,7 @@ Midden is:
 - **Evidence-grounded:** Studio will not create or run an unsupported work item
   when no reclaimed evidence exists.
 
-Current version: **0.2.0 (preview)**. **Using Midden in an agentic CLI is the
+Current version: **0.2.1 (preview)**. **Using Midden in an agentic CLI is the
 recommended route. The standalone browser application is experimental.**
 
 ## Install for your agentic CLI
@@ -23,21 +23,23 @@ Install and authenticate GitHub Copilot CLI, Claude Code, or OpenCode first.
 Run the one-line installer in your terminal:
 
 ```powershell
-# Windows, PowerShell 7+
+# Windows, built-in PowerShell or PowerShell 7
 irm https://xibodev.github.io/midden/install.ps1 | iex
 ```
 
 ```bash
 # Linux/macOS, Bash 3.2+, curl and tar
-curl -fsSL https://xibodev.github.io/midden/install.sh | bash
+curl -fsSL https://xibodev.github.io/midden/install.sh | sh
 ```
 
-The entry points download the **v0.2.0** installer and manifest, verify both
+The entry points download a pinned released installer and manifest, verify both
 against the release checksums, then open interactive setup. For manual downloads
 or explicit lifecycle options, see [Install](docs/INSTALL.md).
 
-The interactive scripts select your CLI hosts, personal or project skill scope,
-binary and state directories, optional dependencies, and PATH setup. They download
+The scripts detect installed hosts (automatically selecting a single host), offer
+numbered optional capabilities, and ask you to confirm one installation summary.
+Personal skills and PATH setup are defaults; project scope and custom locations
+are available through flags. They download
 and verify a prebuilt **headless** archive; Go and Git are not needed to install.
 Pandoc adds editable PowerPoint/HTML rendering; D2 adds SVG diagrams. Both are
 optional, separately installed tools. Package managers confirm actual sizes and

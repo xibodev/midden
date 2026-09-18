@@ -66,11 +66,78 @@ def main():
         assert not dest.exists() and not state.exists() and not (project / '.claude').exists()
         interactive = list(common)
         interactive.remove('-NonInteractive' if args.shell == 'powershell' else '--yes')
-        # Hosts are explicit; accept location defaults and decline final write.
-        answers = ('\n' if args.shell == 'bash' else '') + 'project\n\n\n\nauto\nauto\nnone\nno\nno\n'
+        # Explicit host/scope: only capability choice and one final confirmation.
+        answers = 'invalid\nnone\ninvalid\nno\n'
         result = subprocess.run(prefix + interactive + install, env=env, input=answers, capture_output=True, text=True, timeout=90)
         assert result.returncode == 0, result.stdout + result.stderr
         assert not dest.exists() and not state.exists() and not (project / '.claude').exists(), 'cancel wrote files'
+        assert 'Existing pandoc' not in result.stdout and 'Binary installation directory [' not in result.stdout
+        # Default detection chooses the installed host, not hardcoded Copilot.
+        detection = root / 'detection'; detection.mkdir()
+        isolated_manifest = root / 'detect.tsv'
+        rows = manifest.read_text().splitlines()
+        if args.shell == 'powershell':
+            detected_host = detection / 'midden-fixture-host.cmd'
+            detected_host.write_text('@echo off\necho fixture-host 1.0\n')
+            for tool in ('pandoc', 'd2'):
+                (detection / (tool + '.cmd')).write_text('@echo off\nexit /b 77\n')
+        else:
+            detected_host = detection / 'midden-fixture-host'
+            detected_host.write_text('#!/bin/sh\necho fixture-host 1.0\n'); detected_host.chmod(0o755)
+            for tool in ('pandoc', 'd2'):
+                broken = detection / tool
+                broken.write_text('#!/bin/sh\nexit 77\n'); broken.chmod(0o755)
+        for i, row in enumerate(rows):
+            if row.startswith('host\t'):
+                fields = row.split('\t')
+                fields[2] = 'midden-fixture-host' if fields[1] == 'claude-code' else 'midden-missing-' + fields[1]
+                rows[i] = '\t'.join(fields)
+        isolated_manifest.write_text('\n'.join(rows) + '\n')
+        detect_common = list(interactive)
+        detect_common[detect_common.index('-Manifest' if args.shell == 'powershell' else '--manifest') + 1] = str(isolated_manifest)
+        detect_env = dict(env, PATH=str(detection) + os.pathsep + env['PATH'])
+        detect_args = ['-Scope', 'project', '-ProjectDir', str(project), '-NoPath'] if args.shell == 'powershell' else ['--scope', 'project', '--project', str(project), '--no-path']
+        result = subprocess.run(prefix + detect_common + detect_args, env=detect_env, input='none\nyes\n', capture_output=True, text=True, timeout=90)
+        assert result.returncode == 0, result.stdout + result.stderr
+        assert 'Claude Code ready' in result.stdout
+        assert 'Choose CLI numbers' not in result.stdout, 'single detected host should be automatic'
+        assert 'Get-FileHash' not in result.stderr
+        assert (project / '.claude/skills/midden-session-recovery/SKILL.md').exists()
+        call([uninstall])
+        print(f'PASS {args.shell}: single-host detection, minimal interactive install, broken unselected renderers ignored')
+        # Multiple detected hosts use a numbered choice and reprompt on errors.
+        for i, row in enumerate(rows):
+            if row.startswith('host\tcopilot-cli\t'):
+                fields=row.split('\t'); fields[2]='midden-fixture-host'; rows[i]='\t'.join(fields)
+        isolated_manifest.write_text('\n'.join(rows) + '\n')
+        result = subprocess.run(prefix + detect_common + detect_args, env=detect_env,
+                                input='99\nall\nnone\nyes\n', capture_output=True, text=True, timeout=90)
+        assert result.returncode == 0, result.stdout + result.stderr
+        assert 'Choose a listed number' in result.stdout
+        assert (project / '.github/skills/midden-session-recovery/SKILL.md').exists()
+        assert (project / '.claude/skills/midden-session-recovery/SKILL.md').exists()
+        call([uninstall])
+        print(f'PASS {args.shell}: multiple-host selection and invalid-choice recovery')
+        # Selected renderer failure blocks installation; success requires a real
+        # nonempty artifact, not just an exit code or a version string.
+        if args.shell == 'powershell':
+            renderer = detection / 'render.cmd'
+            bad_body = '@echo off\nexit /b 12\n'
+            good_body = '@echo off\n:next\nif "%~1"=="" exit /b 2\nif "%~1"=="-o" goto output\nshift\ngoto next\n:output\nshift\necho fixture-render> "%~1"\nexit /b 0\n'
+            render_args = ['-Dependencies', 'pandoc', '-PandocPath', str(renderer)]
+        else:
+            renderer = detection / 'render'
+            bad_body = '#!/bin/sh\nexit 12\n'
+            good_body = '#!/bin/sh\nwhile [ "$#" -gt 0 ]; do if [ "$1" = -o ]; then printf fixture-render > "$2"; exit 0; fi; shift; done\nexit 2\n'
+            render_args = ['--dependencies','pandoc','--pandoc-path',str(renderer)]
+        renderer.write_text(bad_body); renderer.chmod(0o755)
+        call(install + render_args, succeeds=False)
+        assert not (dest / binary).exists(), 'failed selected renderer installed Midden'
+        renderer.write_text(good_body); renderer.chmod(0o755)
+        call(install + render_args)
+        call([verify])
+        call([uninstall])
+        print(f'PASS {args.shell}: selected renderer functional success/failure')
         call(install)
         skill = project / '.claude/skills/midden-session-recovery/SKILL.md'
         assert skill.exists()
@@ -127,7 +194,8 @@ def main():
         if args.shell == 'powershell':
             wrapper = root / 'download-test.ps1'
             wrapper.write_text('''function Invoke-WebRequest {
-param([string]$Uri,[string]$OutFile)
+param([string]$Uri,[string]$OutFile,[switch]$UseBasicParsing,[int]$TimeoutSec)
+if ($env:TEST_RETRY -and !(Test-Path $env:TEST_RETRY)) { Set-Content $env:TEST_RETRY 'attempt'; throw 'fixture transient network failure' }
 if ($Uri.EndsWith('/SHA256SUMS')) { Copy-Item -LiteralPath $env:TEST_CHECKSUMS -Destination $OutFile }
 elseif ($Uri.EndsWith('.zip')) { Copy-Item -LiteralPath $env:TEST_ARCHIVE -Destination $OutFile }
 else { throw "Unexpected download: $Uri" }
@@ -135,6 +203,7 @@ else { throw "Unexpected download: $Uri" }
 & $env:TEST_SCRIPT @args
 ''', encoding='utf-8')
             env['TEST_SCRIPT'] = str(repo / 'install.ps1')
+            env['TEST_RETRY'] = str(root / 'retried')
             download_prefix = [args.program, '-NoProfile', '-File', str(wrapper)]
         else:
             curl = tools / 'curl'
@@ -174,6 +243,14 @@ case "$url" in */SHA256SUMS) cp "$TEST_CHECKSUMS" "$out";; *.tar.gz) cp "$TEST_A
             assert '# midden-cli:' in profile.read_text()
             call([uninstall])
             assert 'export KEEP_ME=yes' in profile.read_text() and '# midden-cli:' not in profile.read_text()
+            for shell, relative in [('/bin/zsh','.zshrc'),('/bin/fish','.config/fish/conf.d/midden.fish'),
+                                    ('/bin/bash','.bash_profile' if platform.system() == 'Darwin' else '.bashrc')]:
+                env['SHELL']=shell
+                profile=home / relative
+                call(install + ['--add-path'])
+                assert '# midden-cli:' in profile.read_text()
+                call([uninstall])
+                assert '# midden-cli:' not in profile.read_text()
         print(f'PASS {args.shell}: unowned file preservation')
 
         if args.shell == 'bash':

@@ -7,7 +7,7 @@
   "result": {
     "module": "midden",
     "name": "Midden",
-    "version": "0.2.0",
+    "version": "0.2.1",
     "build": "standalone",
     "protocol_versions": [
       "xibodev.module/v1"

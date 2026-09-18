@@ -1,12 +1,12 @@
 # Install Midden
 
 **Recommended: use Midden through GitHub Copilot CLI, Claude Code, or OpenCode.**
-The standalone browser application is experimental. Version **0.2.0** is a preview.
+The standalone browser application is experimental. Version **0.2.1** is a preview.
 
 ## Requirements
 
 - An installed, authenticated supported agentic CLI.
-- Windows x64 with PowerShell 7+, or Linux/macOS x64 or arm64 with Bash 3.2+,
+- Windows x64 with built-in PowerShell 5.1 or PowerShell 7, or Linux/macOS x64 or arm64 with Bash 3.2+,
   curl, tar, and `sha256sum` or `shasum`.
 - Network access to GitHub for release downloads.
 
@@ -15,7 +15,7 @@ The scripts check host executables, but cannot prove that a host login or model 
 
 ## One-line install
 
-Windows (PowerShell 7 installed):
+Windows (built-in PowerShell or PowerShell 7):
 
 ```powershell
 irm https://xibodev.github.io/midden/install.ps1 | iex
@@ -24,10 +24,10 @@ irm https://xibodev.github.io/midden/install.ps1 | iex
 Linux/macOS (run in an interactive terminal):
 
 ```bash
-curl -fsSL https://xibodev.github.io/midden/install.sh | bash
+curl -fsSL https://xibodev.github.io/midden/install.sh | sh
 ```
 
-These small entry points fetch the v0.2.0 release installer and manifest into a
+These small entry points fetch a pinned released installer and manifest into a
 temporary directory, verify both against `SHA256SUMS`, and launch the saved
 installer. That installer verifies the platform archive. Temporary downloads
 are cleaned up when setup finishes or fails. Bash prompts read `/dev/tty`, so
@@ -35,18 +35,39 @@ they work even though the bootstrap arrives through a pipe. The one-liner trusts
 the HTTPS-hosted entry point; checksum verification starts with its release downloads.
 
 For repeatable automation or lifecycle flags, save the entry point first and
-run `pwsh -File ./bootstrap.ps1 -Verify` or `bash ./bootstrap.sh --verify`.
+run `powershell -File ./bootstrap.ps1 -Verify` or `sh ./bootstrap.sh --verify`.
 Arguments are forwarded to the versioned installer. Use `--yes` with explicit
-host choices for Bash automation without a terminal.
+host choices for automation without a terminal.
+
+### Customize a piped installation
+
+Set `MIDDEN_HOSTS` (comma-separated IDs), `MIDDEN_DEPENDENCIES` (`pandoc,d2` or
+`none`), `MIDDEN_INSTALL_DIR`, `MIDDEN_STATE_DIR`, `MIDDEN_VERSION`,
+`MIDDEN_NO_PATH=1`, or `MIDDEN_YES=1` before running the entry point.
+These are optional; the normal path needs no environment configuration.
+
+```powershell
+$env:MIDDEN_HOSTS = 'claude-code'
+$env:MIDDEN_DEPENDENCIES = 'none'
+irm https://xibodev.github.io/midden/install.ps1 | iex
+```
+
+```sh
+curl -fsSL https://xibodev.github.io/midden/install.sh | MIDDEN_HOSTS=claude-code MIDDEN_DEPENDENCIES=none sh
+```
+
+`MIDDEN_YES=1` accepts the displayed plan without prompting; optional packages
+are installed only when explicitly selected. Package managers retain their own
+confirmation/elevation requirements.
 
 ## Download and verify manually
 
-From [v0.2.0 release assets](https://github.com/xibodev/midden/releases/tag/v0.2.0),
+From [v0.2.1 release assets](https://github.com/xibodev/midden/releases/tag/v0.2.1),
 save the platform installer, `manifest.tsv`, and `SHA256SUMS` in one directory.
 Run commands from that directory. These release scripts need the adjacent
 manifest; the Pages one-line entry points fetch that pair for you.
 
-PowerShell 7 (Windows):
+PowerShell (Windows):
 
 ```powershell
 foreach ($file in @('install.ps1', 'manifest.tsv')) {
@@ -57,7 +78,7 @@ foreach ($file in @('install.ps1', 'manifest.tsv')) {
         throw "Checksum mismatch: $file"
     }
 }
-pwsh -NoProfile -File ./install.ps1 -Version v0.2.0
+powershell -NoProfile -File ./install.ps1 -Version v0.2.1
 ```
 
 Bash (Linux/macOS):
@@ -70,7 +91,7 @@ if command -v sha256sum >/dev/null; then
 else
   shasum -a 256 -c installer-checksums.txt || exit 1
 fi
-bash ./install.sh --version v0.2.0
+bash ./install.sh --version v0.2.1
 ```
 
 Checksums detect damaged or mismatched downloads, not compromise of the release
@@ -79,11 +100,16 @@ archive against the release checksums before writing installation files.
 
 ## Interactive choices
 
-1. Choose one or more CLI hosts.
-2. Choose personal (`user`) or project skill scope and the project directory.
-3. Confirm binary and recovery state directories.
-4. Reuse optional tools by path, or select package-manager installation.
-5. Choose whether to update PATH and confirm the final preview.
+1. A single detected host is selected automatically. If several are installed,
+   choose numbered hosts or accept all. Missing hosts produce setup links.
+2. Choose optional PowerPoint/HTML (Pandoc) and SVG diagrams (D2), or core only.
+3. Confirm one summary: hosts, skill paths, binary/state locations and PATH.
+
+Personal skills are the default. Use `-Scope project -ProjectDir <absolute-path>`
+or `--scope project --project <absolute-path>` for a project. Use `-NoPath` /
+`--no-path` to opt out of PATH setup. Explicit paths remain available as flags.
+Repeat runs reuse receipt scope/state. Interactive updates show the previous
+version and preserve backups; unattended replacement requires `-Upgrade` / `--upgrade`.
 
 Defaults: `~/.local/share/midden-cli/bin` for binaries/receipt and
 `~/.local/share/midden-cli/state` for recovered work. On Windows, `~` is your user
@@ -116,11 +142,11 @@ Midden uninstall or a later installer failure. Facet is a separately installed
 ## Preview and explicit selection
 
 ```powershell
-pwsh -NoProfile -File ./install.ps1 -Version v0.2.0 -Hosts copilot-cli -NonInteractive -DryRun
+powershell -NoProfile -File ./install.ps1 -Version v0.2.1 -Hosts copilot-cli -NonInteractive -DryRun
 ```
 
 ```bash
-bash ./install.sh --version v0.2.0 --hosts copilot-cli --yes --dry-run
+bash ./install.sh --version v0.2.1 --hosts copilot-cli --yes --dry-run
 ```
 
 For project scope, use `-Scope project -ProjectDir <absolute-path>` or
@@ -135,14 +161,14 @@ Keep the installer and matching manifest. If you chose a custom installation
 directory, pass `-InstallDir` / `--install-dir` on every lifecycle command.
 
 ```powershell
-pwsh -NoProfile -File ./install.ps1 -Verify
-pwsh -NoProfile -File ./install.ps1 -Version v0.2.0 -Upgrade
-pwsh -NoProfile -File ./install.ps1 -Uninstall
+powershell -NoProfile -File ./install.ps1 -Verify
+powershell -NoProfile -File ./install.ps1 -Version v0.2.1 -Upgrade
+powershell -NoProfile -File ./install.ps1 -Uninstall
 ```
 
 ```bash
 bash ./install.sh --verify
-bash ./install.sh --version v0.2.0 --upgrade
+bash ./install.sh --version v0.2.1 --upgrade
 bash ./install.sh --uninstall
 ```
 

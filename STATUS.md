@@ -1,6 +1,6 @@
 # Release status
 
-**Midden 0.2.0 — preview**
+**Midden 0.2.1 — preview**
 
 The recommended delivery is the recovery bundle installed into GitHub Copilot
 CLI, Claude Code, or OpenCode by `install.ps1` / `install.sh`. The standalone

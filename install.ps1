@@ -1,29 +1,33 @@
-#requires -Version 7.0
+#requires -Version 5.1
 # Script-owned agentic CLI installation. No Midden setup/install command is used.
 [CmdletBinding()]
 param(
-    [string]$Version = 'latest',
+    [string]$Version = $env:MIDDEN_VERSION,
     [string]$BundleDir = '',
     [string]$Manifest = '',
-    [string[]]$Hosts = @(),
+    [string[]]$Hosts = @($env:MIDDEN_HOSTS -split ',' | Where-Object { $_ }),
     [string]$HostPath = '',
     [ValidateSet('user','project')][string]$Scope = 'user',
     [string]$ProjectDir = '',
-    [string]$InstallDir = '',
-    [string]$StateDir = '',
+    [string]$InstallDir = $env:MIDDEN_INSTALL_DIR,
+    [string]$StateDir = $env:MIDDEN_STATE_DIR,
     [string]$HomeDir = $HOME,
-    [string[]]$Dependencies = @(),
+    [string[]]$Dependencies = @($env:MIDDEN_DEPENDENCIES -split ',' | Where-Object { $_ }),
     [string]$PandocPath = '',
     [string]$D2Path = '',
-    [switch]$NonInteractive,
+    [switch]$NonInteractive = ($env:MIDDEN_YES -eq '1'),
     [switch]$DryRun,
     [switch]$Upgrade,
     [switch]$Uninstall,
     [switch]$Verify,
-    [switch]$AddPath
+    [switch]$AddPath,
+    [switch]$NoPath = ($env:MIDDEN_NO_PATH -eq '1')
 )
 $ErrorActionPreference = 'Stop'
-if (-not $IsWindows) { throw 'Use install.sh on Linux/macOS.' }
+$ProgressPreference = 'SilentlyContinue'
+if ($env:OS -ne 'Windows_NT') { throw 'Use install.sh on Linux/macOS.' }
+[Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
+Add-Type -AssemblyName System.IO.Compression.FileSystem
 if (-not $PSCommandPath) { throw 'Save this script to disk and run it with pwsh -File.' }
 if (-not $Manifest) {
     $Manifest = Join-Path $PSScriptRoot 'installer/manifest.tsv'
@@ -35,8 +39,32 @@ function Ask([string]$Label, [string]$Default) {
     if ([string]::IsNullOrWhiteSpace($answer)) { return $Default }
     return $answer.Trim()
 }
+function Confirm([string]$Label) {
+    while ($true) {
+        switch -Regex (Ask $Label 'Y/n') {
+            '^(y|yes|Y/n)$' { return $true }
+            '^(n|no)$' { return $false }
+            default { Write-Host '  Please enter yes or no.' }
+        }
+    }
+}
+function Step([string]$Label, [string]$Message) { Write-Host ('  {0,-12} {1}' -f $Label,$Message) }
+function Download([string]$Uri, [string]$OutFile) {
+    for ($attempt=1; $attempt -le 3; $attempt++) {
+        try { Invoke-WebRequest -UseBasicParsing -Uri $Uri -OutFile $OutFile -TimeoutSec 120; return }
+        catch {
+            if ($attempt -eq 3) { throw "Download failed after 3 attempts: $Uri. Check your connection/proxy and rerun; existing installation is preserved." }
+            Step 'retry' "Download interrupted; retrying ($attempt/3)..."
+            Start-Sleep -Seconds (2 * $attempt)
+        }
+    }
+}
+function Find-Program([string]$Name) { return @(Get-Command $Name -CommandType Application,ExternalScript -ErrorAction SilentlyContinue)[0] }
+function Refresh-Path {
+    $env:Path = (@($env:Path, [Environment]::GetEnvironmentVariable('Path','User'), [Environment]::GetEnvironmentVariable('Path','Machine')) | Where-Object { $_ }) -join ';'
+}
 function Safe-Path([string]$Path) {
-    if (-not [IO.Path]::IsPathFullyQualified($Path) -or $Path -match "[`r`n`t]") { throw "Absolute, single-line path required: $Path" }
+    if ($Path -notmatch '^(?:[A-Za-z]:[\\/]|\\\\[^\\]+\\[^\\]+)' -or $Path -match "[`r`n`t]") { throw "Absolute, single-line path required: $Path" }
     $cursor = [IO.Path]::GetFullPath($Path)
     while ($cursor) {
         $item = Get-Item -LiteralPath $cursor -Force -ErrorAction SilentlyContinue
@@ -46,10 +74,14 @@ function Safe-Path([string]$Path) {
         $cursor = $parent
     }
 }
-function Hash([string]$Path) { return (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant() }
+function Hash([string]$Path) {
+    $stream=[IO.File]::OpenRead($Path); $sha=[Security.Cryptography.SHA256]::Create()
+    try { return ([BitConverter]::ToString($sha.ComputeHash($stream))).Replace('-','').ToLowerInvariant() }
+    finally { $stream.Dispose(); $sha.Dispose() }
+}
 function Run-Checked([string]$Program, [string[]]$Arguments) {
-    & $Program @Arguments
-    if ($LASTEXITCODE -ne 0) { throw "$Program failed ($LASTEXITCODE)." }
+    $output = & $Program @Arguments 2>&1
+    if ($LASTEXITCODE -ne 0) { throw "$Program failed ($LASTEXITCODE): $($output -join [Environment]::NewLine)" }
 }
 
 Safe-Path $Manifest
@@ -63,11 +95,17 @@ foreach ($line in [IO.File]::ReadAllLines($Manifest)) {
         'skill' { $skills += ,$p }
         'overlay' { $overlays += $p[1] }
         'dependency' { $deps[$p[1]] = $p }
-        'related' { Write-Host "$($p[1]): $($p[2]) — $($p[3])" }
+        'related' { }
         default { throw "Unknown manifest record: $($p[0])" }
     }
 }
 if ($settings.schema -ne '1' -or $settings.repository -notmatch '^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$') { throw 'Invalid installer manifest.' }
+if (-not $Version) { $Version = $settings.version }
+# Only x64 Windows artifacts are published. Fail before any wizard/download.
+$machineArch = [Environment]::GetEnvironmentVariable('PROCESSOR_ARCHITECTURE','Machine')
+if (-not $machineArch) { $machineArch = $env:PROCESSOR_ARCHITECTURE }
+if ($machineArch -ne 'AMD64') { throw "Windows $machineArch is not supported by this release. Windows x64, Linux and macOS builds are available." }
+$arch = 'amd64'
 foreach ($relative in @($skills | ForEach-Object { $_[2] }) + $overlays + @($hostRows.Values | ForEach-Object { $_[3]; $_[4] })) {
     if ($relative -and ([IO.Path]::IsPathRooted($relative) -or $relative -match '(^|[/\\])\.\.([/\\]|$)')) { throw 'Unsafe manifest path.' }
 }
@@ -79,7 +117,7 @@ $InstallDir = [IO.Path]::GetFullPath($InstallDir).TrimEnd('\','/')
 $StateDir = [IO.Path]::GetFullPath($StateDir).TrimEnd('\','/')
 $receiptPath = Join-Path $InstallDir 'install-receipt.json'
 Safe-Path $receiptPath
-$receipt = if (Test-Path -LiteralPath $receiptPath) { Get-Content -LiteralPath $receiptPath -Raw | ConvertFrom-Json -AsHashtable } else { $null }
+$receipt = if (Test-Path -LiteralPath $receiptPath) { Get-Content -LiteralPath $receiptPath -Raw | ConvertFrom-Json } else { $null }
 function Skill-Root([string]$HostID, [string]$ChosenScope, [string]$Project) {
     if (-not $hostRows.ContainsKey($HostID)) { throw "Unsupported CLI: $HostID" }
     if ($ChosenScope -eq 'project') { Safe-Path $Project; return Join-Path $Project $hostRows[$HostID][4] }
@@ -100,11 +138,11 @@ function Check-Receipt($Record) {
 }
 if ($Verify -or $Uninstall) {
     Check-Receipt $receipt
-    if ($Verify) { Write-Host 'Installed bytes and guidance verified. Agentic CLI acceptance is yours.'; return }
+    if ($Verify) { Step 'verified' "Midden $($receipt.version): executable and installed skills match the receipt."; return }
     $receipt.files | ForEach-Object { Write-Host "Remove owned file: $($_.path)" }
     Write-Host "Preserve recovery data: $($receipt.state)"
     if ($DryRun) { return }
-    if (-not $NonInteractive -and (Ask 'Uninstall? yes/no' 'no') -ne 'yes') { return }
+    if (-not $NonInteractive -and -not (Confirm 'Remove these installed files?')) { return }
     foreach ($file in $receipt.files) { Remove-Item -LiteralPath $file.path }
     if ($receipt.path_added) {
         $old = [string][Environment]::GetEnvironmentVariable('Path','User')
@@ -114,29 +152,43 @@ if ($Verify -or $Uninstall) {
     Write-Host 'Uninstalled. Recovery data and upgrade backups preserved.'
     return
 }
-Write-Host 'Midden — install for your agentic CLI'
-foreach ($id in ($hostRows.Keys | Sort-Object)) {
-    $detected = Get-Command $hostRows[$id][2] -ErrorAction SilentlyContinue
-    Write-Host "  ${id}: $(if ($detected) { $detected.Source } else { 'not detected' })"
-}
-if (-not $NonInteractive) {
-    if (-not $Hosts.Count) { $Hosts = (Ask 'Select CLI hosts (comma-separated)' 'copilot-cli').Split(',') }
-    $Scope = Ask 'Scope: user or project' $Scope
-    if ($Scope -notin @('user','project')) { throw 'Invalid scope.' }
-    if ($Scope -eq 'project') { $ProjectDir = Ask 'Absolute project directory' $ProjectDir }
-    $InstallDir = Ask 'Binary installation directory' $InstallDir
-    $StateDir = Ask 'Recovery state directory' $StateDir
-}
-Safe-Path $InstallDir; Safe-Path $StateDir
-if ($InstallDir -eq $StateDir) { throw 'Binary and state directories must differ.' }
-# Reload after an interactive destination change.
-$receiptPath = Join-Path $InstallDir 'install-receipt.json'; Safe-Path $receiptPath
-$receipt = if (Test-Path -LiteralPath $receiptPath) { Get-Content -LiteralPath $receiptPath -Raw | ConvertFrom-Json -AsHashtable } else { $null }
+Write-Host "`n  Midden $Version - recovery for your agentic CLI`n"
+Step 'system' 'Windows x64'
 if ($receipt) {
     Check-Receipt $receipt
+    if (-not $PSBoundParameters.ContainsKey('Scope')) { $Scope = $receipt.scope }
+    if (-not $PSBoundParameters.ContainsKey('ProjectDir')) { $ProjectDir = $receipt.project }
+    if (-not $PSBoundParameters.ContainsKey('StateDir') -and -not $env:MIDDEN_STATE_DIR) { $StateDir = $receipt.state }
     if ($receipt.scope -ne $Scope -or $receipt.project -ne $ProjectDir -or $receipt.state -ne $StateDir) { throw 'Use a separate installation directory for a different scope or state location.' }
     $Hosts += $receipt.hosts
+    Step 'existing' "$($receipt.version) found; owned files will be updated with backups."
+    if (-not $NonInteractive) { $Upgrade = $true }
 }
+if (-not $Hosts.Count) {
+    $available = @($hostRows.Keys | Sort-Object | Where-Object { Find-Program $hostRows[$_][2] })
+    if (-not $available.Count) {
+        foreach ($id in ($hostRows.Keys | Sort-Object)) { Step $hostRows[$id][5] $hostRows[$id][6] }
+        throw 'No supported CLI found. Install one from the links above, sign in, then rerun this command.'
+    }
+    if ($available.Count -eq 1 -or $NonInteractive) { $Hosts = $available }
+    else {
+        for ($i=0; $i -lt $available.Count; $i++) { Write-Host "  $($i+1)) $($hostRows[$available[$i]][5])" }
+        while ($true) {
+            $choice = Ask 'Choose CLI numbers (comma-separated), or all' 'all'
+            if ($choice -eq 'all') { $Hosts = $available; break }
+            $selected = @(); $valid = $true
+            foreach ($part in $choice.Split(',')) {
+                $n=0
+                if (-not [int]::TryParse($part.Trim(),[ref]$n) -or $n -lt 1 -or $n -gt $available.Count) { $valid=$false; break }
+                $selected += $available[$n-1]
+            }
+            if ($valid) { $Hosts=$selected; break }
+            Write-Host '  Choose a listed number, such as 1 or 1,2.'
+        }
+    }
+}
+Safe-Path $StateDir
+if ($InstallDir -eq $StateDir) { throw 'Binary and state directories must differ.' }
 $Hosts = @($Hosts | ForEach-Object { $_.Split(',') } | ForEach-Object { $_.Trim() } | Where-Object { $_ } | Sort-Object -Unique)
 if (-not $Hosts.Count) { throw '-Hosts is required with -NonInteractive.' }
 if ($HostPath -and $Hosts.Count -ne 1) { throw '-HostPath requires one selected host.' }
@@ -145,37 +197,53 @@ foreach ($id in $Hosts) {
     $program = if ($HostPath) { Safe-Path $HostPath; $HostPath } else { $hostRows[$id][2] }
     if (-not (Get-Command $program -ErrorAction SilentlyContinue)) { throw "Install/authenticate $id first, or supply -HostPath." }
     Run-Checked $program @('--version')
+    Step 'host' "$($hostRows[$id][5]) ready"
 }
 if ($Scope -eq 'project' -and -not (Test-Path -LiteralPath $ProjectDir -PathType Container)) { throw 'Project directory must exist.' }
 
 $toolPaths = @{pandoc=$PandocPath; d2=$D2Path}
-foreach ($id in ($deps.Keys | Sort-Object)) {
-    if (-not $NonInteractive) {
-        $p = Ask "Existing $id executable (auto to discover)" $(if ($toolPaths[$id]) { $toolPaths[$id] } else { 'auto' })
-        $toolPaths[$id] = if ($p -eq 'auto') { '' } else { $p }
+if (-not $NonInteractive -and -not $Dependencies.Count) {
+    Write-Host "`n  Optional capabilities (core recovery needs neither):"
+    $i=0
+    foreach ($id in @('pandoc','d2')) {
+        $i++; $found=Find-Program $id
+        $detail=if($found){'found; no download'}else{'download/disk size unavailable; winget selects version'}
+        Write-Host "  $i) $($deps[$id][3]) ($id; $detail)"
     }
-    if ($toolPaths[$id]) { Safe-Path $toolPaths[$id] }
-    $cmd = Get-Command $(if ($toolPaths[$id]) {$toolPaths[$id]} else {$id}) -ErrorAction SilentlyContinue
-    if ($cmd) {
-        $toolPaths[$id]=$cmd.Source
-        Run-Checked $cmd.Source $(if ($id -eq 'd2') {@('version')} else {@('--version')})
-    } elseif ($toolPaths[$id]) { throw "Missing executable: $($toolPaths[$id])" }
-    $dep=$deps[$id]
-    Write-Host "`n${id}: $($dep[3])"
-    Write-Host "  Version policy: $($dep[2]); installed: $(if($cmd){$cmd.Source}else{'no'})"
-    Write-Host "  Download: $(if($cmd){'0 — reuse'}else{$dep[4]}); additional disk: $(if($cmd){'0 — reuse'}else{$dep[5]})"
-    Write-Host "  Optional install: winget install --exact --id $($dep[6]) --source winget (may request elevation; manager confirms version and total size)"
+    while ($true) {
+        $choice=Ask 'Add capabilities: 1, 2, both, or none' 'none'
+        switch ($choice) {
+            '1' { $Dependencies=@('pandoc') }
+            '2' { $Dependencies=@('d2') }
+            'both' { $Dependencies=@('pandoc','d2') }
+            '1,2' { $Dependencies=@('pandoc','d2') }
+            'none' { $Dependencies=@() }
+            default { Write-Host '  Choose 1, 2, both, or none.'; continue }
+        }
+        if ($choice -in @('1','2','both','1,2','none')) { break }
+    }
 }
-if (-not $NonInteractive) { $choice=Ask 'Optional packages to install/check (pandoc,d2 or none)' 'none'; $Dependencies=if($choice -eq 'none'){@()}else{$choice.Split(',')} }
 $Dependencies = @($Dependencies | ForEach-Object { $_.Split(',') } | ForEach-Object { $_.Trim() } | Where-Object { $_ } | Sort-Object -Unique)
+if ($Dependencies -contains 'none') { $Dependencies=@() }
 foreach ($id in $Dependencies) { if (-not $deps.ContainsKey($id)) { throw "Unknown dependency: $id" } }
-if (-not $NonInteractive) { $AddPath = (Ask 'Add installation directory to user PATH? yes/no' $(if($AddPath){'yes'}else{'no'})) -eq 'yes' }
+foreach ($id in $Dependencies) {
+    $cmd=Find-Program $(if($toolPaths[$id]){$toolPaths[$id]}else{$id})
+    if ($cmd) { $toolPaths[$id]=$cmd.Source; Step $id 'Reuse existing tool; functional check follows confirmation.' }
+    elseif ($toolPaths[$id]) { throw "Missing $id executable: $($toolPaths[$id])" }
+    elseif (-not (Find-Program 'winget')) { throw "To add $id, install it separately and use -$($id)Path, or rerun with core recovery only. winget is unavailable." }
+    else { Step $id 'Install with winget; manager confirms version, size and any elevation.' }
+}
+if (-not $NonInteractive -and $HomeDir -eq $HOME -and -not $NoPath) { $AddPath=$true }
+if ($NoPath) { $AddPath=$false }
 if ($HomeDir -ne $HOME -and $AddPath) { throw 'Isolated home cannot modify the real Windows user PATH.' }
-Write-Host "`nBinary: $InstallDir; recovery state: $StateDir; PATH change: $AddPath"
+Write-Host ''
+Step 'binary' $InstallDir
+Step 'state' $StateDir
+Step 'PATH' $(if($AddPath){'Add command to user PATH'}else{'Leave PATH unchanged'})
 foreach ($id in $Hosts) { Write-Host "Skills: $(Skill-Root $id $Scope $ProjectDir)" }
 Write-Host 'No host model configuration or permission grants will be changed.'
 if ($DryRun) { Write-Host 'Preview only. No download, package installation or files changed.'; return }
-if (-not $NonInteractive -and (Ask 'Proceed? yes/no' 'no') -ne 'yes') { Write-Host 'Cancelled.'; return }
+if (-not $NonInteractive -and -not (Confirm 'Install with these settings?')) { Write-Host 'Cancelled. Nothing installed.'; return }
 
 $stage = Join-Path ([IO.Path]::GetTempPath()) ('midden-installer-' + [guid]::NewGuid())
 New-Item -ItemType Directory -Path $stage | Out-Null
@@ -184,13 +252,14 @@ try {
     if (-not $BundleDir) {
         if ($Version -eq 'latest') { $Version=(Invoke-RestMethod "https://api.github.com/repos/$($settings.repository)/releases/latest").tag_name }
         if ($Version -notmatch '^v[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9.-]+)?$') { throw 'Invalid release tag; supply -Version for a public prerelease.' }
-        $arch = switch ([Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString()) { X64 {'amd64'} Arm64 {'arm64'} default {throw 'Unsupported architecture'} }
         $asset=$settings.asset.Replace('{version}',$Version.Substring(1)).Replace('{os}','windows').Replace('{arch}',$arch)+'.zip'
         $base="https://github.com/$($settings.repository)/releases/download/$Version"
-        Invoke-WebRequest "$base/$asset" -OutFile (Join-Path $stage $asset)
-        Invoke-WebRequest "$base/SHA256SUMS" -OutFile (Join-Path $stage 'SHA256SUMS')
+        Step 'download' "Midden $Version for Windows x64..."
+        Download "$base/$asset" (Join-Path $stage $asset)
+        Download "$base/SHA256SUMS" (Join-Path $stage 'SHA256SUMS')
         $sums=@([IO.File]::ReadAllLines((Join-Path $stage 'SHA256SUMS')) | Where-Object {$_ -match ('^[a-fA-F0-9]{64}\s+\*?'+[regex]::Escape($asset)+'$')})
         if ($sums.Count -ne 1 -or (Hash (Join-Path $stage $asset)) -ne ($sums[0] -split '\s+')[0]) { throw 'Checksum verification failed.' }
+        Step 'verified' 'Archive checksum matches.'
         $BundleDir=Join-Path $stage 'bundle'; New-Item -ItemType Directory $BundleDir | Out-Null
         $zip=[IO.Compression.ZipFile]::OpenRead((Join-Path $stage $asset))
         try {
@@ -215,7 +284,9 @@ try {
             if (-not $content.StartsWith('---') -or -not $content.Contains('name:')) { throw "Invalid skill content: $source" }
             if ($skill -eq $skills[0]) {foreach ($overlay in $overlays) {Safe-Path (Join-Path $BundleDir $overlay);$content+="`n`n"+[IO.File]::ReadAllText((Join-Path $BundleDir $overlay))}}
             $content+="`n`n## Installation binding`nBinary: ``$binary``. Invoke with PowerShell's & operator and a quoted path. Discover capabilities using module describe --json; execute using module invoke <capability> --input <absolute-request.json>.`nSupply roots.midden_home.path as ``$StateDir`` and mode rw. Preserve read-only source stores. Your agentic CLI owns models and permissions. Prefer authoring content in this host and submitting recipes.compose rather than launching another agent. Use the current descriptor to discover recipe, review, render and export operations.`n"
-            foreach ($dep in $toolPaths.Keys) {if($toolPaths[$dep]){$content+="Optional $dep executable: ``$($toolPaths[$dep])``. Include its directory on PATH when invoking render operations.`n"}}
+            $content+="Optional rendering uses pandoc/d2 on PATH. If unavailable, keep editable source and report the missing renderer.`n"
+            if ($PandocPath) { $content+="Explicit Pandoc: ``$PandocPath``; include its directory on PATH for rendering.`n" }
+            if ($D2Path) { $content+="Explicit D2: ``$D2Path``; include its directory on PATH for rendering.`n" }
             $temp=Join-Path $stage "$id-$($skill[1]).md";[IO.File]::WriteAllText($temp,$content)
             $files+=@{path=(Join-Path (Skill-Root $id $Scope $ProjectDir) "$($skill[1])/SKILL.md");source=$temp}
         }
@@ -224,12 +295,26 @@ try {
     foreach($file in $files){Safe-Path $file.path;Safe-Path $file.source;if(Test-Path -LiteralPath $file.path){if(-not $known.ContainsKey($file.path)){throw "Preserving unowned file: $($file.path)"};if((Hash $file.path) -ne (Hash $file.source) -and -not $Upgrade){throw 'Installation differs; use -Upgrade to replace owned files with backups.'}}}
     # Dependencies are installed only after file-conflict preflight.
     foreach($id in $Dependencies){
-        if(-not $toolPaths[$id]){Run-Checked 'winget' @('install','--exact','--id',$deps[$id][6],'--source','winget');$cmd=Get-Command $id -ErrorAction SilentlyContinue;if(-not $cmd){throw "$id is not visible on PATH yet; reopen the terminal and rerun with its explicit path."};$toolPaths[$id]=$cmd.Source}
+        Step 'tool' "Setting up $id..."
+        if(-not $toolPaths[$id]){
+            & winget install --exact --id $deps[$id][6] --source winget
+            if ($LASTEXITCODE -ne 0) { throw "winget could not install $id. Resolve its error above, or rerun with core recovery only." }
+            Refresh-Path
+            $cmd=Find-Program $id
+            if (-not $cmd -and $id -eq 'pandoc') {
+                foreach ($candidate in @("$env:LOCALAPPDATA\Pandoc\pandoc.exe","$env:ProgramFiles\Pandoc\pandoc.exe")) {
+                    if (Test-Path -LiteralPath $candidate) { $cmd=Find-Program $candidate; break }
+                }
+            }
+            if(-not $cmd){throw "$id was installed but its executable was not found. Use -$($id)Path with its installed location; Midden files have not been changed."}
+            $toolPaths[$id]=$cmd.Source
+        }
         $checkFile=Join-Path $stage $(if($id -eq 'pandoc'){'check.pptx'}else{'check.svg'})
-        if($id -eq 'pandoc'){'# Check' | & $toolPaths[$id] -f markdown -t pptx -o $checkFile}else{[IO.File]::WriteAllText((Join-Path $stage 'check.d2'),'source -> evidence');& $toolPaths[$id] (Join-Path $stage 'check.d2') $checkFile}
+        if($id -eq 'pandoc'){'# Check' | & $toolPaths[$id] -f markdown -t pptx -o $checkFile 2>&1 | Out-Null}else{[IO.File]::WriteAllText((Join-Path $stage 'check.d2'),'source -> evidence');Run-Checked $toolPaths[$id] @((Join-Path $stage 'check.d2'),$checkFile)}
         if($LASTEXITCODE -ne 0){throw "$id functional check failed"}
         if (-not (Test-Path -LiteralPath $checkFile) -or (Get-Item -LiteralPath $checkFile).Length -eq 0) { throw "$id produced no test artifact." }
     }
+    Step 'install' 'Writing executable and CLI skills...'
     New-Item -ItemType Directory -Force $InstallDir | Out-Null
     $lockPath=Join-Path $InstallDir '.install.lock';$lock=[IO.File]::Open($lockPath,'CreateNew','Write','None')
     if($receipt){Check-Receipt $receipt}
@@ -249,9 +334,13 @@ try {
     try {[IO.File]::WriteAllText($receiptTemp,($record | ConvertTo-Json -Depth 5)+"`n");Move-Item -LiteralPath $receiptTemp -Destination $receiptPath -Force}
     finally {if(Test-Path -LiteralPath $receiptTemp){Remove-Item -LiteralPath $receiptTemp}}
     $committed=$true
-    Write-Host "Installed executable: $binary"
-    Write-Host 'Restart your CLI if needed to discover midden-session-recovery. Host acceptance remains an operator check.'
-    Write-Host 'First prompt: Use midden-session-recovery to assay recent project sessions and help me choose evidence for a blog post and presentation. Ask before extracting or writing.'
+    Step 'ready' 'Midden installed. Executable and skill checksums verified.'
+    $shadow=Find-Program 'midden'
+    if($shadow -and $shadow.Source -ne $binary){Step 'notice' "Another midden is on PATH: $($shadow.Source). This install: $binary"}
+    Write-Host "`n  Open a new terminal in your project and launch:"
+    foreach($id in $Hosts){Write-Host "    $($hostRows[$id][2])   ($($hostRows[$id][5]))"}
+    Write-Host "`n  Then ask: Use midden-session-recovery to assay this project's sessions.`n  Help me choose evidence for a blog post. Ask before extracting or writing."
+    Write-Host "`n  Manage this install with the same installer: -Verify, -Upgrade, -Uninstall."
 } finally {
     if(-not $committed -and $pathChanged){[Environment]::SetEnvironmentVariable('Path',$pathBefore,'User')}
     if(-not $committed){for($i=$undo.Count-1;$i -ge 0;$i--){$u=$undo[$i];if($u.backup){Copy-Item -LiteralPath $u.backup -Destination $u.path -Force}else{Remove-Item -LiteralPath $u.path -ErrorAction SilentlyContinue}}}

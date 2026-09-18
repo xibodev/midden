@@ -1,12 +1,16 @@
 """Exercise Pages entry points without network, product execution, or profile writes."""
 import hashlib
 import os
+import argparse
 from pathlib import Path
 import subprocess
 import tempfile
 
 
 def main():
+    parser=argparse.ArgumentParser()
+    parser.add_argument('--powershell', default='pwsh')
+    options=parser.parse_args()
     repo = Path(__file__).resolve().parent.parent
     windows = os.name == 'nt'
     with tempfile.TemporaryDirectory(prefix='midden bootstrap ') as temporary:
@@ -18,7 +22,7 @@ def main():
         (downloads / 'manifest.tsv').write_text('fixture manifest\n')
         if windows:
             body = '''param([string]$Version,[string]$Probe)
-if ($Version -ne 'v0.2.0' -or $Probe -ne $env:TEST_PROBE) { throw 'arguments lost' }
+if ($Version -ne 'v0.2.0' -or $Probe -ne [string]$env:TEST_PROBE) { throw 'arguments lost' }
 if (!(Test-Path (Join-Path $PSScriptRoot 'manifest.tsv'))) { throw 'manifest missing' }
 Set-Content -LiteralPath $env:TEST_MARKER -Value 'invoked'
 exit ([int]$env:TEST_EXIT)
@@ -49,7 +53,7 @@ exit "$TEST_EXIT"
             wrapper = root / 'wrapper.ps1'
             wrapper.write_text('''$ErrorActionPreference = 'Stop'
 function Invoke-WebRequest {
-param($Uri,$OutFile,[switch]$UseBasicParsing)
+param($Uri,$OutFile,[switch]$UseBasicParsing,[int]$TimeoutSec)
 Copy-Item -LiteralPath (Join-Path $env:TEST_DOWNLOADS ($Uri.Split('/')[-1])) -Destination $OutFile
 }
 $text = [IO.File]::ReadAllText($env:TEST_BOOTSTRAP)
@@ -57,7 +61,7 @@ $text = [IO.File]::ReadAllText($env:TEST_BOOTSTRAP)
 if ($env:TEST_PROBE) { & $env:TEST_BOOTSTRAP -Probe $env:TEST_PROBE }
 else { $text | Invoke-Expression }
 ''')
-            command = ['pwsh', '-NoProfile', '-File', str(wrapper)]
+            command = [options.powershell, '-NoProfile', '-File', str(wrapper)]
         else:
             tools = root / 'tools'; tools.mkdir()
             curl = tools / 'curl'
@@ -70,7 +74,7 @@ cp "$TEST_DOWNLOADS/${url##*/}" "$out"
 ''')
             curl.chmod(0o755)
             env.update(PATH=str(tools) + os.pathsep + env['PATH'], TMPDIR=str(scratch))
-            command = ['/bin/bash', '-s', '--', '--yes', 'path with spaces']
+            command = ['/bin/sh', '-s', '--', '--yes', 'path with spaces']
 
         def run(success):
             result = subprocess.run(command, env=env, text=True, capture_output=True,
@@ -99,6 +103,12 @@ cp "$TEST_DOWNLOADS/${url##*/}" "$out"
         assert marker.exists(), 'child failure was not exercised'
         marker.unlink()
         env['TEST_EXIT'] = '0'
+        if not windows:
+            result = subprocess.run(['/bin/sh', '-s'], env=env,
+                                    input=(repo / 'docs' / script).read_text(),
+                                    capture_output=True, text=True, start_new_session=True, timeout=30)
+            assert result.returncode != 0 and 'No interactive terminal' in result.stderr
+            assert not marker.exists()
 
         if not windows:
             # Real controlling terminal plus a separate script pipe: ensure the
@@ -109,7 +119,7 @@ cp "$TEST_DOWNLOADS/${url##*/}" "$out"
             pid, fd = pty.fork()
             if pid == 0:
                 os.execvpe('/bin/bash', ['/bin/bash', '-c',
-                           'cat "$1" | /bin/bash -s -- --interactive', 'test', str(repo / 'docs' / script)], env)
+                           'cat "$1" | /bin/sh -s -- --interactive', 'test', str(repo / 'docs' / script)], env)
             output = b''
             sent = False
             deadline = time.monotonic() + 30

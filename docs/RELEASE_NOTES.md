@@ -1,42 +1,42 @@
-# Midden 0.2.0 — Agentic CLI preview
+# Midden 0.2.1 — Guided CLI installation
 
-**Recommended: install Midden into GitHub Copilot CLI, Claude Code, or OpenCode.**
-The standalone browser application remains experimental.
+The installer now detects your CLI hosts, selects a single detected host
+automatically, and offers numbered choices when several are available. Choose
+optional rendering capabilities and confirm one summary; custom locations remain
+available through flags and environment variables.
 
-- Script-owned interactive installation: choose hosts, personal/project scope,
-  binary/state locations, optional Pandoc/D2, and PATH.
-- Verified prebuilt headless downloads; Go is not required for installation.
-- Ownership receipts, explicit upgrades/backups, verification, and uninstall that
-  preserves recovered work and user files.
-- Shared recovery skills and canonical guidance; the host owns models,
-  authentication, and permissions.
-- Retired the OpenMontage integration. Facet is a separately installed sister
-  project for video creation.
-- GitHub Actions gates publication on Go checks, native Windows/Linux/macOS
-  installer tests, archive/checksum checks, and native artifact smoke tests.
+- Windows PowerShell 5.1 and PowerShell 7 support; no separate shell installation
+  required on Windows.
+- Concise progress, retrying downloads, and actionable errors.
+- Broken unselected optional tools no longer block core recovery installation.
+- Refresh Windows PATH after package installation; support bash, zsh, and fish
+  profile entries on Unix. Detect an existing command shadowing Midden.
+- Reuse the previous installation's scope/state on repeat runs. Interactive
+  upgrades explicitly show replacement with backups in the confirmation summary.
+- Exact host launch commands and a first recovery prompt at completion.
+- Ownership, checksums, rollback, modified-file refusal, and recovery-data
+  preservation remain release gates.
 
 ## Install
 
 Save `install.ps1` (Windows) or `install.sh` (Linux/macOS), `manifest.tsv`, and
-`SHA256SUMS` together. Verify the script and manifest using
-[the installation guide](https://github.com/xibodev/midden/blob/v0.2.0/docs/INSTALL.md).
+`SHA256SUMS` together from this release. Verify checksums using the
+[installation guide](https://github.com/xibodev/midden/blob/v0.2.1/docs/INSTALL.md).
 
-Windows (PowerShell 7+): `pwsh -NoProfile -File ./install.ps1 -Version v0.2.0`
+Windows: `powershell -NoProfile -File ./install.ps1 -Version v0.2.1`
 
-Linux/macOS: `bash ./install.sh --version v0.2.0`
+Linux/macOS: `bash ./install.sh --version v0.2.1`
 
-Install and authenticate your CLI host first. The installer verifies the
-platform archive before installing. Keep the script/manifest for lifecycle use.
-Use an explicit version because preview releases are not GitHub's `latest`.
+The [website](https://xibodev.github.io/midden/#install) provides checksum-verified
+one-line entry points, promoted to this version after release publication.
 
-## Assets and limits
+## Availability and validation
 
-Headless and experimental standalone archives are available for Windows x64,
-Linux x64/arm64, and macOS x64/arm64. `build-manifest.json` records the source
-revision; `SHA256SUMS` covers all payload assets. Binaries are not OS code-signed.
+Headless and experimental standalone archives: Windows x64, Linux x64/arm64,
+macOS x64/arm64. The recommended route is an installed, authenticated Copilot CLI,
+Claude Code, or OpenCode host. Windows ARM64 is not supported by this release.
 
-Offline/native installer checks are separate from live host acceptance, which
-remains in progress. Optional renderers and package-manager installation are
-not bundled or certified by fixture tests. Review generated content and
-provenance before publication. Standalone provider onboarding and complete
-product validation remain incomplete.
+Native CI covers installer mechanics and packaged-binary smoke tests, including
+Windows PowerShell 5.1. Live host acceptance and real package-manager operations
+are separate from fixture tests. Standalone remains experimental. Optional
+Pandoc/D2 tools are not bundled; generated content needs editorial review.
