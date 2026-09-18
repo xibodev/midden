@@ -3,7 +3,7 @@
 # Parse the complete function before executing anything from piped input.
 midden_bootstrap() (
   set -eu
-  version=v0.2.0
+  version=v0.2.1
   version=${MIDDEN_VERSION:-$version}
   case "$version" in v[0-9]*.[0-9]*.[0-9]*) ;; *) echo 'MIDDEN_VERSION must be a release tag.' >&2; exit 1;; esac
   case "$version" in *[!a-zA-Z0-9.-]*) echo 'Invalid MIDDEN_VERSION.' >&2; exit 1;; esac

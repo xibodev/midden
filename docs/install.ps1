@@ -6,7 +6,7 @@
     Set-StrictMode -Off
     $PSModuleAutoLoadingPreference = 'All'
     [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
-    $version = 'v0.2.0'
+    $version = 'v0.2.1'
     if ($env:MIDDEN_VERSION) { $version=$env:MIDDEN_VERSION }
     if ($version -notmatch '^v[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9.-]+)?$') { throw 'MIDDEN_VERSION must be a release tag, such as v0.2.1.' }
     $base = "https://github.com/xibodev/midden/releases/download/$version"
