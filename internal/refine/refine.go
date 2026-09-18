@@ -17,6 +17,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/mekjr1/midden/internal/content"
 	"github.com/mekjr1/midden/internal/index"
 )
 
@@ -32,61 +33,16 @@ type Template struct {
 
 // Templates are the artifact kinds Midden can produce. Each states its shape
 // explicitly, because "write a tutorial" produces mush without one.
-var Templates = []Template{
-	{
-		Name: "tutorial", Title: "Step-by-step tutorial",
-		Audience: "someone who has never done this before",
-		Shape:    "Prerequisites, then numbered steps each with the exact command and what to expect, then verification, then common failures.",
-		Wants:    []string{"command", "decision", "error_fix", "gotcha"},
-	},
-	{
-		Name: "howto", Title: "Focused how-to",
-		Audience: "a practitioner who knows the domain and wants one task done",
-		Shape:    "One goal stated up front, the minimal path to it, and nothing else. No background.",
-		Wants:    []string{"command", "gotcha"},
-	},
-	{
-		Name: "faq", Title: "Frequently asked questions",
-		Audience: "someone hitting problems",
-		Shape:    "Question as a heading, answer in 2-4 sentences, most common first.",
-		Wants:    []string{"gotcha", "error_fix", "decision"},
-	},
-	{
-		Name: "tsg", Title: "Troubleshooting guide",
-		Audience: "someone whose system is broken right now",
-		Shape:    "Symptom, then how to confirm the diagnosis, then the fix, then how to prevent recurrence. Symptom-first, not cause-first.",
-		Wants:    []string{"error_fix", "gotcha", "dead_end"},
-	},
-	{
-		Name: "adr", Title: "Architecture decision record",
-		Audience: "an engineer joining the project later",
-		Shape:    "Context, Decision, Alternatives considered and why rejected, Consequences. One decision per record.",
-		Wants:    []string{"decision", "dead_end"},
-	},
-	{
-		Name: "changelog", Title: "Changelog entry",
-		Audience: "users of the software",
-		Shape:    "Grouped under Added / Changed / Fixed. One line each, user-visible effect first.",
-		Wants:    []string{"decision", "error_fix"},
-	},
-	{
-		Name: "post", Title: "Blog post",
-		Audience: "a technical reader who does not know the project",
-		Shape:    "A concrete hook, the problem, what was tried, what actually worked, and what transfers. Honest about the failures.",
-		Wants:    []string{"decision", "dead_end", "error_fix", "gotcha"},
-	},
-	{
-		Name: "readme", Title: "README section",
-		Audience: "someone evaluating the project",
-		Shape:    "What it does, why it exists, how to run it. Short.",
-		Wants:    []string{"decision", "command"},
-	},
-	{
-		Name: "lessons", Title: "Lessons learned",
-		Audience: "the team, retrospectively",
-		Shape:    "Each lesson as a claim with the evidence that produced it. No platitudes.",
-		Wants:    []string{"dead_end", "gotcha", "decision", "error_fix"},
-	},
+var Templates = legacyTemplates()
+
+func legacyTemplates() []Template {
+	var out []Template
+	for _, t := range content.Templates() {
+		if t.LegacyCLI {
+			out = append(out, Template{Name: t.Name, Title: t.Title, Audience: t.Audience, Shape: t.Shape, Wants: t.Wants})
+		}
+	}
+	return out
 }
 
 // FindTemplate resolves a template by name.

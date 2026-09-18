@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mekjr1/midden/internal/content"
 	"github.com/mekjr1/midden/internal/core"
 	"github.com/mekjr1/midden/internal/index"
 )
@@ -33,26 +34,19 @@ const (
 	OutputExported = "exported"
 )
 
-var outputTemplates = []index.RecipeOutputSpec{
-	{Kind: "tutorial", Title: "Deep technical tutorial", Audience: "practitioners learning the complete workflow", Maker: "Midden + Pandoc", Format: "markdown", CostClass: "spends", RequiresModel: true},
-	{Kind: "adr", Title: "Architecture decision record", Audience: "engineers maintaining the project later", Maker: "Midden", Format: "markdown", CostClass: "spends", RequiresModel: true},
-	{Kind: "release_pack", Title: "Release and launch pack", Audience: "users, maintainers, and launch channels", Maker: "Midden", Format: "markdown", CostClass: "spends", RequiresModel: true},
-	{Kind: "slides", Title: "Presentation deck", Audience: "an engineering review or workshop", Maker: "Marp", Format: "marp", CostClass: "spends", RequiresModel: true},
-	{Kind: "diagram", Title: "Architecture diagram", Audience: "technical readers who need the system shape quickly", Maker: "D2", Format: "d2", CostClass: "spends", RequiresModel: true},
-	{Kind: "video_brief", Title: "Video production brief", Audience: "a producer creating a concise product demonstration", Maker: "Midden / Facet handoff", Format: "markdown", CostClass: "spends", RequiresModel: true},
-	{Kind: "handbook", Title: "Project field guide", Audience: "the owner returning to the project later", Maker: "Midden + Quarto/Pandoc", Format: "markdown", CostClass: "spends", RequiresModel: true},
-	{Kind: "flashcards", Title: "Spaced-repetition deck", Audience: "the owner retaining commands, concepts, and gotchas", Maker: "Midden / Anki export", Format: "tsv", CostClass: "spends", RequiresModel: true},
-	{Kind: "quiz", Title: "Scenario quiz", Audience: "a learner testing applied understanding", Maker: "Midden / H5P handoff", Format: "markdown", CostClass: "spends", RequiresModel: true},
-	{Kind: "notebook_pack", Title: "Research notebook source pack", Audience: "a local research or retrieval workspace", Maker: "Midden / Open Notebook", Format: "markdown", CostClass: "free", RequiresModel: false},
-	{Kind: "skill", Title: "Agent skill proposal", Audience: "an operator reviewing a reusable agent behavior", Maker: "Agent Skills", Format: "markdown", CostClass: "spends", RequiresModel: true},
-	{Kind: "instruction_patch", Title: "Instruction-file patch proposal", Audience: "an operator reviewing a scoped behavior rule", Maker: "Midden", Format: "diff", CostClass: "spends", RequiresModel: true},
-	{Kind: "agent_profile", Title: "Specialist agent proposal", Audience: "an operator reviewing a bounded specialist", Maker: "Midden", Format: "markdown", CostClass: "spends", RequiresModel: true},
-	{Kind: "eval_pack", Title: "Evidence-derived evaluation pack", Audience: "an operator comparing current and proposed behavior", Maker: "Midden / Promptfoo", Format: "jsonl", CostClass: "free", RequiresModel: false},
-	{Kind: "retrieval_pack", Title: "Retrieval memory pack", Audience: "a local RAG or durable-memory system", Maker: "Midden", Format: "jsonl", CostClass: "free", RequiresModel: false},
-	{Kind: "sft_pack", Title: "Supervised examples pack", Audience: "an expert reviewing possible training examples", Maker: "Midden", Format: "jsonl", CostClass: "free", RequiresModel: false},
-	{Kind: "preference_pack", Title: "Preference-pair pack", Audience: "an expert reviewing accepted versus rejected approaches", Maker: "Midden", Format: "jsonl", CostClass: "free", RequiresModel: false},
-	{Kind: "privacy_manifest", Title: "Privacy and licensing manifest", Audience: "the owner auditing a data export", Maker: "Midden", Format: "json", CostClass: "free", RequiresModel: false},
-	{Kind: "provenance_manifest", Title: "Bundle provenance manifest", Audience: "the owner auditing every derived claim", Maker: "Midden", Format: "json", CostClass: "free", RequiresModel: false},
+var outputTemplates = contentSpecs()
+
+func contentSpecs() []index.RecipeOutputSpec {
+	out := make([]index.RecipeOutputSpec, 0)
+	for _, t := range content.Templates() {
+		cost := "free"
+		if t.RequiresModel {
+			cost = "spends"
+		}
+		out = append(out, index.RecipeOutputSpec{Kind: t.Name, Title: t.Title, Audience: t.Audience,
+			Maker: t.Maker, Format: t.Format, CostClass: cost, RequiresModel: t.RequiresModel})
+	}
+	return out
 }
 
 // Templates returns a copy of the supported refinery deliverables.
@@ -363,6 +357,9 @@ func matchesWorkspace(nugget index.Nugget, workspace string) bool {
 }
 
 func evidenceKinds(output string) []string {
+	if template, ok := content.Find(output); ok && len(template.Wants) > 0 {
+		return template.Wants
+	}
 	switch output {
 	case "tutorial", "handbook", "slides", "video_brief", "release_pack":
 		return []string{"decision", "error_fix", "command", "gotcha", "dead_end", "artifact"}
@@ -865,6 +862,9 @@ func OutputRequest(output index.RecipeOutputSpec) string {
 	case "agent_profile":
 		return base + "\nProduce a read-only specialist-agent proposal with objective, bounded tools, model guidance, stop conditions, and evaluation criteria."
 	default:
+		if template, ok := content.Find(output.Kind); ok && template.Shape != "" {
+			return base + "\nUse Markdown. " + template.Shape + " Cite evidence IDs; disclose missing evidence."
+		}
 		return base
 	}
 }

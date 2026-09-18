@@ -2,16 +2,15 @@
 
 ## What This App Must Be
 
-Midden is a standalone local-first session-recovery application. It owns source
-discovery, session identity, scope, assay, evidence selection, redaction,
-provenance, reusable seeds and outputs, recovery-aware cleanup policy, and a
-recovery-focused user interface.
+Midden is an agent-first, local evidence-to-content bundle. Its canonical
+experience runs inside the operator's authenticated agentic CLI. It owns source
+discovery, exact session scope, assay, evidence selection, editorial projects,
+provenance, reusable seeds, reviewed outputs, and recovery-aware cleanup policy.
 
-Standalone Midden must embed the complete supported Facet Studio kernel for
-conversation, providers, authentication, models, tool dispatch, sessions,
-events, cancellation, and approvals. Midden must register recovery tools
-natively and must not keep its own external-CLI conversation loop as the final
-runtime.
+Standalone Studio is paused and experimental. Preserve its existing behavior;
+do not add a second agent loop or make new agent-first features depend on it.
+If resumed later, Studio must consume the same domain operations through the
+supported Facet Studio kernel, not implement parallel editorial semantics.
 
 The same domain capability must also ship as:
 
@@ -25,13 +24,14 @@ The same domain capability must also ship as:
    and source-safety boundaries.
 2. Keep one canonical operation, effect, requirement, artifact, and state model
    across all delivery forms.
-3. Make the agent bundle and Studio module independently buildable and testable.
-4. Wait for Facet Studio to publish a supported tagged kernel contract.
-5. Pin that release without a sibling `replace`, embed it, and remove bespoke
-   provider, conversation, budget, and generic approval ownership from the
-   standalone path.
-6. Verify clean installs, state isolation, source safety, and real recovery
-   journeys for all three forms before release.
+3. Keep the headless agent bundle independently buildable and testable.
+4. Prove exact-session investigation, competing editorial opportunities,
+   human selection, host-authored composition, review, and local export.
+5. Extend the same project model to multi-session series, chapter plans, and
+   local production handoffs without owning renderers or model credentials.
+6. Validate feature branches against staging before release. Defer full
+   cross-host and Studio acceptance when explicitly requested; never imply
+   focused checks certify those journeys.
 
 ## Start Clean
 
@@ -46,9 +46,8 @@ The same domain capability must also ship as:
    backend that enforces them.
 5. Run focused baseline checks before editing. Distinguish read-only recovery
    operations from explicit source mutations such as archive.
-6. Do not create new Markdown plans, status logs, prompts, handoffs, skills, or
-   architecture essays. Put durable contracts in code and tests. Use Git history
-   only when provenance is necessary.
+6. Keep planning in the host's task tracker. Ship only product documentation
+   and purpose-built agent skills; keep executable contracts in code and tests.
 
 ## Boundaries
 
@@ -61,6 +60,5 @@ The same domain capability must also ship as:
 - Indexing, assay, evidence extraction, and MCP reads must not modify source
   stores. Any archive action must be explicit, accurately described, and tested.
 - Standalone, bundle, and module state must not mix implicitly.
-- Standalone completion is blocked until the Studio kernel is tagged, supported,
-  pinned, and proven from a clean clone.
+- Studio is not a release criterion for agent-first feature branches.
 - Do not commit, tag, push, publish, or release without explicit user approval.

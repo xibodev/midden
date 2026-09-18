@@ -14,8 +14,14 @@ Midden is:
 - **Evidence-grounded:** Studio will not create or run an unsupported work item
   when no reclaimed evidence exists.
 
-Current version: **0.2.3 (preview)**. **Using Midden in an agentic CLI is the
-recommended route. The standalone browser application is experimental.**
+Current version: **0.2.3 (preview)**. **The agentic CLI bundle is the canonical
+product experience. Standalone Studio development is paused and experimental.**
+
+The host agent and operator investigate sources, compare editorial opportunities,
+choose an audience and purpose, and compose content. Midden supplies bounded
+evidence, durable project state, shared content types, review gates, and local
+delivery. It does not introduce another agent loop or claim that an evidence
+count measures a story's editorial value.
 
 ## Install for your agentic CLI
 
