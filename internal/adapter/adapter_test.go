@@ -201,7 +201,7 @@ func TestAdaptersDeclareDistinctTools(t *testing.T) {
 func TestRoDSNIsReadOnly(t *testing.T) {
 	// Source stores belong to tools that may be running; a writable handle
 	// risks corrupting them.
-	dsn := roDSN(`C:\Users\g\.copilot\session-store.db`)
+	dsn := roDSN(filepath.Join(t.TempDir(), "session-store.db"))
 
 	if !strings.Contains(dsn, "mode=ro") {
 		t.Errorf("DSN must be read-only: %q", dsn)

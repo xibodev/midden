@@ -69,7 +69,7 @@ func writeOrCompare(t *testing.T, rel string, got []byte) {
 	// must not read as a protocol change.
 	if !jsonEqual(want, got) {
 		t.Errorf("fixture %s no longer matches module output; regenerate with MIDDEN_UPDATE_FIXTURES=1 "+
-			"and review the diff — a change here is a change to the wire contract", rel)
+			"and review the diff — a change here is a change to the wire contract\ngot: %s", rel, got)
 	}
 }
 
@@ -195,6 +195,8 @@ func TestGenerateFixtures(t *testing.T) {
 	}
 
 	for _, c := range cases {
+		// Fixture coverage must never depend on ambient developer source stores.
+		c.req.ExplicitSourceRoots = true
 		env := Invoke(c.req)
 		if env.OK != c.wantOK {
 			t.Fatalf("%s: ok=%v, want %v (error: %+v)", c.rel, env.OK, c.wantOK, env.Error)

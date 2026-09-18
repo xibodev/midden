@@ -26,9 +26,7 @@
     "matched": 1,
     "noise_filter_applied": true,
     "stores_read": [
-      "claude",
-      "copilot",
-      "opencode"
+      "claude"
     ],
     "stores_unavailable": [],
     "partial_inventory": false,

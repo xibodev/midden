@@ -3,7 +3,9 @@
 package adapter
 
 import (
+	"errors"
 	"os"
+	"syscall"
 	"time"
 )
 
@@ -21,5 +23,7 @@ func processAliveSince(pid int, _ time.Time) bool {
 	if err != nil {
 		return false
 	}
-	return p.Signal(nil) == nil
+	defer p.Release()
+	err = p.Signal(syscall.Signal(0))
+	return err == nil || errors.Is(err, syscall.EPERM)
 }

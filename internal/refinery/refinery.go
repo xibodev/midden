@@ -199,7 +199,8 @@ func recipeTitle(workspace string, outputs []index.RecipeOutputSpec) string {
 	if scope == "" {
 		scope = "Evidence"
 	} else {
-		scope = filepath.Base(scope)
+		// Workspace labels may come from sessions copied from another OS.
+		scope = filepath.Base(strings.ReplaceAll(scope, `\`, "/"))
 		if scope == "." || scope == string(filepath.Separator) || scope == "" {
 			scope = "Evidence"
 		}
