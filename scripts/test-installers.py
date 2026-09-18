@@ -67,7 +67,7 @@ def main():
         interactive = list(common)
         interactive.remove('-NonInteractive' if args.shell == 'powershell' else '--yes')
         # Explicit host/scope: only capability choice and one final confirmation.
-        answers = 'invalid\nnone\ninvalid\nno\n'
+        answers = 'invalid\n1\ninvalid\n1\ninvalid\nno\n'
         result = subprocess.run(prefix + interactive + install, env=env, input=answers, capture_output=True, text=True, timeout=90)
         assert result.returncode == 0, result.stdout + result.stderr
         assert not dest.exists() and not state.exists() and not (project / '.claude').exists(), 'cancel wrote files'
@@ -97,7 +97,7 @@ def main():
         detect_common[detect_common.index('-Manifest' if args.shell == 'powershell' else '--manifest') + 1] = str(isolated_manifest)
         detect_env = dict(env, PATH=str(detection) + os.pathsep + env['PATH'])
         detect_args = ['-Scope', 'project', '-ProjectDir', str(project), '-NoPath'] if args.shell == 'powershell' else ['--scope', 'project', '--project', str(project), '--no-path']
-        result = subprocess.run(prefix + detect_common + detect_args, env=detect_env, input='none\nyes\n', capture_output=True, text=True, timeout=90)
+        result = subprocess.run(prefix + detect_common + detect_args, env=detect_env, input='1\n1\nyes\n', capture_output=True, text=True, timeout=90)
         assert result.returncode == 0, result.stdout + result.stderr
         assert 'Claude Code ready' in result.stdout
         assert 'Choose CLI numbers' not in result.stdout, 'single detected host should be automatic'
@@ -111,13 +111,26 @@ def main():
                 fields=row.split('\t'); fields[2]='midden-fixture-host'; rows[i]='\t'.join(fields)
         isolated_manifest.write_text('\n'.join(rows) + '\n')
         result = subprocess.run(prefix + detect_common + detect_args, env=detect_env,
-                                input='99\nall\nnone\nyes\n', capture_output=True, text=True, timeout=90)
+                                input='1\n99\n1\n1\nyes\n', capture_output=True, text=True, timeout=90)
         assert result.returncode == 0, result.stdout + result.stderr
-        assert 'Choose a listed number' in result.stdout
+        assert 'Choose a listed number' in result.stdout + result.stderr
         assert (project / '.github/skills/midden-session-recovery/SKILL.md').exists()
         assert (project / '.claude/skills/midden-session-recovery/SKILL.md').exists()
         call([uninstall])
         print(f'PASS {args.shell}: multiple-host selection and invalid-choice recovery')
+        # Custom setup is reachable in plain mode, with explicit scope/paths and
+        # no PATH mutation. A cancellation must still leave every target absent.
+        custom_dest=home / 'custom bin'
+        custom_state=home / 'custom state'
+        custom_project=root / 'custom project'; custom_project.mkdir()
+        custom_input=f'2\n{custom_dest}\n2\n{custom_project}\n{custom_state}\n2\n1\nno\n'
+        result=subprocess.run(prefix+interactive+install,env=env,input=custom_input,capture_output=True,text=True,timeout=90)
+        assert result.returncode==0,result.stdout+result.stderr
+        assert 'Custom setup' in result.stdout+result.stderr
+        assert not custom_dest.exists() and not custom_state.exists() and not (custom_project / '.claude').exists()
+        result=subprocess.run(prefix+interactive+install,env=env,input='',capture_output=True,text=True,timeout=90)
+        assert result.returncode!=0, 'EOF must not accept defaults and install'
+        assert not (dest / binary).exists()
         # Selected renderer failure blocks installation; success requires a real
         # nonempty artifact, not just an exit code or a version string.
         if args.shell == 'powershell':

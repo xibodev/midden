@@ -21,7 +21,9 @@ param(
     [switch]$Uninstall,
     [switch]$Verify,
     [switch]$AddPath,
-    [switch]$NoPath = ($env:MIDDEN_NO_PATH -eq '1')
+    [switch]$NoPath = ($env:MIDDEN_NO_PATH -eq '1'),
+    [ValidateSet('auto','quick','custom')][string]$Setup = 'auto',
+    [switch]$Plain = ($env:MIDDEN_PLAIN -eq '1')
 )
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
@@ -34,12 +36,63 @@ if (-not $Manifest) {
     if (-not (Test-Path -LiteralPath $Manifest)) { $Manifest = Join-Path $PSScriptRoot 'manifest.tsv' }
 }
 if ($HomeDir -ne $HOME -and $AddPath) { throw '-HomeDir isolation cannot be combined with -AddPath (Windows user PATH is outside that directory).' }
+$rich = -not $Plain -and -not $NonInteractive -and -not [Console]::IsInputRedirected -and -not [Console]::IsOutputRedirected
+$color = $rich -and -not $env:NO_COLOR
+function Accent([string]$Text) {
+    if ($color) { Write-Host $Text -ForegroundColor Cyan } else { Write-Host $Text }
+}
+function Section([string]$Text) { Write-Host ''; Accent "  +-- $Text" }
+function Choose([string]$Label, [string[]]$Options, [int]$Default=0) {
+    Write-Host ''; Accent "  ? $Label"
+    if ($rich -and [Console]::WindowWidth -ge 40 -and [Console]::WindowHeight -ge ($Options.Count+8)) {
+        $selected=$Default
+        $oldControl=[Console]::TreatControlCAsInput
+        try {
+            [Console]::TreatControlCAsInput=$true
+            while ($true) {
+                $width=[Math]::Max(20,[Console]::WindowWidth-4)
+                for($i=0;$i -lt $Options.Count;$i++) {
+                    $prefix=if($i -eq $selected){'  > (*) '}else{'    ( ) '}
+                    $line=$prefix+$Options[$i]
+                    if($line.Length -gt $width){$line=$line.Substring(0,$width-3)+'...'}
+                    if($i -eq $selected){Accent $line}else{Write-Host $line}
+                }
+                Write-Host '    Up/Down: move | Enter: select | Q: cancel'
+                $key=[Console]::ReadKey($true)
+                if($key.Key -eq 'Enter'){break}
+                if($key.Key -eq 'Q' -or ($key.Key -eq 'C' -and $key.Modifiers -band [ConsoleModifiers]::Control)){throw 'Setup cancelled. No installation changes made.'}
+                if($key.Key -eq 'UpArrow'){$selected=($selected+$Options.Count-1)%$Options.Count}
+                if($key.Key -eq 'DownArrow'){$selected=($selected+1)%$Options.Count}
+                if([Console]::CursorTop -ge ($Options.Count+1)){
+                    [Console]::SetCursorPosition(0,[Console]::CursorTop-$Options.Count-1)
+                    for($i=0;$i -le $Options.Count;$i++){[Console]::WriteLine((' '*([Console]::WindowWidth-1)))}
+                    [Console]::SetCursorPosition(0,[Console]::CursorTop-$Options.Count-1)
+                }
+            }
+        } finally { [Console]::TreatControlCAsInput=$oldControl }
+        Step 'selected' $Options[$selected]
+        return $selected
+    }
+    for($i=0;$i -lt $Options.Count;$i++){Write-Host "    $($i+1)) $($Options[$i])"}
+    while($true){
+        $reply=Ask '  Choice (q to cancel)' ([string]($Default+1))
+        if($reply -eq 'q'){throw 'Setup cancelled. No installation changes made.'}
+        $n=0
+        if([int]::TryParse($reply,[ref]$n) -and $n -ge 1 -and $n -le $Options.Count){Step 'selected' $Options[$n-1];return ($n-1)}
+        Write-Host '  Choose a listed number.'
+    }
+}
 function Ask([string]$Label, [string]$Default) {
-    $answer = Read-Host "$Label [$Default]"
+    if([Console]::IsInputRedirected){
+        Write-Host "$Label [$Default]: " -NoNewline
+        $answer=[Console]::ReadLine()
+        if($null -eq $answer){throw 'Input ended; rerun interactively or use -NonInteractive.'}
+    }else{$answer = Read-Host "$Label [$Default]"}
     if ([string]::IsNullOrWhiteSpace($answer)) { return $Default }
     return $answer.Trim()
 }
 function Confirm([string]$Label) {
+    if($rich){return ((Choose $Label @('Yes - continue','No - cancel')) -eq 0)}
     while ($true) {
         switch -Regex (Ask $Label 'Y/n') {
             '^(y|yes|Y/n)$' { return $true }
@@ -48,7 +101,7 @@ function Confirm([string]$Label) {
         }
     }
 }
-function Step([string]$Label, [string]$Message) { Write-Host ('  {0,-12} {1}' -f $Label,$Message) }
+function Step([string]$Label, [string]$Message) { Write-Host ('  | {0,-12} {1}' -f $Label,$Message) }
 function Download([string]$Uri, [string]$OutFile) {
     for ($attempt=1; $attempt -le 3; $attempt++) {
         try { Invoke-WebRequest -UseBasicParsing -Uri $Uri -OutFile $OutFile -TimeoutSec 120; return }
@@ -112,6 +165,39 @@ foreach ($relative in @($skills | ForEach-Object { $_[2] }) + $overlays + @($hos
 foreach ($skill in $skills) { if ($skill[1] -notmatch '^[a-z0-9-]+$') { throw 'Invalid skill directory in manifest.' } }
 if (-not $InstallDir) { $InstallDir = Join-Path $HomeDir $settings.install_relative }
 if (-not $StateDir) { $StateDir = Join-Path $HomeDir $settings.state_relative }
+if(-not $Verify -and -not $Uninstall){
+    Write-Host ''
+    Accent '       ____'
+    Accent '     ________    midden'
+    Accent '   ____________  Recover the work worth keeping.'
+    Write-Host "`n  Installer $Version"
+    Section '[1/3] Prepare your installation'
+    Step 'system' 'Windows x64'
+    if(-not $NonInteractive -and $Setup -eq 'auto'){
+        $mode=Choose 'How would you like to start?' @('Quick start (recommended) - use sensible defaults','Custom setup - scope, folders and PATH')
+        $Setup=if($mode -eq 0){'quick'}else{'custom'}
+    }
+    if(-not $NonInteractive -and $Setup -eq 'custom'){
+        $InstallDir=Ask '  Binary installation folder (absolute path)' $InstallDir
+        Safe-Path $InstallDir
+        $existing=Join-Path $InstallDir 'install-receipt.json'
+        if(Test-Path -LiteralPath $existing){Step 'existing' 'Keeping receipt scope/state for this installation. Choose a new binary folder to create a separate installation.'}
+        else{
+            $Scope=if((Choose 'Where should your CLI discover Midden?' @('Personal - available across projects','Project - only in one project') $(if($Scope -eq 'project'){1}else{0})) -eq 0){'user'}else{'project'}
+            $PSBoundParameters['Scope']=$Scope
+            if($Scope -eq 'project'){
+                while($true){
+                    $ProjectDir=Ask '  Project folder (absolute path)' $(if($ProjectDir){$ProjectDir}else{(Get-Location).Path})
+                    try{Safe-Path $ProjectDir;if(Test-Path -LiteralPath $ProjectDir -PathType Container){break}}catch{}
+                    Write-Host '  Choose an existing absolute project folder.'
+                }
+            }
+            $StateDir=Ask '  Recovery data folder (absolute path)' $StateDir
+            $PSBoundParameters['StateDir']=$StateDir
+        }
+        $NoPath=((Choose 'Make the midden command available on PATH?' @('Yes - add to user PATH','No - use the installed absolute path') $(if($NoPath -or $HomeDir -ne $HOME){1}else{0})) -eq 1)
+    }
+}
 Safe-Path $HomeDir; Safe-Path $InstallDir; Safe-Path $StateDir
 $InstallDir = [IO.Path]::GetFullPath($InstallDir).TrimEnd('\','/')
 $StateDir = [IO.Path]::GetFullPath($StateDir).TrimEnd('\','/')
@@ -152,8 +238,6 @@ if ($Verify -or $Uninstall) {
     Write-Host 'Uninstalled. Recovery data and upgrade backups preserved.'
     return
 }
-Write-Host "`n  Midden $Version - recovery for your agentic CLI`n"
-Step 'system' 'Windows x64'
 if ($receipt) {
     Check-Receipt $receipt
     if (-not $PSBoundParameters.ContainsKey('Scope')) { $Scope = $receipt.scope }
@@ -172,19 +256,9 @@ if (-not $Hosts.Count) {
     }
     if ($available.Count -eq 1 -or $NonInteractive) { $Hosts = $available }
     else {
-        for ($i=0; $i -lt $available.Count; $i++) { Write-Host "  $($i+1)) $($hostRows[$available[$i]][5])" }
-        while ($true) {
-            $choice = Ask 'Choose CLI numbers (comma-separated), or all' 'all'
-            if ($choice -eq 'all') { $Hosts = $available; break }
-            $selected = @(); $valid = $true
-            foreach ($part in $choice.Split(',')) {
-                $n=0
-                if (-not [int]::TryParse($part.Trim(),[ref]$n) -or $n -lt 1 -or $n -gt $available.Count) { $valid=$false; break }
-                $selected += $available[$n-1]
-            }
-            if ($valid) { $Hosts=$selected; break }
-            Write-Host '  Choose a listed number, such as 1 or 1,2.'
-        }
+        $options=@('All detected CLIs')+@($available | ForEach-Object { $hostRows[$_][5] })
+        $selected=Choose 'Which CLI should use Midden?' $options
+        $Hosts=if($selected -eq 0){$available}else{@($available[$selected-1])}
     }
 }
 Safe-Path $StateDir
@@ -210,17 +284,11 @@ if (-not $NonInteractive -and -not $Dependencies.Count) {
         $detail=if($found){'found; no download'}else{'download/disk size unavailable; winget selects version'}
         Write-Host "  $i) $($deps[$id][3]) ($id; $detail)"
     }
-    while ($true) {
-        $choice=Ask 'Add capabilities: 1, 2, both, or none' 'none'
-        switch ($choice) {
-            '1' { $Dependencies=@('pandoc') }
-            '2' { $Dependencies=@('d2') }
-            'both' { $Dependencies=@('pandoc','d2') }
-            '1,2' { $Dependencies=@('pandoc','d2') }
-            'none' { $Dependencies=@() }
-            default { Write-Host '  Choose 1, 2, both, or none.'; continue }
-        }
-        if ($choice -in @('1','2','both','1,2','none')) { break }
+    switch (Choose 'What would you like to create?' @('Core recovery only - add renderers later','PowerPoint and HTML - Pandoc','SVG diagrams - D2','Both rendering capabilities')) {
+        0 { $Dependencies=@() }
+        1 { $Dependencies=@('pandoc') }
+        2 { $Dependencies=@('d2') }
+        3 { $Dependencies=@('pandoc','d2') }
     }
 }
 $Dependencies = @($Dependencies | ForEach-Object { $_.Split(',') } | ForEach-Object { $_.Trim() } | Where-Object { $_ } | Sort-Object -Unique)
@@ -236,7 +304,9 @@ foreach ($id in $Dependencies) {
 if (-not $NonInteractive -and $HomeDir -eq $HOME -and -not $NoPath) { $AddPath=$true }
 if ($NoPath) { $AddPath=$false }
 if ($HomeDir -ne $HOME -and $AddPath) { throw 'Isolated home cannot modify the real Windows user PATH.' }
-Write-Host ''
+Section 'Install plan'
+Step 'release' $Version
+Step 'scope' $Scope
 Step 'binary' $InstallDir
 Step 'state' $StateDir
 Step 'PATH' $(if($AddPath){'Add command to user PATH'}else{'Leave PATH unchanged'})
@@ -244,6 +314,7 @@ foreach ($id in $Hosts) { Write-Host "Skills: $(Skill-Root $id $Scope $ProjectDi
 Write-Host 'No host model configuration or permission grants will be changed.'
 if ($DryRun) { Write-Host 'Preview only. No download, package installation or files changed.'; return }
 if (-not $NonInteractive -and -not (Confirm 'Install with these settings?')) { Write-Host 'Cancelled. Nothing installed.'; return }
+Section '[2/3] Install Midden'
 
 $stage = Join-Path ([IO.Path]::GetTempPath()) ('midden-installer-' + [guid]::NewGuid())
 New-Item -ItemType Directory -Path $stage | Out-Null
@@ -327,6 +398,7 @@ try {
         finally {if(Test-Path -LiteralPath $temp){Remove-Item -LiteralPath $temp}}
         if((Hash $file.source) -ne (Hash $file.path)){throw "Installed bytes do not match: $($file.path)"}
     }
+    Section '[3/3] Finalize setup'
     $record=@{schema=1;version=$Version;scope=$Scope;project=$ProjectDir;state=$StateDir;hosts=$Hosts;path_added=[bool]($receipt -and $receipt.path_added);files=@($files | ForEach-Object {@{path=$_.path;sha256=(Hash $_.path)}})}
     if($AddPath){$old=[string][Environment]::GetEnvironmentVariable('Path','User');if($InstallDir -notin ($old -split ';')){$pathBefore=$old;[Environment]::SetEnvironmentVariable('Path',($old.TrimEnd(';')+';'+$InstallDir).TrimStart(';'),'User');$pathChanged=$true;$record.path_added=$true}}
     Check-Receipt $record
@@ -334,6 +406,7 @@ try {
     try {[IO.File]::WriteAllText($receiptTemp,($record | ConvertTo-Json -Depth 5)+"`n");Move-Item -LiteralPath $receiptTemp -Destination $receiptPath -Force}
     finally {if(Test-Path -LiteralPath $receiptTemp){Remove-Item -LiteralPath $receiptTemp}}
     $committed=$true
+    Section "Midden $Version installed successfully"
     Step 'ready' 'Midden installed. Executable and skill checksums verified.'
     $shadow=Find-Program 'midden'
     if($shadow -and $shadow.Source -ne $binary){Step 'notice' "Another midden is on PATH: $($shadow.Source). This install: $binary"}

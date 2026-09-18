@@ -5,7 +5,7 @@ setting	repository	xibodev/midden
 setting	asset	midden_{version}_{os}_{arch}_headless
 setting	install_relative	.local/share/midden-cli/bin
 setting	state_relative	.local/share/midden-cli/state
-setting	version	v0.2.1
+setting	version	v0.2.2
 # hosts: id, executable, personal skills path, project skills path, display name, setup URL
 host	copilot-cli	copilot	.copilot/skills	.github/skills	GitHub Copilot CLI	https://github.com/github/copilot-cli
 host	claude-code	claude	.claude/skills	.claude/skills	Claude Code	https://code.claude.com/docs/en/setup

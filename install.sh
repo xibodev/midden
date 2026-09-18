@@ -5,12 +5,14 @@ version=${MIDDEN_VERSION:-} bundle= manifest= hosts=${MIDDEN_HOSTS:-} host_path=
 home_dir=${HOME:?HOME must be set} dependencies=${MIDDEN_DEPENDENCIES:-} pandoc_path= d2_path=
 noninteractive=${MIDDEN_YES:-0} dry_run=0 upgrade=0 uninstall=0 verify=0 add_path=0 no_path=${MIDDEN_NO_PATH:-0}
 scope_explicit=0 state_explicit=0
+setup=auto plain=${MIDDEN_PLAIN:-0}
 usage() {
   printf '%s\n' 'Usage: bash install.sh [--version vX.Y.Z | --bundle-dir /path] [options]' \
     '  --hosts copilot-cli,claude-code,opencode --host-path /path' \
     '  --scope user|project --project /path --install-dir /path --state-dir /path' \
     '  --dependencies pandoc,d2 --pandoc-path /path --d2-path /path' \
     '  --yes --dry-run --upgrade --verify --uninstall --add-path --no-path' \
+    '  --setup quick|custom --plain (MIDDEN_PLAIN=1 disables terminal controls)' \
     '  --manifest /path/manifest.tsv --home-dir /isolated/test/home'
 }
 while (($#)); do
@@ -24,11 +26,52 @@ while (($#)); do
     --yes|--non-interactive) noninteractive=1; shift;; --dry-run) dry_run=1; shift;;
     --upgrade) upgrade=1; shift;; --uninstall) uninstall=1; shift;; --verify) verify=1; shift;; --add-path) add_path=1; shift;;
     --no-path) no_path=1; shift;;
+    --setup) setup=${2:?}; shift 2;; --plain) plain=1; shift;;
     --help|-h) usage; exit 0;; *) printf 'Unknown option: %s\n' "$1" >&2; exit 2;;
   esac
 done
 fail() { printf '%s\n' "$*" >&2; exit 1; }
-step() { printf '  %-12s %s\n' "$1" "$2"; }
+rich=0 accent= reset=
+if [[ -t 0 && -t 2 && ${TERM:-dumb} != dumb && "$plain" = 0 && "$noninteractive" = 0 ]]; then
+  rich=1
+  if [[ -z ${NO_COLOR:-} ]]; then accent=$'\033[36m'; reset=$'\033[0m'; fi
+fi
+step() { printf '  | %-12s %s\n' "$1" "$2"; }
+section() { printf '\n%s  +-- %s%s\n' "$accent" "$1" "$reset"; }
+# Output the selected index only; interface output goes to stderr so callers
+# can capture the result without contaminating the choice.
+choose() {
+  local label=$1 selected=$2; shift 2
+  local options=("$@") key rest i n width
+  printf '\n%s  ? %s%s\n' "$accent" "$label" "$reset" >&2
+  width=${COLUMNS:-80}
+  if (( rich && width>=40 )); then
+    while :; do
+      for ((i=0;i<${#options[@]};i++)); do
+        if (( i==selected )); then printf '%s  > (*) %s%s\n' "$accent" "${options[$i]:0:$((width-12))}" "$reset" >&2
+        else printf '    ( ) %s\n' "${options[$i]:0:$((width-12))}" >&2; fi
+      done
+      printf '    Up/Down: move | Enter: select | Q: cancel\n' >&2
+      IFS= read -rsn1 key || return 1
+      case "$key" in
+        '') printf '  | selected     %s\n' "${options[$selected]}" >&2; printf '%s' "$selected"; return 0;;
+        q|Q|$'\003') printf '\nSetup cancelled.\n' >&2; return 1;;
+        $'\033')
+          rest=; IFS= read -rsn2 -t 1 rest || true
+          case "$rest" in '[A'|OA) selected=$(((selected+${#options[@]}-1)%${#options[@]}));; '[B'|OB) selected=$(((selected+1)%${#options[@]}));; esac;;
+      esac
+      printf '\033[%sA\r\033[J' "$((${#options[@]}+1))" >&2
+    done
+  else
+    for ((i=0;i<${#options[@]};i++)); do printf '    %s) %s\n' "$((i+1))" "${options[$i]}" >&2; done
+    while :; do
+      n=$(ask '  Choice (q to cancel)' "$((selected+1))") || return 1
+      case "$n" in q|Q) printf 'Setup cancelled.\n' >&2; return 1;; esac
+      if [[ "$n" =~ ^[1-9]$ ]] && (( n<=${#options[@]} )); then printf '  | selected     %s\n' "${options[$((n-1))]}" >&2; printf '%s' "$((n-1))"; return 0; fi
+      printf '  Choose a listed number.\n' >&2
+    done
+  fi
+}
 download() { curl --retry 3 --connect-timeout 15 --max-time 180 -fsSL "$1" -o "$2" || fail "Download failed: $1. Check your connection/proxy and rerun; existing installation is preserved."; }
 case "$(uname -s)" in Linux) os=linux;; Darwin) os=darwin;; *) fail 'Use install.ps1 on Windows.';; esac
 case "$(uname -m)" in x86_64|amd64) arch=amd64;; arm64|aarch64) arch=arm64;; *) fail 'Unsupported architecture';; esac
@@ -49,9 +92,10 @@ install_dir=${install_dir:-"$home_dir/$(field setting install_relative 3)"}
 state_dir=${state_dir:-"$home_dir/$(field setting state_relative 3)"}
 ask() { local reply; printf '%s [%s]: ' "$1" "$2" >&2; IFS= read -r reply || fail 'Input ended; use --yes with explicit choices.'; printf '%s' "${reply:-$2}"; }
 confirm() {
+  if (( rich )); then [[ $(choose "$1" 0 'Yes - continue' 'No - cancel') = 0 ]]; return; fi
   local reply
   while :; do
-    reply=$(ask "$1" Y/n)
+    reply=$(ask "$1" Y/n) || return 1
     case "$reply" in y|Y|yes|Yes|Y/n) return 0;; n|N|no|No) return 1;; *) printf '  Please enter yes or no.\n' >&2;; esac
   done
 }
@@ -66,6 +110,36 @@ skill_root() {
   else relative=$(field host "$id" 4); printf '%s/%s' "$home_dir" "$relative"; fi
   [[ -n "$relative" && "$relative" != /* && "$relative" != *..* ]] || fail "Unknown/invalid host: $id"
 }
+if (( !verify && !uninstall )); then
+  printf '\n%s       ____\n     ________    midden\n   ____________  Recover the work worth keeping.%s\n\n  Installer %s\n' "$accent" "$reset" "$version"
+  section '[1/3] Prepare your installation'
+  step system "$os/$arch"
+  if (( !noninteractive )) && [[ "$setup" = auto ]]; then
+    mode=$(choose 'How would you like to start?' 0 'Quick start (recommended) - use sensible defaults' 'Custom setup - scope, folders and PATH') || exit 1
+    setup=quick; [[ "$mode" != 1 ]] || setup=custom
+  fi
+  case "$setup" in auto|quick|custom) ;; *) fail '--setup must be quick or custom';; esac
+  if (( !noninteractive )) && [[ "$setup" = custom ]]; then
+    install_dir=$(ask '  Binary installation folder (absolute path)' "$install_dir")
+    safe_path "$install_dir"
+    if [[ -f "$install_dir/install-receipt.tsv" ]]; then step existing 'Keeping receipt scope/state. Choose a new binary folder for a separate installation.'
+    else
+      scope_choice=0; [[ "$scope" != project ]] || scope_choice=1
+      mode=$(choose 'Where should your CLI discover Midden?' "$scope_choice" 'Personal - available across projects' 'Project - only in one project') || exit 1
+      scope=user; [[ "$mode" != 1 ]] || scope=project; scope_explicit=1
+      if [[ "$scope" = project ]]; then
+        while :; do
+          project=$(ask '  Project folder (absolute path)' "${project:-$PWD}")
+          if (safe_path "$project") && [[ -d "$project" ]]; then break; fi
+          printf '  Choose an existing absolute project folder.\n'
+        done
+      fi
+      state_dir=$(ask '  Recovery data folder (absolute path)' "$state_dir"); state_explicit=1
+    fi
+    mode=$(choose 'Make the midden command available on PATH?' "$no_path" 'Yes - add to shell profile' 'No - use the installed absolute path') || exit 1
+    no_path=$mode
+  fi
+fi
 [[ "$scope" = user || "$scope" = project ]] || fail 'Scope must be user or project'
 safe_path "$home_dir"; safe_path "$install_dir"; safe_path "$state_dir"
 install_dir=${install_dir%/}; state_dir=${state_dir%/}
@@ -111,8 +185,6 @@ if (( verify || uninstall )); then
   rm -- "$receipt"
   printf '%s\n' 'Uninstalled. Recovery data and upgrade backups preserved.'; exit 0
 fi
-printf '\n  Midden %s - recovery for your agentic CLI\n\n' "$version"
-step system "$os/$arch"
 if [[ -f "$receipt" ]]; then
   check_receipt
   (( scope_explicit )) || scope=$(receipt_value scope)
@@ -135,18 +207,10 @@ if [[ -z "$hosts" ]]; then
   fi
   if (( ${#available[@]} == 1 || noninteractive )); then hosts=$(IFS=,; printf '%s' "${available[*]}")
   else
-    for ((i=0;i<${#available[@]};i++)); do printf '  %s) %s\n' "$((i+1))" "$(field host "${available[$i]}" 6)"; done
-    while :; do
-      choice=$(ask 'Choose CLI numbers (comma-separated), or all' all)
-      if [[ "$choice" = all ]]; then hosts=$(IFS=,; printf '%s' "${available[*]}"); break; fi
-      selected= valid=1
-      for n in ${choice//,/ }; do
-        if [[ ! "$n" =~ ^[1-9]$ ]] || (( n>${#available[@]} )); then valid=0; break; fi
-        selected="${selected:+$selected,}${available[$((n-1))]}"
-      done
-      if (( valid )) && [[ -n "$selected" ]]; then hosts=$selected; break; fi
-      printf '  Choose a listed number, such as 1 or 1,2.\n'
-    done
+    options=('All detected CLIs')
+    for id in "${available[@]}"; do options[${#options[@]}]=$(field host "$id" 6); done
+    selected=$(choose 'Which CLI should use Midden?' 0 "${options[@]}") || exit 1
+    if (( selected==0 )); then hosts=$(IFS=,; printf '%s' "${available[*]}"); else hosts=${available[$((selected-1))]}; fi
   fi
 fi
 hosts=$(printf '%s' "$hosts" | tr ',' '\n' | sort -u | awk 'NF {printf "%s%s", sep,$0;sep=","}')
@@ -170,10 +234,8 @@ if (( !noninteractive )) && [[ -z "$dependencies" ]]; then
     [[ -z "$p" ]] || detail='found; no download'
     printf '  %s) %s (%s; %s)\n' "$i" "$(field dependency "$id" 4)" "$id" "$detail"
   done
-  while :; do
-    choice=$(ask 'Add capabilities: 1, 2, both, or none' none)
-    case "$choice" in 1) dependencies=pandoc; break;; 2) dependencies=d2; break;; both|1,2) dependencies=pandoc,d2; break;; none) dependencies=none; break;; *) printf '  Choose 1, 2, both, or none.\n';; esac
-  done
+  choice=$(choose 'What would you like to create?' 0 'Core recovery only - add renderers later' 'PowerPoint and HTML - Pandoc' 'SVG diagrams - D2' 'Both rendering capabilities') || exit 1
+  case "$choice" in 0) dependencies=none;; 1) dependencies=pandoc;; 2) dependencies=d2;; 3) dependencies=pandoc,d2;; esac
 fi
 [[ "$dependencies" != none ]] || dependencies=
 for id in ${dependencies//,/ }; do [[ "$id" = pandoc || "$id" = d2 ]] || fail "Unknown dependency: $id"; done
@@ -186,12 +248,15 @@ for id in ${dependencies//,/ }; do
 done
 (( noninteractive || no_path )) || add_path=1
 (( !no_path )) || add_path=0
-printf '\nBinary: %s\nRecovery state: %s\n' "$install_dir/midden" "$state_dir"
+section 'Install plan'
+step release "$version"; step scope "$scope"
+step binary "$install_dir/midden"; step state "$state_dir"
 for id in ${hosts//,/ }; do printf 'Skills: %s\n' "$(skill_root "$id" "$scope" "$project")"; done
 printf '%s\n' 'No host model configuration or permission grants are changed. Package managers may request elevation and confirm final sizes.'
 step PATH "Update shell profile: $add_path (use --no-path to opt out)"
 (( !dry_run )) || { printf '%s\n' 'Preview only; no downloads or writes.'; exit 0; }
 if (( !noninteractive )); then confirm 'Install with these settings?' || { printf 'Cancelled. Nothing installed.\n'; exit 0; }; fi
+section '[2/3] Install Midden'
 stage=$(mktemp -d); stage=$(cd -- "$stage" && pwd -P)
 committed=0 locked=0 profile_changed=0 profile_existed=0 profile= temporary=
 rollback() {
@@ -294,6 +359,7 @@ while IFS=$'\t' read -r source target; do
   cp -- "$source" "$temporary";if [[ "$target" = "$install_dir/midden" ]];then chmod 755 "$temporary";else chmod 644 "$temporary";fi
   mv -f -- "$temporary" "$target";temporary=
 done < "$stage/files"
+section '[3/3] Finalize setup'
 path_added=0 profile=
 if [[ -f "$receipt" ]];then path_added=$(receipt_value path_added);profile=$(receipt_value profile);fi
 if (( add_path ));then
@@ -322,6 +388,7 @@ fi
 printf 'schema\t1\nversion\t%s\nscope\t%s\nproject\t%s\nstate\t%s\nhosts\t%s\npath_added\t%s\nprofile\t%s\n' "$version" "$scope" "$project" "$state_dir" "$hosts" "$path_added" "$profile" > "$stage/receipt"
 while IFS=$'\t' read -r source target;do [[ $(hash "$source") = "$(hash "$target")" ]] || fail "Verification failed: $target";printf 'file\t%s\t%s\n' "$(hash "$target")" "$target" >> "$stage/receipt";done < "$stage/files"
 temporary=$(mktemp "$receipt.new-XXXXXX");cp -- "$stage/receipt" "$temporary";mv -f -- "$temporary" "$receipt";temporary=;committed=1
+section "Midden $version installed successfully"
 step ready 'Midden installed. Executable and skill checksums verified.'
 shadow=$(command -v midden || true)
 if [[ -n "$shadow" && "$shadow" != "$install_dir/midden" ]]; then step notice "Another midden is on PATH: $shadow. This install: $install_dir/midden"; fi

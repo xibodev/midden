@@ -169,6 +169,10 @@ review documentation, commit, and push an authorized `vX.Y.Z` tag. The pipeline
 checks tag/version consistency. A failed job blocks publication. Fix the source
 and cut a new version rather than replacing a published tag or its assets.
 Live CLI acceptance remains separate from offline installer mechanics.
+Installer CI also runs `scripts/test-installer-terminal.py` through real Unix
+PTYs and Windows ConPTY (pywinpty, test-only). It exercises arrow navigation,
+Quick/Custom setup, edited project paths, and cancellation before writes. These
+terminal tests complement the redirected/plain and lifecycle fixtures.
 
 For proportional local validation before pushing:
 

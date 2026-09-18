@@ -14,7 +14,7 @@ Midden is:
 - **Evidence-grounded:** Studio will not create or run an unsupported work item
   when no reclaimed evidence exists.
 
-Current version: **0.2.1 (preview)**. **Using Midden in an agentic CLI is the
+Current version: **0.2.2 (preview)**. **Using Midden in an agentic CLI is the
 recommended route. The standalone browser application is experimental.**
 
 ## Install for your agentic CLI
@@ -36,10 +36,12 @@ The entry points download a pinned released installer and manifest, verify both
 against the release checksums, then open interactive setup. For manual downloads
 or explicit lifecycle options, see [Install](docs/INSTALL.md).
 
-The scripts detect installed hosts (automatically selecting a single host), offer
-numbered optional capabilities, and ask you to confirm one installation summary.
-Personal skills and PATH setup are defaults; project scope and custom locations
-are available through flags. They download
+The terminal wizard offers **Quick start** and **Custom setup**, keyboard-selectable
+hosts and capabilities, an install-plan summary, and three visible progress stages.
+Use Up/Down and Enter, or Q to cancel. Quick start uses personal skills and PATH;
+Custom setup lets you choose project scope, folders, and PATH interactively.
+Redirected terminals use numbered text choices; `MIDDEN_PLAIN=1` also selects that
+mode. They download
 and verify a prebuilt **headless** archive; Go and Git are not needed to install.
 Pandoc adds editable PowerPoint/HTML rendering; D2 adds SVG diagrams. Both are
 optional, separately installed tools. Package managers confirm actual sizes and

@@ -1,7 +1,7 @@
 # Install Midden
 
 **Recommended: use Midden through GitHub Copilot CLI, Claude Code, or OpenCode.**
-The standalone browser application is experimental. Version **0.2.1** is a preview.
+The standalone browser application is experimental. Version **0.2.2** is a preview.
 
 ## Requirements
 
@@ -62,7 +62,7 @@ confirmation/elevation requirements.
 
 ## Download and verify manually
 
-From [v0.2.1 release assets](https://github.com/xibodev/midden/releases/tag/v0.2.1),
+From [v0.2.2 release assets](https://github.com/xibodev/midden/releases/tag/v0.2.2),
 save the platform installer, `manifest.tsv`, and `SHA256SUMS` in one directory.
 Run commands from that directory. These release scripts need the adjacent
 manifest; the Pages one-line entry points fetch that pair for you.
@@ -78,7 +78,7 @@ foreach ($file in @('install.ps1', 'manifest.tsv')) {
         throw "Checksum mismatch: $file"
     }
 }
-powershell -NoProfile -File ./install.ps1 -Version v0.2.1
+powershell -NoProfile -File ./install.ps1 -Version v0.2.2
 ```
 
 Bash (Linux/macOS):
@@ -91,7 +91,7 @@ if command -v sha256sum >/dev/null; then
 else
   shasum -a 256 -c installer-checksums.txt || exit 1
 fi
-bash ./install.sh --version v0.2.1
+bash ./install.sh --version v0.2.2
 ```
 
 Checksums detect damaged or mismatched downloads, not compromise of the release
@@ -100,10 +100,19 @@ archive against the release checksums before writing installation files.
 
 ## Interactive choices
 
-1. A single detected host is selected automatically. If several are installed,
-   choose numbered hosts or accept all. Missing hosts produce setup links.
-2. Choose optional PowerPoint/HTML (Pandoc) and SVG diagrams (D2), or core only.
-3. Confirm one summary: hosts, skill paths, binary/state locations and PATH.
+1. Choose **Quick start** (recommended) or **Custom setup**. Custom offers personal
+   or project scope, binary/data folders, and PATH preferences.
+2. A single detected host is selected automatically. If several are installed,
+   choose one or all. Missing hosts produce setup links.
+3. Choose optional PowerPoint/HTML (Pandoc) and SVG diagrams (D2), or core only.
+4. Review the install plan and confirm. Prepare, Install, and Finalize stages
+   show what is happening; completion names the CLI command and first prompt.
+
+Use Up/Down and Enter in a supported terminal, or Q to cancel a selection.
+Redirected input/output, narrow terminals, and `-Plain` / `--plain` use numbered
+text choices. `MIDDEN_PLAIN=1` forces plain mode through the one-liner; `NO_COLOR`
+disables colour. `-Setup quick|custom` / `--setup quick|custom` skips the mode
+question. Automation still uses `-NonInteractive` / `--yes` without a wizard.
 
 Personal skills are the default. Use `-Scope project -ProjectDir <absolute-path>`
 or `--scope project --project <absolute-path>` for a project. Use `-NoPath` /
@@ -142,11 +151,11 @@ Midden uninstall or a later installer failure. Facet is a separately installed
 ## Preview and explicit selection
 
 ```powershell
-powershell -NoProfile -File ./install.ps1 -Version v0.2.1 -Hosts copilot-cli -NonInteractive -DryRun
+powershell -NoProfile -File ./install.ps1 -Version v0.2.2 -Hosts copilot-cli -NonInteractive -DryRun
 ```
 
 ```bash
-bash ./install.sh --version v0.2.1 --hosts copilot-cli --yes --dry-run
+bash ./install.sh --version v0.2.2 --hosts copilot-cli --yes --dry-run
 ```
 
 For project scope, use `-Scope project -ProjectDir <absolute-path>` or
@@ -162,13 +171,13 @@ directory, pass `-InstallDir` / `--install-dir` on every lifecycle command.
 
 ```powershell
 powershell -NoProfile -File ./install.ps1 -Verify
-powershell -NoProfile -File ./install.ps1 -Version v0.2.1 -Upgrade
+powershell -NoProfile -File ./install.ps1 -Version v0.2.2 -Upgrade
 powershell -NoProfile -File ./install.ps1 -Uninstall
 ```
 
 ```bash
 bash ./install.sh --verify
-bash ./install.sh --version v0.2.1 --upgrade
+bash ./install.sh --version v0.2.2 --upgrade
 bash ./install.sh --uninstall
 ```
 
