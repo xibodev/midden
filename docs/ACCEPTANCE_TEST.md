@@ -32,7 +32,7 @@ $env:MIDDEN_HOME = (Join-Path $PWD '.midden-human-test')
 Pass if:
 
 - the build requires no undocumented dependency;
-- version prints `midden 0.2.2`;
+- version prints `midden 0.2.3`;
 - no existing Midden state is reused.
 
 ## 2. Launch and navigation

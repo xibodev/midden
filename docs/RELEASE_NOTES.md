@@ -1,36 +1,23 @@
-# Midden 0.2.2 — Interactive terminal setup
+# Midden 0.2.3 — Fix Linux “Both rendering capabilities” installation
 
-Midden now opens a script-owned terminal wizard with a branded header, three
-visible stages, and keyboard-selectable choices.
+Fixes the Linux wizard offering D2 and then aborting because apt has no D2 package.
 
-- **Quick start** uses sensible defaults; **Custom setup** offers project scope,
-  binary/data directories, and PATH preferences interactively.
-- Up/Down moves the selection, Enter confirms, and Q cancels.
-- Choose a detected CLI or all hosts, then core recovery or optional Pandoc/D2
-  capabilities. Review one complete install plan before changes.
-- Numbered plain-text fallback for redirected or limited terminals; `MIDDEN_PLAIN=1`
-  forces plain mode and `NO_COLOR` disables colour.
-- Release CI exercises actual Unix PTY and Windows ConPTY keyboard input in
-  addition to lifecycle, checksum, ownership, cancellation, and artifact checks.
+- Linux x64/arm64 now install pinned D2 v0.9.0 from the upstream release,
+  verified against SHA-256 digests in the shared installer manifest.
+- D2 and license notices are installed beside Midden without sudo, tracked by
+  its ownership receipt, retained on repeat installs, and removed by uninstall
+  only when unchanged. Existing external D2 installations are reused.
+- The preview shows the exact D2 download size; setup verifies the archive before
+  running apt or writing installation files, then performs a real SVG render.
+- Pandoc remains apt-managed on Linux. Its system package is preserved on uninstall.
+- Release CI now installs **both real renderers on a clean Ubuntu container**,
+  produces PPTX/HTML/SVG, and checks repeat, verify, uninstall, corrupted-checksum
+  refusal and preservation of modified D2 files.
 
-Installation remains owned by PowerShell/Bash scripts. The Go application owns
-recovery and content operations; no extra terminal UI runtime is installed.
+Run the one-liner from [the website](https://xibodev.github.io/midden/#install)
+after its version pin is promoted, or download this release's installer,
+`manifest.tsv`, and `SHA256SUMS` and run `bash ./install.sh --version v0.2.3`.
 
-## Install
-
-The [website](https://xibodev.github.io/midden/#install) provides the one-line
-entry points, promoted after this release is published. Install and authenticate
-Copilot CLI, Claude Code, or OpenCode first.
-
-For manual download, save the platform installer, `manifest.tsv`, and
-`SHA256SUMS` from this release and follow the
-[installation guide](https://github.com/xibodev/midden/blob/v0.2.2/docs/INSTALL.md).
-
-Windows: `powershell -NoProfile -File ./install.ps1 -Version v0.2.2`
-
-Linux/macOS: `bash ./install.sh --version v0.2.2`
-
-Windows PowerShell 5.1/7 and Bash 3.2+ are supported. Assets cover Windows x64,
-Linux x64/arm64, and macOS x64/arm64, in headless and experimental standalone
-variants. Live agent acceptance and real package-manager operations remain
-separate from fixture tests. Review generated content before publication.
+The terminal wizard and script-owned installation remain unchanged in purpose.
+Agentic CLI is recommended; standalone is experimental. Live agent acceptance
+is separate from installer and renderer validation.

@@ -1,7 +1,7 @@
 # Install Midden
 
 **Recommended: use Midden through GitHub Copilot CLI, Claude Code, or OpenCode.**
-The standalone browser application is experimental. Version **0.2.2** is a preview.
+The standalone browser application is experimental. Version **0.2.3** is a preview.
 
 ## Requirements
 
@@ -62,7 +62,7 @@ confirmation/elevation requirements.
 
 ## Download and verify manually
 
-From [v0.2.2 release assets](https://github.com/xibodev/midden/releases/tag/v0.2.2),
+From [v0.2.3 release assets](https://github.com/xibodev/midden/releases/tag/v0.2.3),
 save the platform installer, `manifest.tsv`, and `SHA256SUMS` in one directory.
 Run commands from that directory. These release scripts need the adjacent
 manifest; the Pages one-line entry points fetch that pair for you.
@@ -78,7 +78,7 @@ foreach ($file in @('install.ps1', 'manifest.tsv')) {
         throw "Checksum mismatch: $file"
     }
 }
-powershell -NoProfile -File ./install.ps1 -Version v0.2.2
+powershell -NoProfile -File ./install.ps1 -Version v0.2.3
 ```
 
 Bash (Linux/macOS):
@@ -91,7 +91,7 @@ if command -v sha256sum >/dev/null; then
 else
   shasum -a 256 -c installer-checksums.txt || exit 1
 fi
-bash ./install.sh --version v0.2.2
+bash ./install.sh --version v0.2.3
 ```
 
 Checksums detect damaged or mismatched downloads, not compromise of the release
@@ -139,23 +139,31 @@ Restart the host if needed to discover `midden-session-recovery`.
 | Tool | Adds | Install routes |
 |---|---|---|
 | Pandoc | Editable PPTX and standalone HTML | winget, Homebrew, apt |
-| D2 | SVG diagrams | winget, Homebrew; otherwise install separately |
+| D2 | SVG diagrams | Linux: verified v0.9.0 download beside Midden; Windows: winget; macOS: Homebrew |
 
-Versions follow the selected package manager. The preview reports reused tools as
+Linux D2 downloads are pinned in the installer manifest with upstream SHA-256
+digests for x64 and arm64. D2 and its license notices are installed beside Midden
+without sudo; the preview shows the archive byte size and extraction reports the
+executable size. They are receipt-owned: repeat installs preserve ownership,
+modified files block removal, and uninstall removes the unchanged local D2 files.
+Existing externally installed D2 is reused and remains externally owned.
+
+Package-manager versions follow the selected manager. The preview reports reused tools as
 zero additional download/disk; unavailable download, installed, and transitive
 sizes are not guessed. Managers show their own confirmation and may request
 elevation. Dependency installs are separate system changes and are not undone by
-Midden uninstall or a later installer failure. Facet is a separately installed
+Midden uninstall or a later installer failure. Installer-owned Linux D2 is the
+exception described above. Facet is a separately installed
 [sister project for video creation](https://github.com/xibodev/facet).
 
 ## Preview and explicit selection
 
 ```powershell
-powershell -NoProfile -File ./install.ps1 -Version v0.2.2 -Hosts copilot-cli -NonInteractive -DryRun
+powershell -NoProfile -File ./install.ps1 -Version v0.2.3 -Hosts copilot-cli -NonInteractive -DryRun
 ```
 
 ```bash
-bash ./install.sh --version v0.2.2 --hosts copilot-cli --yes --dry-run
+bash ./install.sh --version v0.2.3 --hosts copilot-cli --yes --dry-run
 ```
 
 For project scope, use `-Scope project -ProjectDir <absolute-path>` or
@@ -171,13 +179,13 @@ directory, pass `-InstallDir` / `--install-dir` on every lifecycle command.
 
 ```powershell
 powershell -NoProfile -File ./install.ps1 -Verify
-powershell -NoProfile -File ./install.ps1 -Version v0.2.2 -Upgrade
+powershell -NoProfile -File ./install.ps1 -Version v0.2.3 -Upgrade
 powershell -NoProfile -File ./install.ps1 -Uninstall
 ```
 
 ```bash
 bash ./install.sh --verify
-bash ./install.sh --version v0.2.2 --upgrade
+bash ./install.sh --version v0.2.3 --upgrade
 bash ./install.sh --uninstall
 ```
 

@@ -154,6 +154,7 @@ check_receipt() {
     [[ "$record" = file ]] || continue
     safe_path "$b"; allowed=0
     [[ "$b" != "$install_dir/midden" ]] || allowed=1
+    case "$b" in "$install_dir/d2"|"$install_dir/d2-LICENSE.txt"|"$install_dir/d2-THIRD_PARTY_NOTICES.txt") allowed=1;; esac
     for id in ${old_hosts//,/ }; do
       sk=$(skill_root "$id" "$old_scope" "$old_project")
       while IFS=$'\t' read -r type name relative; do
@@ -224,13 +225,26 @@ for id in ${hosts//,/ }; do
   step host "$(field host "$id" 6) ready"
 done
 [[ "$scope" != project || -d "$project" ]] || fail 'Project directory must exist'
-dep_path() { case "$1" in pandoc) printf '%s' "${pandoc_path:-$(command -v pandoc || true)}";; d2) printf '%s' "${d2_path:-$(command -v d2 || true)}";; esac; }
+dep_path() {
+  case "$1" in
+    pandoc) printf '%s' "${pandoc_path:-$(command -v pandoc || true)}";;
+    d2)
+      if [[ -n "$d2_path" ]]; then printf '%s' "$d2_path"
+      elif [[ -f "$receipt" && -x "$install_dir/d2" ]]; then printf '%s' "$install_dir/d2"
+      else command -v d2 || true; fi;;
+  esac
+}
+d2_local=0
+d2_version=$(field setting d2_version 3)
+d2_digest=$(field setting "d2_${os}_${arch}_sha256" 3)
+d2_bytes=$(field setting "d2_${os}_${arch}_bytes" 3)
 if (( !noninteractive )) && [[ -z "$dependencies" ]]; then
   printf '\n  Optional capabilities (core recovery needs neither):\n'
   i=0
   for id in pandoc d2; do
     i=$((i+1)); p=$(dep_path "$id")
     detail='download/disk size unavailable; package manager selects version'
+    if [[ "$id" = d2 && -n "$d2_digest" ]]; then detail="$d2_version verified download: $d2_bytes bytes; installed size reported after extraction; no sudo"; fi
     [[ -z "$p" ]] || detail='found; no download'
     printf '  %s) %s (%s; %s)\n' "$i" "$(field dependency "$id" 4)" "$id" "$detail"
   done
@@ -242,6 +256,10 @@ for id in ${dependencies//,/ }; do [[ "$id" = pandoc || "$id" = d2 ]] || fail "U
 for id in ${dependencies//,/ }; do
   p=$(dep_path "$id")
   if [[ -n "$p" ]]; then [[ "$p" = /* && -x "$p" ]] || fail "Missing $id executable: $p"; step "$id" 'Reuse existing tool; functional check follows confirmation.'
+  elif [[ "$id" = d2 && -n "$d2_digest" ]]; then
+    [[ "$d2_digest" =~ ^[a-f0-9]{64}$ && "$d2_version" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || fail 'Invalid pinned D2 release in manifest'
+    d2_local=1
+    step d2 "Install $d2_version beside Midden (download $d2_bytes bytes; no sudo)."
   elif command -v brew >/dev/null; then step "$id" 'Install with Homebrew (version and total size reported by manager).'
   elif command -v apt-get >/dev/null && [[ $(field dependency "$id" 9) != unsupported ]]; then step "$id" 'Install with apt (manager confirms version, size and elevation).'
   else fail "To add $id, install it separately and supply --$id-path, or rerun with core recovery only."; fi
@@ -297,6 +315,31 @@ if [[ -z "$bundle" ]]; then
 fi
 safe_path "$bundle";safe_path "$bundle/midden";[[ -s "$bundle/midden" ]] || fail 'Bundle lacks a non-empty midden executable'
 printf '%s\t%s\n' "$bundle/midden" "$install_dir/midden" > "$stage/files"
+if (( d2_local )); then
+  step download "D2 $d2_version for $os/$arch..."
+  d2_repo=$(field setting d2_repository 3)
+  [[ "$d2_repo" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] || fail 'Invalid D2 repository'
+  download "https://github.com/$d2_repo/releases/download/$d2_version/d2-$d2_version-$os-$arch.tar.gz" "$stage/d2.tar.gz"
+  [[ $(hash "$stage/d2.tar.gz") = "$d2_digest" ]] || fail 'D2 checksum verification failed; nothing installed'
+  tar -tzf "$stage/d2.tar.gz" > "$stage/d2-entries"
+  for entry in bin/d2 LICENSE.txt THIRD_PARTY_NOTICES.txt; do
+    relative="d2-$d2_version/$entry"
+    [[ $(awk -v name="$relative" '$0==name{n++}END{print n+0}' "$stage/d2-entries") = 1 ]] || fail "Missing/duplicate D2 entry: $relative"
+    target="d2-${entry##*/}"; [[ "$entry" != bin/d2 ]] || target=d2
+    tar -xOzf "$stage/d2.tar.gz" "$relative" > "$stage/$target"
+    [[ -s "$stage/$target" ]] || fail "Empty D2 entry: $relative"
+    printf '%s\t%s\n' "$stage/$target" "$install_dir/$target" >> "$stage/files"
+  done
+  chmod 755 "$stage/d2"
+  step verified "D2 checksum matches; executable size $(wc -c < "$stage/d2" | tr -d ' ') bytes."
+elif [[ -f "$receipt" ]]; then
+  # Preserve owned optional tools across repeat/upgrade runs even when skipped.
+  while IFS=$'\t' read -r record digest file; do
+    [[ "$record" = file ]] || continue
+    case "$file" in "$install_dir/d2"|"$install_dir/d2-LICENSE.txt"|"$install_dir/d2-THIRD_PARTY_NOTICES.txt")
+      printf '%s\t%s\n' "$file" "$file" >> "$stage/files";; esac
+  done < "$receipt"
+fi
 for id in ${hosts//,/ }; do
   root=$(skill_root "$id" "$scope" "$project")
   first=1
@@ -311,6 +354,7 @@ for id in ${hosts//,/ }; do
     fi
     printf '\n\n## Installation binding\nBinary: `%s/midden` (quote its path). Use module describe --json and module invoke <capability> --input <absolute-request.json>.\nSupply roots.midden_home.path `%s` with mode rw. Preserve read-only source stores. Your CLI owns models and permissions. Author content in this host and submit recipes.compose rather than launching another agent where possible. Use the current descriptor for recipe, review, render and export operations.\n' "$install_dir" "$state_dir" >> "$source"
     printf 'Optional rendering uses pandoc/d2 on PATH. If unavailable, keep editable source and report the missing renderer.\n' >> "$source"
+    printf 'If present, installer-owned D2 is `%s/d2`; include that directory on PATH for rendering.\n' "$install_dir" >> "$source"
     [[ -z "$pandoc_path" ]] || printf 'Explicit Pandoc: `%s`; include its directory on PATH for rendering.\n' "$pandoc_path" >> "$source"
     [[ -z "$d2_path" ]] || printf 'Explicit D2: `%s`; include its directory on PATH for rendering.\n' "$d2_path" >> "$source"
     printf '%s\t%s\n' "$source" "$root/$name/SKILL.md" >> "$stage/files"
@@ -328,9 +372,12 @@ done < "$stage/files"
 for id in ${dependencies//,/ }; do
   step tool "Setting up $id..."
   p=$(dep_path "$id")
+  if [[ "$id" = d2 && "$d2_local" = 1 ]]; then p="$stage/d2"; fi
   if [[ -z "$p" ]]; then
     if command -v brew >/dev/null;then brew install "$(field dependency "$id" 8)"
-    elif command -v apt-get >/dev/null && [[ $(field dependency "$id" 9) != unsupported ]];then sudo apt-get install "$(field dependency "$id" 9)"
+    elif command -v apt-get >/dev/null && [[ $(field dependency "$id" 9) != unsupported ]];then
+      if [[ $(id -u) = 0 ]]; then apt-get install "$(field dependency "$id" 9)"
+      else sudo apt-get install "$(field dependency "$id" 9)"; fi
     else fail "No supported package manager for $id; install separately";fi
     builtin hash -r 2>/dev/null || true
     p=$(command -v "$id") || fail "$id was installed but not found. Supply --$id-path; Midden files have not been changed."
@@ -356,7 +403,7 @@ while IFS=$'\t' read -r source target; do
   printf '%s\t%s\n' "$target" "$backup" >> "$stage/undo"
   mkdir -p "$(dirname -- "$target")"
   temporary=$(mktemp "$target.midden-new-XXXXXX")
-  cp -- "$source" "$temporary";if [[ "$target" = "$install_dir/midden" ]];then chmod 755 "$temporary";else chmod 644 "$temporary";fi
+   cp -- "$source" "$temporary";if [[ "$target" = "$install_dir/midden" || "$target" = "$install_dir/d2" ]];then chmod 755 "$temporary";else chmod 644 "$temporary";fi
   mv -f -- "$temporary" "$target";temporary=
 done < "$stage/files"
 section '[3/3] Finalize setup'

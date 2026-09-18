@@ -13,6 +13,15 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  linux-renderers:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Real Both capabilities on a clean apt-based Linux system
+        run: >-
+          docker run --rm -v "$PWD:/src:ro" ubuntu:24.04
+          bash -c 'apt-get update -qq && apt-get install -y -qq python3 curl ca-certificates > /dev/null && python3 /src/scripts/test-linux-renderers.py --disposable-container'
   bootstraps:
     uses: ./.github/workflows/bootstraps.yml
   installers:

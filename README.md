@@ -14,7 +14,7 @@ Midden is:
 - **Evidence-grounded:** Studio will not create or run an unsupported work item
   when no reclaimed evidence exists.
 
-Current version: **0.2.2 (preview)**. **Using Midden in an agentic CLI is the
+Current version: **0.2.3 (preview)**. **Using Midden in an agentic CLI is the
 recommended route. The standalone browser application is experimental.**
 
 ## Install for your agentic CLI
