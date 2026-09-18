@@ -1,0 +1,49 @@
+name: Validate
+on:
+  pull_request:
+  push:
+    branches: [main, staging]
+  workflow_call:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: validate-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  installers:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            shell: powershell
+            program: pwsh
+          - os: ubuntu-latest
+            shell: bash
+            program: /bin/bash
+          - os: macos-latest
+            shell: bash
+            program: /bin/bash
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python scripts/test-installers.py --shell ${{ matrix.shell }} --program ${{ matrix.program }}
+  go:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - run: go vet ./...
+      - run: go test ./...
+      - run: go test -tags headless ./cmd/midden ./internal/install ./internal/module
+      - run: git diff --exit-code

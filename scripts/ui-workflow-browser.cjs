@@ -10,6 +10,12 @@ const {chromium} = require('playwright-core');
   try {
     await page.goto(process.argv[2]);
     await page.locator('#chat-input').waitFor();
+    await page.locator('.nav-item[data-view="tools"]').click();
+    const facet=page.locator('.tool-card').filter({has:page.getByRole('heading',{name:'Facet',exact:true})});
+    await facet.getByRole('link',{name:'Explore Facet',exact:true}).waitFor();
+    assert.equal(await facet.getByRole('button').count(),0,'Facet is a separate project, not a managed adapter');
+    assert.equal(await page.getByText('OpenMontage',{exact:false}).count(),0,'retired integration remains advertised');
+    await page.locator('.nav-item[data-view="chat"]').click();
     assert.equal(await page.locator('#chat-input').isDisabled(),process.env.MIDDEN_BROWSER_AGENT_TEST!=='1'&&process.env.MIDDEN_BROWSER_STREAM_TEST!=='1','readiness must match configured runtime');
     if(process.env.MIDDEN_BROWSER_STREAM_TEST==='1'){
       await page.locator('#chat-input').fill('Stream until stopped');

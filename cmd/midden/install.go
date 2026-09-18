@@ -12,10 +12,8 @@ import (
 
 // cmdInstall detects agentic CLI hosts and wires Midden into the chosen ones.
 //
-// Midden is headless. It is used through an agentic CLI that already exists, or
-// as a module of a host that does, so getting it wired in is the actual first
-// run. This command exists to make that one step rather than a documentation
-// exercise.
+// Explicit legacy registration surface. The standalone installer scripts do not
+// call this command; module hosts remain registered through --only/--host.
 func cmdInstall(args []string) error {
 	fs := flag.NewFlagSet("install", flag.ExitOnError)
 	all := fs.Bool("all", false, "wire every detected target without asking")
@@ -53,8 +51,7 @@ func cmdInstall(args []string) error {
 
 	if detected == 0 {
 		fmt.Printf("  %s\n\n", render.Dim("No agentic CLI was detected on this machine."))
-		fmt.Printf("  Midden is headless: it runs inside an agentic CLI, or as a module of\n")
-		fmt.Printf("  a host that provides one. Install one of these first:\n\n")
+		fmt.Printf("  For agentic CLI installation, install one of these hosts first, then run install.ps1 or install.sh:\n\n")
 		for _, t := range targets {
 			fmt.Printf("    %s\n", t.Name)
 		}
@@ -90,6 +87,7 @@ func cmdInstall(args []string) error {
 	}
 
 	var acted bool
+	var failures []string
 	for _, t := range targets {
 		if !t.Detected {
 			continue
@@ -107,6 +105,7 @@ func cmdInstall(args []string) error {
 			// One target failing must not abort the others: a user with four
 			// CLIs should not lose three installs to one broken directory.
 			fmt.Printf("    %s %s: %v\n", render.Bold("failed"), t.Name, err)
+			failures = append(failures, t.ID+": "+err.Error())
 			continue
 		}
 	}
@@ -118,6 +117,9 @@ func cmdInstall(args []string) error {
 		fmt.Printf("  %s\n", render.Dim("no detected target to act on"))
 	}
 	fmt.Println()
+	if len(failures) > 0 {
+		return fmt.Errorf("installation failures: %s", strings.Join(failures, "; "))
+	}
 	return nil
 }
 

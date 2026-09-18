@@ -1,7 +1,28 @@
 # Getting started
 
-This guide takes a new installation from an empty Midden index to one
-downloadable, reviewed output. It does not use destructive actions.
+## Recommended: inside your agentic CLI
+
+Follow [Install](INSTALL.md), restart your selected host, and ask it to use
+`midden-session-recovery`:
+
+> Assay this project's sessions. Show the strongest evidence for a blog post and
+> presentation. Ask before extracting evidence or writing drafts.
+
+Start with one closed session or a narrow project scope. Review the proposed
+evidence, redact anything private, and approve only claims the sources support.
+Have the host compose content through Midden's recipe operations, review the
+draft and provenance, then render or export locally. Pandoc is optional for
+editable PowerPoint/HTML; D2 is optional for SVG diagrams. Your host owns model
+access and permissions. A discovered skill is not proof of end-to-end acceptance.
+
+The installed guidance binds the binary to your chosen recovery state directory;
+source session stores remain read-only during discovery, assay, and extraction.
+
+## Experimental standalone walkthrough
+
+The remainder of this guide covers the experimental browser application, from
+an empty Midden index to a reviewed output. Use a standalone archive or source
+build, not the headless archive installed for CLI hosts.
 
 ## The workflow
 
@@ -107,8 +128,8 @@ upload, training, or unrestricted shell execution.
 Studio chat is tied to the work item:
 
 - its messages are stored in Midden's SQLite index;
-- the assigned AI CLI session ID is persisted;
-- later turns resume the same CLI context;
+- conversation and tools run through the embedded Facet Studio kernel;
+- later turns retain the work-item context;
 - one visible budget envelope covers routine turns;
 - exceeding the envelope is blocked explicitly;
 - the user can navigate while a turn runs as a background job.
@@ -125,7 +146,6 @@ status
 files
 evidence
 runs
-openmontage status
 ```
 
 ## 8. Preview, edit, and download

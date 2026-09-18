@@ -134,7 +134,6 @@ capabilities, contextual tools, or Activity filters.
 ## Tools
 
 - Distinguish plugin, tool, skill, viewer, and destination.
-- Show OpenMontage as an external runtime adapter with Backlot.
 - Show Promptfoo as missing with a contextual setup action.
 
 # Key payoff

@@ -1,0 +1,76 @@
+name: Release
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    uses: ./.github/workflows/validate.yml
+  build:
+    needs: validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Build all release archives from the tagged checkout
+        run: python scripts/build-release.py --out "$RUNNER_TEMP/release"
+      - name: Check tag, source revision, checksums, and archive allowlist
+        run: python scripts/verify-release.py --directory "$RUNNER_TEMP/release" --tag "$GITHUB_REF_NAME" --commit "$GITHUB_SHA"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-assets
+          path: ${{ runner.temp }}/release/*
+          if-no-files-found: error
+          retention-days: 7
+  smoke:
+    needs: build
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-assets
+          path: ${{ runner.temp }}/release
+      - name: Install and verify the native release bundle
+        run: python scripts/verify-release.py --directory "${{ runner.temp }}/release" --tag "${{ github.ref_name }}" --commit "${{ github.sha }}" --smoke
+  publish:
+    needs: smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-assets
+          path: ${{ runner.temp }}/release
+      - name: Publish verified preview assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+          ASSETS: ${{ runner.temp }}/release
+        run: |
+          gh release create "$TAG" "$ASSETS"/* --verify-tag --prerelease \
+            --title "Midden $TAG — Agentic CLI preview" --notes-file docs/RELEASE_NOTES.md

@@ -39,7 +39,7 @@ var outputTemplates = []index.RecipeOutputSpec{
 	{Kind: "release_pack", Title: "Release and launch pack", Audience: "users, maintainers, and launch channels", Maker: "Midden", Format: "markdown", CostClass: "spends", RequiresModel: true},
 	{Kind: "slides", Title: "Presentation deck", Audience: "an engineering review or workshop", Maker: "Marp", Format: "marp", CostClass: "spends", RequiresModel: true},
 	{Kind: "diagram", Title: "Architecture diagram", Audience: "technical readers who need the system shape quickly", Maker: "D2", Format: "d2", CostClass: "spends", RequiresModel: true},
-	{Kind: "video_brief", Title: "Video production brief", Audience: "a producer creating a concise product demonstration", Maker: "Midden / OpenMontage handoff", Format: "markdown", CostClass: "spends", RequiresModel: true},
+	{Kind: "video_brief", Title: "Video production brief", Audience: "a producer creating a concise product demonstration", Maker: "Midden / Facet handoff", Format: "markdown", CostClass: "spends", RequiresModel: true},
 	{Kind: "handbook", Title: "Project field guide", Audience: "the owner returning to the project later", Maker: "Midden + Quarto/Pandoc", Format: "markdown", CostClass: "spends", RequiresModel: true},
 	{Kind: "flashcards", Title: "Spaced-repetition deck", Audience: "the owner retaining commands, concepts, and gotchas", Maker: "Midden / Anki export", Format: "tsv", CostClass: "spends", RequiresModel: true},
 	{Kind: "quiz", Title: "Scenario quiz", Audience: "a learner testing applied understanding", Maker: "Midden / H5P handoff", Format: "markdown", CostClass: "spends", RequiresModel: true},

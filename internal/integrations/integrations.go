@@ -19,7 +19,7 @@ import (
 
 const (
 	OpenNotebookID = "open-notebook"
-	OpenMontageID  = "openmontage"
+	FacetID        = "facet"
 
 	configFileName  = "integrations.json"
 	configVersion   = 1
@@ -31,7 +31,6 @@ const (
 type Config struct {
 	Version       int                   `json:"version"`
 	OpenNotebook  *OpenNotebookSettings `json:"open_notebook,omitempty"`
-	OpenMontage   *OpenMontageSettings  `json:"open_montage,omitempty"`
 	PendingLegacy *LegacyMigration      `json:"pending_legacy,omitempty"`
 }
 
@@ -54,16 +53,6 @@ type OpenNotebookSettings struct {
 	LastVerified     time.Time `json:"last_verified"`
 	LastStatus       string    `json:"last_status"`
 	LastDetail       string    `json:"last_detail"`
-}
-
-// OpenMontageSettings configures a checked-out OpenMontage repository.
-type OpenMontageSettings struct {
-	Enabled      bool      `json:"enabled"`
-	Home         string    `json:"home"`
-	Backend      string    `json:"backend"`
-	LastVerified time.Time `json:"last_verified"`
-	LastStatus   string    `json:"last_status"`
-	LastDetail   string    `json:"last_detail"`
 }
 
 // CatalogEntry describes an integration a person may install and configure.
@@ -91,13 +80,13 @@ func Catalog() []CatalogEntry {
 			InstallSummary: "Use the upstream Docker Desktop/Compose setup, change its encryption key, and keep the UI/API local-only. Midden does not install it; Tools can save the loopback URLs, test the OpenAPI contract, and open the UI.",
 		},
 		{
-			ID:             OpenMontageID,
-			Name:           "OpenMontage",
-			Description:    "An agentic local video-production capability.",
-			Kind:           "capability",
-			Cost:           "spends",
-			GitHubURL:      "https://github.com/calesthio/OpenMontage",
-			InstallSummary: "Clone the official local repository; it requires Python 3.10+, Node 18+, FFmpeg, and an authenticated agentic CLI. Midden can select the folder, verify Backlot and the runtime, then drive video work from Studio.",
+			ID:             FacetID,
+			Name:           "Facet",
+			Description:    "Midden's sister project for video creation.",
+			Kind:           "related_project",
+			Cost:           "provider-dependent",
+			GitHubURL:      "https://github.com/xibodev/facet",
+			InstallSummary: "Install Facet separately using its own installer. Carry reviewed content and provenance into a Facet production; Midden does not launch or configure Facet.",
 		},
 	}
 }
@@ -238,25 +227,6 @@ func ValidateOpenNotebook(settings OpenNotebookSettings) error {
 	return nil
 }
 
-// ValidateOpenMontage checks a configured repository path without touching it.
-func ValidateOpenMontage(settings OpenMontageSettings) error {
-	if strings.TrimSpace(settings.Home) == "" {
-		return fmt.Errorf("OpenMontage home is required")
-	}
-	if strings.Contains(settings.Home, "${") {
-		return fmt.Errorf("OpenMontage home must be a literal path")
-	}
-	if !filepath.IsAbs(settings.Home) {
-		return fmt.Errorf("OpenMontage home must be an absolute path")
-	}
-	switch settings.Backend {
-	case "copilot", "claude", "opencode":
-	default:
-		return fmt.Errorf("OpenMontage backend must be copilot|claude|opencode, got %q", settings.Backend)
-	}
-	return nil
-}
-
 // OpenNotebookManifest builds the fixed P3 integration contract from safe
 // local settings. It does not probe the service or read the password.
 func OpenNotebookManifest(settings OpenNotebookSettings) (plugins.Manifest, error) {
@@ -329,83 +299,29 @@ func OpenNotebookManifest(settings OpenNotebookSettings) (plugins.Manifest, erro
 	return manifest, nil
 }
 
-// OpenMontageManifest builds the local capability declaration. Its paths are
-// derived from the supplied literal home, never from environment expansion.
-func OpenMontageManifest(settings OpenMontageSettings) (plugins.Manifest, error) {
-	if err := ValidateOpenMontage(settings); err != nil {
-		return plugins.Manifest{}, err
-	}
-
-	enabled := settings.Enabled
-	pipelineDefs := filepath.Join(settings.Home, "pipeline_defs")
-	manifest := plugins.Manifest{
-		Name:    OpenMontageID,
-		Kind:    "capability",
-		Enabled: &enabled,
-		Cost:    "spends",
-		Probe: &plugins.Probe{
-			Kind:       "directory",
-			Path:       pipelineDefs,
-			ExpectGlob: "*.yaml",
-		},
-		Runs: plugins.Runs{
-			Backend: settings.Backend,
-			Cwd:     settings.Home,
-			Prompt:  "Run OpenMontage pipeline {{pipeline}} for {{topic}} with budget {{budget}}; estimate, reserve, and reconcile provider spend.",
-		},
-		Form: plugins.Form{
-			Source: "schema",
-			Discover: plugins.FormDiscover{
-				Pipelines: plugins.FormDiscovery{
-					From:  filepath.Join(pipelineDefs, "*.yaml"),
-					Field: "name",
-				},
-			},
-			Fields: []plugins.FormField{
-				{
-					Name:        "pipeline",
-					Type:        "enum",
-					From:        "pipelines",
-					Required:    true,
-					Placeholder: "Choose an OpenMontage pipeline",
-				},
-				{
-					Name:        "topic",
-					Type:        "text",
-					Required:    true,
-					Placeholder: "Describe the video topic",
-				},
-				{
-					Name:    "budget",
-					Type:    "number",
-					Default: 2.00,
-				},
-			},
-		},
-		Feeds: []plugins.Feed{
-			{Kind: "nuggets", Workspace: "{{workspace}}", Limit: 40},
-		},
-		Progress: plugins.Progress{
-			Kind:   "checkpoint",
-			Path:   filepath.Join(settings.Home, "projects", "{{project}}", "pipeline"),
-			Format: "json",
-		},
-		Artifacts: plugins.Artifacts{
-			Reference: filepath.Join(settings.Home, "projects", "{{project}}", "renders"),
-		},
-	}
-	if errs := plugins.Validate(manifest); len(errs) != 0 {
-		return plugins.Manifest{}, fmt.Errorf("build OpenMontage manifest: %s", strings.Join(errs, "; "))
-	}
-	return manifest, nil
-}
-
 func decodeConfig(data []byte) (Config, error) {
 	if body := bytes.TrimSpace(data); len(body) == 0 || body[0] != '{' {
 		return Config{}, fmt.Errorf("integrations settings must be one JSON object")
 	}
 
 	var config Config
+	// Retire the removed video adapter without invalidating unrelated settings.
+	// The old field is discarded in memory only; Load never rewrites user files.
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return Config{}, err
+	}
+	delete(fields, "open_montage")
+	if pending := fields["pending_legacy"]; len(pending) > 0 {
+		var migration LegacyMigration
+		if json.Unmarshal(pending, &migration) == nil && migration.ID == "openmontage" {
+			delete(fields, "pending_legacy")
+		}
+	}
+	data, err := json.Marshal(fields)
+	if err != nil {
+		return Config{}, err
+	}
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&config); err != nil {
@@ -442,14 +358,9 @@ func validateConfig(config Config) error {
 			return err
 		}
 	}
-	if config.OpenMontage != nil {
-		if err := ValidateOpenMontage(*config.OpenMontage); err != nil {
-			return err
-		}
-	}
 	if config.PendingLegacy != nil {
 		switch config.PendingLegacy.ID {
-		case OpenNotebookID, OpenMontageID:
+		case OpenNotebookID:
 		default:
 			return fmt.Errorf("unknown pending legacy integration %q", config.PendingLegacy.ID)
 		}

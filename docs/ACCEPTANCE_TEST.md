@@ -32,7 +32,7 @@ $env:MIDDEN_HOME = (Join-Path $PWD '.midden-human-test')
 Pass if:
 
 - the build requires no undocumented dependency;
-- version prints `midden 0.0.1`;
+- version prints `midden 0.2.0`;
 - no existing Midden state is reused.
 
 ## 2. Launch and navigation
@@ -148,12 +148,8 @@ Pass if:
 - protected or held sessions cannot be archived through the UI;
 - Activity retains jobs after browser refresh;
 - Tools distinguishes plugins, tools, skills, viewers, and destinations;
-- managed Open Notebook and OpenMontage settings remain editable.
-- OpenMontage setup provides folder browsing, full prerequisites, **Save &
-  test**, and **Open Backlot**;
-- **Create video** exposes pipeline and spend controls, returns the run to the
-  agent chat, and previews an imported MP4/WebM without reading the binary into
-  the JSON API.
+- managed Open Notebook settings remain editable;
+- imported MP4/WebM outputs preview without reading the binary into the JSON API.
 
 ## 9. Keyboard and compact desktop
 

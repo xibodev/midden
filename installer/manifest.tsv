@@ -1,0 +1,20 @@
+# Schema 1. Tab-separated inert data, never sourced/evaluated as shell code.
+# settings: key, value
+setting	schema	1
+setting	repository	xibodev/midden
+setting	asset	midden_{version}_{os}_{arch}_headless
+setting	install_relative	.local/share/midden-cli/bin
+setting	state_relative	.local/share/midden-cli/state
+# hosts: id, executable, personal skills path, project skills path
+host	copilot-cli	copilot	.copilot/skills	.github/skills
+host	claude-code	claude	.claude/skills	.claude/skills
+host	opencode	opencode	.config/opencode/skills	.opencode/skills
+# skills: directory, canonical bundle path
+skill	midden-session-recovery	skills/session-recovery/SKILL.md
+skill	midden-evidence-selection	skills/evidence-selection/SKILL.md
+skill	midden-content-seed	skills/content-seed/SKILL.md
+overlay	agents/midden-recovery.md
+# dependencies: id, version policy, outcome, download size, installed size, winget id, brew formula, apt package
+dependency	pandoc	package-manager-selected	Editable PowerPoint and standalone HTML	not-reported	not-reported	JohnMacFarlane.Pandoc	pandoc	pandoc
+dependency	d2	package-manager-selected	Render diagram source into SVG	not-reported	not-reported	Terrastruct.D2	d2	unsupported
+related	Facet	https://github.com/xibodev/facet	Separate video-creation project; not installed by Midden

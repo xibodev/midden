@@ -103,47 +103,6 @@ The verified upstream wire contract uses:
 
 Export requests ignore environment-configured HTTP proxies.
 
-## OpenMontage
-
-[OpenMontage](https://github.com/calesthio/OpenMontage) is an optional
-agent-driven local video-production project.
-
-Its upstream setup requires:
-
-- a local OpenMontage repository;
-- Python 3.10 or newer;
-- Node 18 or newer;
-- FFmpeg;
-- an authenticated agentic CLI.
-
-In **Tools → OpenMontage**:
-
-1. Follow the displayed prerequisite and clone instructions.
-2. Select **Browse folder** and choose the checked-out repository root.
-3. Choose `copilot`, `claude`, or `opencode` as the agentic backend.
-4. Select **Save & test**.
-
-Midden saves the path and backend only. Testing is explicit and verifies:
-
-- the OpenMontage repository contract;
-- pipeline definitions;
-- the Backlot UI;
-- a usable Python environment;
-- Node.js and FFmpeg;
-- the selected authenticated AI CLI.
-
-After a successful test, **Open Backlot** launches OpenMontage's local living
-storyboard. Studio's **Create video** action starts the selected pipeline in the
-persistent workspace-agent conversation. Required production decisions and
-spend approvals remain visible in chat. Approved MP4/WebM files copied to the
-Midden delivery directory are imported as draft outputs and preview inline.
-
-OpenMontage actions can spend through the selected CLI, so eventual production
-retains Midden's preview and approval gates.
-
-OpenMontage is licensed upstream under AGPLv3. Review that license before
-redistributing or bundling it.
-
 ## Advanced manifests
 
 Custom integration manifests live under:
@@ -200,7 +159,7 @@ fails later.
 
 ## Legacy manifest migration
 
-Existing `open-notebook.yaml` and `openmontage.yaml` manifests remain usable.
+Existing `open-notebook.yaml` manifests remain usable.
 The UI can explicitly adopt a supported advanced setup into managed Settings.
 
 Migration:
@@ -231,4 +190,4 @@ provider calls. Final files must be copied to the dedicated per-work-item
 delivery directory before Midden imports or previews them.
 
 Console remains a separate allowlisted diagnostics surface for status, files,
-evidence, runs, and OpenMontage status. It is not a host shell.
+evidence and runs. It is not a host shell.

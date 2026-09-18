@@ -41,14 +41,6 @@ func TestSaveLoadRoundTripAndNormalizesVersion(t *testing.T) {
 			LastStatus:       "available",
 			LastDetail:       "OpenAPI verified",
 		},
-		OpenMontage: &OpenMontageSettings{
-			Enabled:      true,
-			Home:         filepath.Join(root, "OpenMontage"),
-			Backend:      "copilot",
-			LastVerified: verified,
-			LastStatus:   "available",
-			LastDetail:   "pipeline definitions found",
-		},
 	}
 
 	if err := Save(root, want); err != nil {
@@ -75,7 +67,7 @@ func TestSaveLoadRoundTripAndNormalizesVersion(t *testing.T) {
 		}
 	}
 
-	want.OpenMontage.LastStatus = "reverified"
+	want.OpenNotebook.LastStatus = "reverified"
 	if err := Save(root, want); err != nil {
 		t.Fatalf("Save() did not atomically replace existing settings: %v", err)
 	}
@@ -167,33 +159,6 @@ func TestValidationRejectsUnsafeNotebookURLs(t *testing.T) {
 	}
 }
 
-func TestValidateOpenMontageRejectsRelativeOrInvalidSettings(t *testing.T) {
-	valid := OpenMontageSettings{
-		Home:    filepath.Join(t.TempDir(), "OpenMontage"),
-		Backend: "claude",
-	}
-	if err := ValidateOpenMontage(valid); err != nil {
-		t.Fatalf("valid settings rejected: %v", err)
-	}
-
-	for name, mutate := range map[string]func(*OpenMontageSettings){
-		"relative home": func(s *OpenMontageSettings) { s.Home = "OpenMontage" },
-		"empty home":    func(s *OpenMontageSettings) { s.Home = "" },
-		"expanded home": func(s *OpenMontageSettings) {
-			s.Home = filepath.Join(string(filepath.Separator), "${OPENMONTAGE_HOME}")
-		},
-		"bad backend": func(s *OpenMontageSettings) { s.Backend = "cursor" },
-	} {
-		t.Run(name, func(t *testing.T) {
-			settings := valid
-			mutate(&settings)
-			if err := ValidateOpenMontage(settings); err == nil {
-				t.Fatal("ValidateOpenMontage() accepted invalid settings")
-			}
-		})
-	}
-}
-
 func TestOpenNotebookManifestHasSafeP3Contract(t *testing.T) {
 	manifest, err := OpenNotebookManifest(OpenNotebookSettings{
 		Enabled:          true,
@@ -247,63 +212,6 @@ func TestOpenNotebookManifestHasSafeP3Contract(t *testing.T) {
 	}
 }
 
-func TestOpenMontageManifestUsesLiteralConfiguredPaths(t *testing.T) {
-	home := filepath.Join(t.TempDir(), "OpenMontage")
-	manifest, err := OpenMontageManifest(OpenMontageSettings{
-		Enabled: true,
-		Home:    home,
-		Backend: "opencode",
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	pipelineDefs := filepath.Join(home, "pipeline_defs")
-	if manifest.Name != OpenMontageID || manifest.Kind != "capability" || manifest.Cost != "spends" ||
-		manifest.Enabled == nil || !*manifest.Enabled {
-		t.Fatalf("identity = %#v", manifest)
-	}
-	if manifest.Probe == nil || manifest.Probe.Kind != "directory" || manifest.Probe.Path != pipelineDefs ||
-		manifest.Probe.ExpectGlob != "*.yaml" {
-		t.Fatalf("probe = %#v", manifest.Probe)
-	}
-	if manifest.Runs.Backend != "opencode" || manifest.Runs.Cwd != home ||
-		!strings.Contains(manifest.Runs.Prompt, "{{pipeline}}") ||
-		!strings.Contains(manifest.Runs.Prompt, "{{topic}}") ||
-		!strings.Contains(manifest.Runs.Prompt, "{{budget}}") ||
-		manifest.Form.Source != "schema" ||
-		manifest.Form.Discover.Pipelines.From != filepath.Join(pipelineDefs, "*.yaml") ||
-		manifest.Form.Discover.Pipelines.Field != "name" {
-		t.Fatalf("capability declaration = %#v", manifest)
-	}
-	if len(manifest.Form.Fields) != 3 ||
-		manifest.Form.Fields[0].Name != "pipeline" || manifest.Form.Fields[0].Type != "enum" ||
-		manifest.Form.Fields[0].From != "pipelines" || !manifest.Form.Fields[0].Required ||
-		manifest.Form.Fields[1].Name != "topic" || manifest.Form.Fields[1].Type != "text" ||
-		!manifest.Form.Fields[1].Required ||
-		manifest.Form.Fields[2].Name != "budget" || manifest.Form.Fields[2].Type != "number" ||
-		manifest.Form.Fields[2].Default != 2.00 ||
-		len(manifest.Feeds) != 1 || manifest.Feeds[0].Kind != "nuggets" ||
-		manifest.Feeds[0].Workspace != "{{workspace}}" || manifest.Feeds[0].Limit != 40 ||
-		manifest.Progress.Path != filepath.Join(home, "projects", "{{project}}", "pipeline") ||
-		manifest.Artifacts.Reference != filepath.Join(home, "projects", "{{project}}", "renders") {
-		t.Fatalf("capability metadata = %#v", manifest)
-	}
-	for _, value := range []string{
-		manifest.Probe.Path,
-		manifest.Runs.Cwd,
-		manifest.Form.Discover.Pipelines.From,
-		manifest.Progress.Path,
-		manifest.Artifacts.Reference,
-	} {
-		if strings.Contains(value, "${") {
-			t.Fatalf("manifest expanded an environment variable: %q", value)
-		}
-	}
-	if errs := plugins.Validate(manifest); len(errs) != 0 {
-		t.Fatalf("plugins.Validate() = %v", errs)
-	}
-}
-
 func TestCatalogIdentifiesOnlyKnownUpstreams(t *testing.T) {
 	got := Catalog()
 	if len(got) != 2 {
@@ -324,14 +232,35 @@ func TestCatalogIdentifiesOnlyKnownUpstreams(t *testing.T) {
 		!strings.Contains(notebook.InstallSummary, "Midden does not install") {
 		t.Fatalf("Open Notebook catalog entry = %#v", notebook)
 	}
-	montage, ok := byID[OpenMontageID]
-	if !ok || montage.GitHubURL != "https://github.com/calesthio/OpenMontage" {
-		t.Fatalf("OpenMontage catalog entry = %#v", montage)
+	facet, ok := byID[FacetID]
+	if !ok || facet.Kind != "related_project" || facet.GitHubURL != "https://github.com/xibodev/facet" {
+		t.Fatalf("Facet catalog entry=%#v", facet)
 	}
-	for _, required := range []string{"local repository", "Python 3.10+", "Node 18+", "FFmpeg", "agentic CLI"} {
-		if !strings.Contains(montage.InstallSummary, required) {
-			t.Fatalf("OpenMontage install summary %q lacks %q", montage.InstallSummary, required)
-		}
+}
+
+func TestRetiredVideoSettingsDoNotBreakNotebookOrWriteFiles(t *testing.T) {
+	root := t.TempDir()
+	raw := []byte(`{"version":1,"open_notebook":{"enabled":true,"api_url":"http://localhost:5055","ui_url":"http://localhost:8502"},"open_montage":{"enabled":true,"home":"obsolete","backend":"copilot"},"pending_legacy":{"id":"openmontage","source_path":"old","backup_path":"backup"}}`)
+	if err := os.WriteFile(ConfigPath(root), raw, 0600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.OpenNotebook == nil || cfg.PendingLegacy != nil {
+		t.Fatalf("migration=%+v", cfg)
+	}
+	after, err := os.ReadFile(ConfigPath(root))
+	if err != nil || string(after) != string(raw) {
+		t.Fatal("passive load changed user settings")
+	}
+	if err := Save(root, cfg); err != nil {
+		t.Fatal(err)
+	}
+	after, _ = os.ReadFile(ConfigPath(root))
+	if strings.Contains(string(after), "open_montage") {
+		t.Fatal("retired settings persisted")
 	}
 }
 

@@ -22,7 +22,6 @@ import (
 	"github.com/mekjr1/midden/internal/cost"
 	"github.com/mekjr1/midden/internal/create"
 	"github.com/mekjr1/midden/internal/index"
-	"github.com/mekjr1/midden/internal/integrations"
 	"github.com/mekjr1/midden/internal/redact"
 	"github.com/mekjr1/midden/internal/refine"
 	"github.com/mekjr1/midden/internal/refinery"
@@ -330,10 +329,6 @@ func studioAgentDirs(recipe index.Recipe) (string, string, error) {
 
 func studioAgentAllowedDirs(workDir, deliveryDir string) []string {
 	allowed := []string{workDir, filepath.Dir(deliveryDir)}
-	config, err := integrations.Load(index.Dir())
-	if err == nil && config.OpenMontage != nil && config.OpenMontage.Enabled {
-		allowed = append(allowed, config.OpenMontage.Home)
-	}
 	return allowed
 }
 
@@ -411,14 +406,6 @@ func (s *Server) studioFirstTurnPrompt(question, workDir,
 	fmt.Fprintf(&body, "Finished-file handoff directory: %s\n", deliveryDir)
 	fmt.Fprintf(&body, "Optional read-only evidence context (read only if this turn needs it): %s\n", contextPath)
 	body.WriteString("Use tools and shell when the command needs them. Never modify AI session stores or Midden state. Ask before destructive, publishing, credential, upload, or unapproved paid-provider actions. Put finished preview/download files in the handoff directory.\n")
-	if strings.Contains(strings.ToLower(question), "video") {
-		config, err := integrations.Load(index.Dir())
-		if err == nil && config.OpenMontage != nil && config.OpenMontage.Enabled {
-			fmt.Fprintf(&body,
-				"OpenMontage video capability: %s (backend %s). Read its AGENT_GUIDE.md and follow its approval gates for video work.\n",
-				config.OpenMontage.Home, config.OpenMontage.Backend)
-		}
-	}
 	body.WriteString("\n")
 	body.WriteString(studioTurnPrompt(question))
 	return body.String()
@@ -629,7 +616,7 @@ func (s *Server) handleWorkConsole(w http.ResponseWriter, r *http.Request) {
 	var output string
 	switch command {
 	case "help", "?":
-		output = "available commands:\n  status\n  files\n  evidence\n  runs\n  openmontage status"
+		output = "available commands:\n  status\n  files\n  evidence\n  runs"
 	case "status":
 		output = fmt.Sprintf(
 			"work item: %s\nstatus: %s\nworkspace: %s\nevidence: %d\noutputs: %d",
@@ -675,19 +662,6 @@ func (s *Server) handleWorkConsole(w http.ResponseWriter, r *http.Request) {
 				run.Status, run.StartedAt.Format(time.RFC3339), run.Backend))
 		}
 		output = strings.Join(lines, "\n")
-	case "openmontage status":
-		config, err := s.integrationViews()
-		if err != nil {
-			output = "OpenMontage status unavailable: " + err.Error()
-			break
-		}
-		output = "OpenMontage is not configured"
-		for _, item := range config {
-			if item.ID == "openmontage" {
-				output = fmt.Sprintf("OpenMontage: %s\n%s", item.State, item.StateDetail)
-				break
-			}
-		}
 	default:
 		http.Error(w, "unsupported console command; use help", http.StatusBadRequest)
 		return

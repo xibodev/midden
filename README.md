@@ -6,7 +6,7 @@ and turns approved evidence into reviewed drafts with provenance.
 
 Midden is:
 
-- **Local-first:** one Go binary, an embedded web UI, and a local SQLite index.
+- **Local-first:** a Go recovery engine and local SQLite index, used from your agentic CLI.
 - **Read-only recovery:** inventory, assay and extraction do not modify source
   stores. Explicit cleanup commands are separate source-mutation operations.
 - **Approval-gated:** model spend, evidence approval, production, export, and
@@ -14,63 +14,54 @@ Midden is:
 - **Evidence-grounded:** Studio will not create or run an unsupported work item
   when no reclaimed evidence exists.
 
-Current version: **0.1.0 (preview)**. This release adds native kernel chat,
-streaming, model configuration, shared recovery production tools, reviewed
-exports and Pandoc-backed editable PowerPoint/HTML delivery.
+Current version: **0.2.0 (preview)**. **Using Midden in an agentic CLI is the
+recommended route. The standalone browser application is experimental.**
 
-Download a platform archive from [Releases](https://github.com/xibodev/midden/releases).
-Use the **standalone** archive for `midden ui`; **headless** archives provide the
-CLI/module surface without the web application. Verify the archive against
-`SHA256SUMS`, extract it, and run `midden ui` (`.\midden.exe ui` on Windows).
-Pandoc is required for PPTX and HTML rendering; it is not bundled.
+## Install for your agentic CLI
 
-This is a prerelease, not a claim of completed product validation. Free-provider
-availability and output quality vary. Inspect generated claims and drafts before
-publication. OAuth/native-provider onboarding and live equivalence testing in
-external CLI/Studio hosts remain incomplete.
-
-## Fastest clean install on Windows
-
-Prerequisites:
-
-- Git
-- Go 1.26.5 or newer
-- At least one supported AI CLI session store if you want Midden to find data
-- A working model selected in **Runtime & Models** for standalone model-backed
-  extraction and generation. The embedded Facet Studio v1.0.0 kernel handles it;
-  an external agent CLI is not required for the standalone application.
-- Repository access to private `github.com/xibodev/*` Go dependencies for source
-  builds; set `GOPRIVATE=github.com/xibodev/*` in your build environment.
-
-From PowerShell:
+Install and authenticate GitHub Copilot CLI, Claude Code, or OpenCode first.
+Download `install.ps1` (Windows) or `install.sh` (Linux/macOS), `manifest.tsv`,
+and `SHA256SUMS` from the same [v0.2.0 release](https://github.com/xibodev/midden/releases/tag/v0.2.0).
+Keep the script and manifest together. Verify their checksums using the
+[installation guide](docs/INSTALL.md), then run:
 
 ```powershell
-git clone <repository-url>
-Set-Location .\midden
-
-go test ./...
-New-Item -ItemType Directory -Force .\bin | Out-Null
-go build -trimpath -o .\bin\midden.exe .\cmd\midden
-.\bin\midden.exe version
-
-# Use isolated Midden state for this first run. Your AI CLI stores are still
-# discovered from your user profile and remain read-only.
-$env:MIDDEN_HOME = (Join-Path $PWD '.midden')
-
-.\bin\midden.exe start
-.\bin\midden.exe ui
+# Windows, PowerShell 7+
+pwsh -NoProfile -File ./install.ps1 -Version v0.2.0
 ```
 
-The browser opens at `http://127.0.0.1:7777`. If that port is occupied:
-
-```powershell
-.\bin\midden.exe ui --port 7788
+```bash
+# Linux/macOS, Bash 3.2+, curl and tar
+bash ./install.sh --version v0.2.0
 ```
 
-See [Install](docs/INSTALL.md) for PATH installation, macOS/Linux commands,
-upgrades, and removal.
+The interactive scripts select your CLI hosts, personal or project skill scope,
+binary and state directories, optional dependencies, and PATH setup. They download
+and verify a prebuilt **headless** archive; Go and Git are not needed to install.
+Pandoc adds editable PowerPoint/HTML rendering; D2 adds SVG diagrams. Both are
+optional, separately installed tools. Package managers confirm actual sizes and
+versions; unavailable size information is shown as not reported.
 
-## First useful journey
+Restart your CLI to discover `midden-session-recovery`, then ask:
+
+> Use midden-session-recovery to assay this project's sessions and help me choose
+> evidence for a blog post and presentation. Ask before extracting or writing.
+
+Your CLI owns the model, authentication, and permissions. Midden supplies the
+recovery operations, evidence, content composition, and provenance. Inspect
+generated claims and drafts before publication. Installer tests do not certify
+live behavior in every host; cross-host acceptance remains in progress.
+
+See [Install](docs/INSTALL.md) for verification, upgrades, removal, and source
+builds; [Getting started](docs/GETTING_STARTED.md) for your first recovery.
+
+## Experimental standalone journey
+
+Download a **standalone** archive from the release, verify `SHA256SUMS`, extract
+it, and run `midden ui` (`.\midden.exe ui` on Windows). It opens a loopback-only
+browser application at `http://127.0.0.1:7777`. Use `--port 7788` if needed.
+Its embedded Facet Studio v1.0.0 kernel manages models and conversation;
+provider onboarding and end-to-end product validation remain incomplete.
 
 1. Open **Mine / Recover**, filter or select exact sessions, and start a free assay.
    The job continues in the background while you use the rest of Midden.
@@ -101,7 +92,7 @@ Most of Midden is deterministic and free: scanning, indexing, assay, session
 search, briefs, recipes, evidence review, deterministic packs, provenance,
 local export, MCP, and operations history.
 
-The following can call a model through an already authenticated AI CLI:
+These operations can call a model through an authenticated backend:
 
 - `reclaim`
 - `refine`
@@ -114,7 +105,9 @@ one visible per-work-item budget envelope and shows cumulative estimated usage.
 Changing scope or exceeding that envelope is blocked explicitly. The CLI
 equivalents support `--dry-run`.
 
-Midden never calls a model API directly and does not require a model API key.
+With the recommended agentic CLI route, the host owns model access. The
+experimental standalone runtime uses the embedded kernel's provider configuration.
+Provider subscriptions, quotas, and charges remain the user's responsibility.
 
 ## CLI orientation
 
@@ -140,7 +133,9 @@ Run `midden help` for every command in workflow order and
 
 ## Data and privacy
 
-By default, Midden stores its own data under:
+The installer binds the installed skills to a separate state directory, defaulting
+to `~/.local/share/midden-cli/state`. Direct binary invocations outside that binding
+use these defaults unless `MIDDEN_HOME` is set:
 
 - Windows: `%USERPROFILE%\.midden`
 - macOS/Linux: `~/.midden`
@@ -163,7 +158,7 @@ database it writes.
 See [Configuration](docs/CONFIGURATION.md) for the complete state layout,
 backend selection, ports, environment variables, and backup guidance.
 
-## Web surfaces
+## Experimental web surfaces
 
 | Surface | Purpose |
 |---|---|

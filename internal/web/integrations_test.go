@@ -6,7 +6,6 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -39,7 +38,11 @@ func TestIntegrationsListsHumanSetupCatalogWithoutProbing(t *testing.T) {
 		t.Fatalf("integrations=%#v, want two built-ins", got)
 	}
 	for _, item := range got {
-		if item.State != "not_set_up" || item.GitHubURL == "" || item.InstallSummary == "" {
+		expected := "not_set_up"
+		if item.ID == integrations.FacetID {
+			expected = "separate_project"
+		}
+		if item.State != expected || item.GitHubURL == "" || item.InstallSummary == "" {
 			t.Fatalf("first-run integration=%#v", item)
 		}
 	}
@@ -239,19 +242,12 @@ func TestIntegrationConfigureExplicitlyReplacesLegacyWithBackup(t *testing.T) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	legacyPath := filepath.Join(dir, "openmontage.yaml")
-	legacy := "name: openmontage\n" +
-		"kind: capability\n" +
-		"enabled: true\n" +
-		"cost: spends\n" +
-		"probe:\n" +
-		"  kind: directory\n" +
-		"  path: ${OPENMONTAGE_HOME}/pipeline_defs\n"
+	legacyPath := filepath.Join(dir, "open-notebook.yaml")
+	legacy := "name: open-notebook\nkind: service\nenabled: true\ncost: free\nprobe:\n  kind: http\n  url: http://localhost:5055/openapi.json\n"
 	if err := os.WriteFile(legacyPath, []byte(legacy), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	home := filepath.Join(t.TempDir(), "OpenMontage")
-	body := `{"id":"openmontage","enabled":true,"home":` + strconv.Quote(home) + `,"backend":"copilot","replace_legacy":true}`
+	body := `{"id":"open-notebook","enabled":true,"api_url":"http://localhost:5055","ui_url":"http://localhost:8502","replace_legacy":true}`
 	req := explicitIntegrationRequest(t, http.MethodPost, "/api/integrations/configure", body)
 	rec := httptest.NewRecorder()
 	server.handleIntegrationConfigure(rec, req)
@@ -269,51 +265,8 @@ func TestIntegrationConfigureExplicitlyReplacesLegacyWithBackup(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if config.OpenMontage == nil || config.OpenMontage.Home != home {
+	if config.OpenNotebook == nil || config.OpenNotebook.APIURL != "http://localhost:5055" {
 		t.Fatalf("managed config=%#v", config)
-	}
-}
-
-func TestOpenMontageCapabilitiesRequireExplicitConfiguredDiscovery(t *testing.T) {
-	t.Setenv("MIDDEN_HOME", t.TempDir())
-	db, err := index.Open()
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer db.Close()
-	server := &Server{db: db, cache: newSnapshotCache(), jobs: NewJobs()}
-
-	home := filepath.Join(t.TempDir(), "OpenMontage")
-	if err := os.MkdirAll(filepath.Join(home, "pipeline_defs"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.MkdirAll(filepath.Join(home, "backlot"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(home, "pipeline_defs", "animated-explainer.yaml"), []byte("name: animated-explainer\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if err := integrations.Save(index.Dir(), integrations.Config{
-		OpenMontage: &integrations.OpenMontageSettings{
-			Enabled: true, Home: home, Backend: "copilot",
-		},
-	}); err != nil {
-		t.Fatal(err)
-	}
-
-	rec := httptest.NewRecorder()
-	server.handleIntegrationCapabilities(rec, explicitIntegrationRequest(
-		t, http.MethodPost, "/api/integrations/capabilities", `{"id":"openmontage"}`))
-	if rec.Code != http.StatusOK {
-		t.Fatalf("capabilities=%d body=%s", rec.Code, rec.Body.String())
-	}
-	var got integrationCapabilitiesView
-	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
-		t.Fatal(err)
-	}
-	if got.Home != home || !got.BacklotAvailable || len(got.Pipelines) != 1 ||
-		got.Pipelines[0] != "animated-explainer" {
-		t.Fatalf("capabilities=%#v", got)
 	}
 }
 
@@ -499,14 +452,13 @@ func TestIntegrationReplacementRejectsDuplicateLegacyManifests(t *testing.T) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	manifest := "name: openmontage\nkind: capability\nenabled: true\ncost: spends\nprobe:\n  kind: directory\n  path: C:\\\\OpenMontage\\\\pipeline_defs\n"
+	manifest := "name: open-notebook\nkind: service\nenabled: true\ncost: free\nprobe:\n  kind: http\n  url: http://localhost:5055/openapi.json\n"
 	for _, name := range []string{"a.yaml", "b.yaml"} {
 		if err := os.WriteFile(filepath.Join(dir, name), []byte(manifest), 0o600); err != nil {
 			t.Fatal(err)
 		}
 	}
-	home := filepath.Join(t.TempDir(), "OpenMontage")
-	body := `{"id":"openmontage","enabled":true,"home":` + strconv.Quote(home) + `,"backend":"copilot","replace_legacy":true}`
+	body := `{"id":"open-notebook","enabled":true,"api_url":"http://localhost:5055","ui_url":"http://localhost:8502","replace_legacy":true}`
 	rec := httptest.NewRecorder()
 	server.handleIntegrationConfigure(rec, explicitIntegrationRequest(t, http.MethodPost, "/api/integrations/configure", body))
 	if rec.Code != http.StatusConflict {
@@ -521,12 +473,12 @@ func TestIntegrationReplacementRejectsDuplicateLegacyManifests(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if config.OpenMontage != nil {
+	if config.OpenNotebook != nil {
 		t.Fatalf("duplicate replacement wrote config: %#v", config)
 	}
 }
 
-func TestConcurrentIntegrationSettingsPreserveBothConfigurations(t *testing.T) {
+func TestConcurrentIntegrationSettingsRemainConsistent(t *testing.T) {
 	t.Setenv("MIDDEN_HOME", t.TempDir())
 	db, err := index.Open()
 	if err != nil {
@@ -534,10 +486,9 @@ func TestConcurrentIntegrationSettingsPreserveBothConfigurations(t *testing.T) {
 	}
 	defer db.Close()
 	server := &Server{db: db, cache: newSnapshotCache(), jobs: NewJobs()}
-	home := filepath.Join(t.TempDir(), "OpenMontage")
 	requests := []string{
 		`{"id":"open-notebook","enabled":true,"api_url":"http://127.0.0.1:5055","ui_url":"http://127.0.0.1:8502"}`,
-		`{"id":"openmontage","enabled":true,"home":` + strconv.Quote(home) + `,"backend":"copilot"}`,
+		`{"id":"open-notebook","enabled":false,"api_url":"http://127.0.0.1:5056","ui_url":"http://127.0.0.1:8503"}`,
 	}
 
 	start := make(chan struct{})
@@ -566,7 +517,7 @@ func TestConcurrentIntegrationSettingsPreserveBothConfigurations(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if config.OpenNotebook == nil || config.OpenMontage == nil {
+	if config.OpenNotebook == nil || (config.OpenNotebook.Enabled && config.OpenNotebook.APIURL != "http://127.0.0.1:5055") || (!config.OpenNotebook.Enabled && config.OpenNotebook.APIURL != "http://127.0.0.1:5056") {
 		t.Fatalf("concurrent updates lost settings: %#v", config)
 	}
 }

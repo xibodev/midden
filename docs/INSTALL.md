@@ -1,168 +1,154 @@
 # Install Midden
 
-Midden is a single Go binary. The browser UI is embedded in that binary, so
-there is no Node, npm, Docker, database server, or web build to install.
+**Recommended: use Midden through GitHub Copilot CLI, Claude Code, or OpenCode.**
+The standalone browser application is experimental. Version **0.2.0** is a preview.
 
 ## Requirements
 
-- Git
-- Go 1.26.4 or newer
-- Windows, macOS, or Linux
+- An installed, authenticated supported agentic CLI.
+- Windows x64 with PowerShell 7+, or Linux/macOS x64 or arm64 with Bash 3.2+,
+  curl, tar, and `sha256sum` or `shasum`.
+- Network access to GitHub for release downloads.
 
-For session discovery, at least one of these local stores must exist:
+Go, Git, Node, and a database server are not required for prebuilt installation.
+The scripts check host executables, but cannot prove that a host login or model works.
 
-- GitHub Copilot CLI
-- Claude Code
-- OpenCode
+## Download and verify
 
-For model-backed actions, at least one of the corresponding commands must also
-be installed, available on `PATH`, and signed in:
+From [v0.2.0 release assets](https://github.com/xibodev/midden/releases/tag/v0.2.0),
+save the platform installer, `manifest.tsv`, and `SHA256SUMS` in one directory.
+Run commands from that directory. Do not pipe a downloaded script into a shell.
 
-- `copilot`
-- `claude`
-- `opencode`
-
-Scanning, assay, browsing, session rescue, recipes, deterministic outputs, MCP,
-and local review do not need a model backend.
-
-## Windows: run from a fresh clone
-
-Open PowerShell:
+PowerShell 7 (Windows):
 
 ```powershell
-git clone <repository-url>
-Set-Location .\midden
-
-go version
-go test ./...
-
-New-Item -ItemType Directory -Force .\bin | Out-Null
-go build -trimpath -o .\bin\midden.exe .\cmd\midden
-.\bin\midden.exe version
+foreach ($file in @('install.ps1', 'manifest.tsv')) {
+    $line = @(Get-Content ./SHA256SUMS | Where-Object { ($_ -split '\s+')[1] -eq $file })
+    if ($line.Count -ne 1) { throw "Missing or duplicate checksum: $file" }
+    $expected = ($line[0] -split '\s+')[0]
+    if ((Get-FileHash $file -Algorithm SHA256).Hash.ToLowerInvariant() -ne $expected) {
+        throw "Checksum mismatch: $file"
+    }
+}
+pwsh -NoProfile -File ./install.ps1 -Version v0.2.0
 ```
 
-Expected version:
-
-```text
-midden 0.0.1
-```
-
-For an isolated first run, keep Midden's own data inside the clone:
-
-```powershell
-$env:MIDDEN_HOME = (Join-Path $PWD '.midden')
-.\bin\midden.exe start
-.\bin\midden.exe ui
-```
-
-The `.midden` directory is ignored by Git. It contains only Midden-owned state;
-the source AI CLI stores in your user profile remain read-only.
-
-`MIDDEN_HOME` is process environment. Set it again in each new PowerShell
-window before running the binary.
-
-## Windows: install on PATH
-
-From the repository root:
-
-```powershell
-go install .\cmd\midden
-$goBin = if (go env GOBIN) { go env GOBIN } else { Join-Path (go env GOPATH) 'bin' }
-& (Join-Path $goBin 'midden.exe') version
-```
-
-If `midden` is not found in a new terminal, add the displayed `$goBin`
-directory to your user `PATH`, then reopen PowerShell.
-
-Installing the binary does not move or delete `%USERPROFILE%\.midden`. Binary
-installation and application data are independent.
-
-## macOS or Linux
+Bash (Linux/macOS):
 
 ```bash
-git clone <repository-url>
+awk '$2 == "install.sh" || $2 == "manifest.tsv"' SHA256SUMS > installer-checksums.txt
+test "$(wc -l < installer-checksums.txt | tr -d ' ')" = 2 || exit 1
+if command -v sha256sum >/dev/null; then
+  sha256sum -c installer-checksums.txt || exit 1
+else
+  shasum -a 256 -c installer-checksums.txt || exit 1
+fi
+bash ./install.sh --version v0.2.0
+```
+
+Checksums detect damaged or mismatched downloads, not compromise of the release
+source. Use the official repository. The installer separately verifies the selected
+archive against the release checksums before writing installation files.
+
+## Interactive choices
+
+1. Choose one or more CLI hosts.
+2. Choose personal (`user`) or project skill scope and the project directory.
+3. Confirm binary and recovery state directories.
+4. Reuse optional tools by path, or select package-manager installation.
+5. Choose whether to update PATH and confirm the final preview.
+
+Defaults: `~/.local/share/midden-cli/bin` for binaries/receipt and
+`~/.local/share/midden-cli/state` for recovered work. On Windows, `~` is your user
+profile. The state directory is created when recovery needs it, not by installation.
+
+| Host | Personal skills | Project skills |
+|---|---|---|
+| Copilot CLI | `~/.copilot/skills` | `.github/skills` |
+| Claude Code | `~/.claude/skills` | `.claude/skills` |
+| OpenCode | `~/.config/opencode/skills` | `.opencode/skills` |
+
+The scripts install three canonical skills, recovery guidance, and an absolute
+binary/state binding. They do not change host model settings or grant permissions.
+Restart the host if needed to discover `midden-session-recovery`.
+
+### Optional dependencies
+
+| Tool | Adds | Install routes |
+|---|---|---|
+| Pandoc | Editable PPTX and standalone HTML | winget, Homebrew, apt |
+| D2 | SVG diagrams | winget, Homebrew; otherwise install separately |
+
+Versions follow the selected package manager. The preview reports reused tools as
+zero additional download/disk; unavailable download, installed, and transitive
+sizes are not guessed. Managers show their own confirmation and may request
+elevation. Dependency installs are separate system changes and are not undone by
+Midden uninstall or a later installer failure. Facet is a separately installed
+[sister project for video creation](https://github.com/xibodev/facet).
+
+## Preview and explicit selection
+
+```powershell
+pwsh -NoProfile -File ./install.ps1 -Version v0.2.0 -Hosts copilot-cli -NonInteractive -DryRun
+```
+
+```bash
+bash ./install.sh --version v0.2.0 --hosts copilot-cli --yes --dry-run
+```
+
+For project scope, use `-Scope project -ProjectDir <absolute-path>` or
+`--scope project --project <absolute-path>`. An existing host outside PATH can be
+selected with `-HostPath` / `--host-path` when selecting exactly one host.
+Use `-BundleDir` / `--bundle-dir` for an already extracted, verified headless
+archive. Local bundle mode trusts your supplied files and does not download them.
+
+## Verify, upgrade, and uninstall
+
+Keep the installer and matching manifest. If you chose a custom installation
+directory, pass `-InstallDir` / `--install-dir` on every lifecycle command.
+
+```powershell
+pwsh -NoProfile -File ./install.ps1 -Verify
+pwsh -NoProfile -File ./install.ps1 -Version v0.2.0 -Upgrade
+pwsh -NoProfile -File ./install.ps1 -Uninstall
+```
+
+```bash
+bash ./install.sh --verify
+bash ./install.sh --version v0.2.0 --upgrade
+bash ./install.sh --uninstall
+```
+
+Upgrade with the newer release's script, manifest, and explicit version; repeat
+the original scope/state choices. Upgrades preserve backups and refuse to
+overwrite modified or unowned files. Verification checks owned bytes and guidance;
+it does not run a live agent. Uninstall removes only receipt-owned, unchanged
+files and its PATH entry. Recovered work, user files, optional dependencies, and
+upgrade backups remain. Stop any running Midden process before replacing it.
+
+For manual CLI commands, set `MIDDEN_HOME` to the state directory chosen at install
+time. Installed skills supply that directory in their module requests. Direct
+commands otherwise default to `~/.midden`.
+
+## Experimental standalone
+
+Choose a **standalone** archive, verify it against `SHA256SUMS`, and extract it.
+Run `./midden ui` or `.\midden.exe ui`. The UI is embedded and opens on loopback
+at `http://127.0.0.1:7777`; use `--port` to change it. Headless archives omit the UI.
+Set `MIDDEN_HOME` to a separate directory before trying this delivery form.
+
+## Build from source
+
+Requires Git and the Go version declared in `go.mod` (currently 1.26.5).
+The pinned Go dependencies are public.
+
+```bash
+git clone https://github.com/xibodev/midden.git
 cd midden
-
-go version
 go test ./...
-
-mkdir -p bin
-go build -trimpath -o ./bin/midden ./cmd/midden
-./bin/midden version
-
-MIDDEN_HOME="$PWD/.midden" ./bin/midden start
-MIDDEN_HOME="$PWD/.midden" ./bin/midden ui
+go build -trimpath -tags=headless -o ./bin/midden ./cmd/midden
 ```
 
-To install on `PATH`:
-
-```bash
-go install ./cmd/midden
-"$(go env GOPATH)/bin/midden" version
-```
-
-If `GOBIN` is configured, use `$(go env GOBIN)` instead.
-
-## Verify the installation
-
-These checks do not call a model or mutate a source session store:
-
-```powershell
-.\bin\midden.exe version
-.\bin\midden.exe help
-.\bin\midden.exe doctor
-.\bin\midden.exe scan
-```
-
-`scan` writes Midden's local index and reads source stores. Add `--assay` when
-you are ready to classify transcript content:
-
-```powershell
-.\bin\midden.exe scan --assay
-```
-
-The first full assay can take time on a large history. Midden prints progress,
-and unchanged transcripts are skipped on later runs.
-
-## Upgrade
-
-Back up your Midden state before a major upgrade:
-
-```powershell
-Copy-Item -Recurse -LiteralPath $env:MIDDEN_HOME -Destination "$env:MIDDEN_HOME.backup"
-```
-
-Then update and rebuild:
-
-```powershell
-git pull --ff-only
-go test ./...
-go build -trimpath -o .\bin\midden.exe .\cmd\midden
-.\bin\midden.exe version
-```
-
-Migrations are applied when Midden opens its own index. Do not copy only
-`index.db` while Midden is running because SQLite may have committed data in
-`index.db-wal`. Stop Midden and copy the complete `MIDDEN_HOME` directory.
-
-## Remove
-
-Stop every running Midden UI, watcher, or MCP process. Then remove the binary:
-
-```powershell
-Remove-Item -LiteralPath .\bin\midden.exe
-```
-
-If installed with `go install`, remove `midden.exe` from `GOBIN` or
-`GOPATH\bin`.
-
-Midden does not automatically delete its state. Keep it for a future reinstall,
-rename it for backup, or remove that exact directory only after confirming its
-path:
-
-```powershell
-$env:MIDDEN_HOME
-```
-
-Never remove an existing `%USERPROFILE%\.midden` just to test a clean install.
-Set `MIDDEN_HOME` to a new directory instead.
+On Windows use `-o ./bin/midden.exe`. Omit `-tags=headless` for the experimental
+standalone binary. Building alone does not register host skills; use a release
+installer for that. See [Development](DEVELOPMENT.md) for release CI.

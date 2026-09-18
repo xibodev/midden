@@ -438,7 +438,7 @@ func TestEmbeddedUIContainsPersistentWorkbench(t *testing.T) {
 		"work_chat", "Same agent session", "session_ids", "previewEvidenceExtraction",
 		"renderTaskDock", "renderOwnedPreview", "openCleanupCandidate",
 		"recoverPageSize", "libraryPageSize", "cleanupPageSize",
-		"pageSlice", "pager", "Create video", "Browse folder",
+		"pageSlice", "pager", "Explore Facet", "related_project",
 		"workRailCollapsed", "Save & test", "send.type = 'submit'",
 		"workspaceOptions(false, true)", "over budget", "startSelectedMine",
 		"Mining ${count} selected session", "Mine complete · ${checked} checked",

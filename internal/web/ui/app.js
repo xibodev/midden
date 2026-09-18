@@ -1486,14 +1486,7 @@ function renderWorkChat(detail) {
   send.type = 'submit';
   send.disabled = state.pendingChat.has(detail.recipe.uid);
   const composerActions = el('div', 'composer-actions');
-  const montage = (state.integrations || []).find((item) => item.id === 'openmontage');
-  const video = button('Create video', 'button ghost compact',
-    () => openVideoCreation(detail).catch(showError));
-  video.disabled = state.pendingChat.has(detail.recipe.uid);
-  video.title = montage?.state === 'connected'
-    ? 'Start an OpenMontage production in this workspace-agent session'
-    : 'Set up and test OpenMontage under Tools first';
-  append(composerActions, video, send);
+  append(composerActions, send);
   append(foot, el('span', null, 'Same agent session · tools enabled · approvals stay visible'), composerActions);
   append(composer, input, foot);
   composer.addEventListener('submit', async (event) => {
@@ -1567,91 +1560,13 @@ async function submitWorkMessage(detail, question, controls = {}) {
   }
 }
 
-async function openVideoCreation(detail) {
-  await loadIntegrations();
-  const montage = state.integrations.find((item) => item.id === 'openmontage');
-  if (!montage || montage.state !== 'connected') {
-    const body = openModal('OpenMontage setup required',
-      montage?.state_detail || 'Install, configure, and test OpenMontage before starting a video production.');
-    append(body, setupGuide(
-      'Video creation is a real OpenMontage pipeline, not a Markdown video brief.',
-      [
-        'Open Tools and install or locate the official OpenMontage repository.',
-        'Select its folder, choose your AI CLI, then Save & test.',
-        'Return here; the agent will run the production through chat approvals and import the final render.',
-      ],
-      montage?.github_url || 'https://github.com/calesthio/OpenMontage'));
-    const actions = el('div', 'modal-actions');
-    append(actions, button('Cancel', 'button ghost', closeModal),
-      button('Open Tools', 'button', () => {
-        closeModal();
-        activateView('tools');
-      }));
-    body.append(actions);
-    return;
-  }
-
-  const capabilities = await post('/api/integrations/capabilities', {id: 'openmontage'});
-  const body = openModal('Create a video with OpenMontage',
-    'The workspace agent follows OpenMontage’s pipeline and pauses in this chat for required creative, runtime, provider, and spend approvals.');
-  const topic = textArea(detail.recipe.request || detail.recipe.title,
-    'Describe the video, audience, duration, tone, and source/reference footage.');
-  topic.rows = 4;
-  const pipeline = selectInput((capabilities.pipelines || []).map((name) => ({
-    value: name, label: humanStatus(name),
-  })), (capabilities.pipelines || []).includes('animated-explainer') ? 'animated-explainer' : capabilities.pipelines?.[0]);
-  const budget = textInput('2.00');
-  budget.type = 'number';
-  budget.min = '0';
-  budget.step = '0.25';
-  append(body, setupGuide(
-    'What happens next',
-    [
-      'The agent reads OpenMontage’s guide and the selected pipeline.',
-      'Preflight and meaningful production decisions appear in this Studio chat.',
-      'No unapproved paid provider call or destructive action is allowed.',
-      'The approved MP4/WebM is copied into this work item and becomes playable in the preview pane.',
-    ],
-    montage.github_url));
-  append(body, field('Video brief', topic), field('Pipeline', pipeline),
-    field('Maximum provider spend (USD)', budget));
-  const actions = el('div', 'modal-actions');
-  append(actions,
-    button('Open Backlot', 'button ghost', () => openManagedIntegration(montage).catch(showError)),
-    button('Cancel', 'button ghost', closeModal),
-    button('Start in agent chat', 'button', async () => {
-      const brief = topic.value.trim();
-      if (!brief) {
-        notice('Describe the video before starting.', 'bad');
-        return;
-      }
-      const maximumSpend = Number(budget.value);
-      if (!Number.isFinite(maximumSpend) || maximumSpend < 0) {
-        notice('Enter a valid non-negative provider spend cap.', 'bad');
-        return;
-      }
-      const message = [
-        'Create a finished video with the configured OpenMontage integration.',
-        `Pipeline: ${pipeline.value}`,
-        `Video brief: ${brief}`,
-        `Maximum provider spend: $${maximumSpend.toFixed(2)}`,
-        'Follow OpenMontage AGENT_GUIDE.md and the selected pipeline. Run preflight first.',
-        'Present required creative, composition-runtime, provider, and spend decisions in this chat before acting.',
-        'After the final render is approved, copy the MP4 or WebM and final report into the work-item deliverables directory so they are imported and previewable.',
-      ].join('\n');
-      closeModal();
-      await submitWorkMessage(detail, message);
-    }));
-  body.append(actions);
-}
-
 function renderConsole(detail) {
   const panel = el('div', 'console-panel');
   const output = el('pre', 'terminal-output');
   const history = state.consoleHistory.get(detail.recipe.uid) || [
     'controlled work-item console',
     `work item: ${detail.recipe.title}`,
-    'commands: help · status · files · evidence · runs · openmontage status',
+    'commands: help · status · files · evidence · runs',
     '',
   ];
   output.textContent = history.join('\n');
@@ -2651,7 +2566,10 @@ async function renderTools() {
     copy.append(pills);
     const managed = managedByID.get(connection.id);
     const actions = el('div', 'tool-card-actions');
-    if (managed) {
+    if (managed?.kind === 'related_project') {
+      copy.append(el('p', 'tool-state-detail', managed.state_detail));
+      actions.append(linkButton('Explore Facet', managed.github_url, 'button ghost compact'));
+    } else if (managed) {
       copy.append(el('p', 'tool-state-detail', managed.state_detail));
       actions.append(button(managed.state === 'not_set_up' ? 'Set up' : 'Edit', 'button ghost compact',
         () => configureIntegration(managed)));
@@ -2661,10 +2579,6 @@ async function renderTools() {
       }
       if (managed.id === 'open-notebook' && managed.state === 'connected' && managed.settings?.ui_url) {
         actions.append(linkButton('Open UI', managed.settings.ui_url, 'button ghost compact'));
-      }
-      if (managed.id === 'openmontage' && managed.state === 'connected') {
-        actions.append(button('Open Backlot', 'button ghost compact',
-          () => openManagedIntegration(managed).catch(showError)));
       }
       actions.append(linkButton('Guide', managed.github_url, 'button ghost compact'));
     } else if (connection.status === 'ready') {
@@ -2709,7 +2623,6 @@ async function renderTools() {
 
 function configureIntegration(item) {
   if (item.id === 'open-notebook') return configureOpenNotebook(item);
-  if (item.id === 'openmontage') return configureOpenMontage(item);
 }
 
 function configureOpenNotebook(item) {
@@ -2753,67 +2666,6 @@ function configureOpenNotebook(item) {
   body.append(actions);
 }
 
-function configureOpenMontage(item) {
-  const body = openModal('Set up OpenMontage',
-    'Connect the official local repository so Studio can run its agentic video pipelines and open Backlot.');
-  const home = textInput(item.settings?.home || '', 'Absolute path to OpenMontage');
-  const homeRow = el('div', 'input-action-row');
-  const browse = button('Browse folder…', 'button ghost', async () => {
-    browse.disabled = true;
-    browse.textContent = 'Waiting for folder…';
-    try {
-      const result = await post('/api/integrations/browse', {id: item.id, home: home.value});
-      if (result?.path) home.value = result.path;
-    } finally {
-      browse.disabled = false;
-      browse.textContent = 'Browse folder…';
-    }
-  });
-  append(homeRow, home, browse);
-  const backend = selectInput([
-    {value: 'copilot', label: 'Copilot CLI'}, {value: 'claude', label: 'Claude Code'},
-    {value: 'opencode', label: 'OpenCode'},
-  ], item.settings?.backend || 'copilot');
-  const feedback = el('div', 'setup-feedback');
-  append(body, setupGuide(
-    'Local video-production capability',
-    [
-      'Install Git, Python 3.10+, Node.js 18+, FFmpeg, and an authenticated Copilot, Claude, or OpenCode CLI.',
-      'Clone the official OpenMontage repository.',
-      'Run its Windows PowerShell setup commands (or make setup on macOS/Linux) until the local Backlot module and dependencies are ready.',
-      'Choose the repository folder below. It must contain AGENT_GUIDE.md, PROJECT_CONTEXT.md, pipeline_defs, and backlot.',
-      'Save & test verifies the repository, Python environment, Node.js, FFmpeg, selected AI CLI, Backlot, and available pipelines.',
-    ],
-    item.github_url,
-    [
-      'git clone https://github.com/calesthio/OpenMontage.git',
-      'cd OpenMontage',
-      'py -3 -m venv .venv',
-      '.\\.venv\\Scripts\\Activate.ps1',
-      'python -m pip install -r requirements.txt',
-      'cd remotion-composer; npm install; cd ..',
-    ]),
-  fieldWithHelp('OpenMontage home', homeRow, 'Select the cloned repository root, not pipeline_defs or projects.'),
-  fieldWithHelp('Agentic CLI', backend, 'Studio uses this authenticated CLI to drive OpenMontage.'),
-  feedback);
-  const actions = el('div', 'modal-actions');
-  append(actions, linkButton('Open install guide', item.github_url, 'button ghost'),
-    button('Cancel', 'button ghost', closeModal),
-    button('Save', 'button ghost', async () => {
-      await saveManagedIntegration(item, {
-        id: item.id, enabled: true, home: home.value, backend: backend.value,
-        replace_legacy: item.legacy,
-      }, false, feedback);
-    }),
-    button('Save & test', 'button', async () => {
-      await saveManagedIntegration(item, {
-        id: item.id, enabled: true, home: home.value, backend: backend.value,
-        replace_legacy: item.legacy,
-      }, true, feedback);
-    }));
-  body.append(actions);
-}
-
 function setupGuide(summary, steps, href, commands = []) {
   const guide = el('section', 'setup-guide');
   append(guide, el('strong', null, summary));
@@ -2839,11 +2691,6 @@ function fieldWithHelp(label, input, help) {
 
 async function saveManagedIntegration(item, payload, test, feedback) {
   feedback.className = 'setup-feedback';
-  if (item.id === 'openmontage' && !String(payload.home || '').trim()) {
-    feedback.textContent = 'Choose or paste the OpenMontage repository folder.';
-    feedback.classList.add('error');
-    return;
-  }
   if (item.id === 'open-notebook' && (!String(payload.api_url || '').trim() || !String(payload.ui_url || '').trim())) {
     feedback.textContent = 'Enter both the local API URL and UI URL.';
     feedback.classList.add('error');
@@ -2888,8 +2735,7 @@ async function openManagedIntegration(item) {
     window.open(item.settings.ui_url, '_blank', 'noopener,noreferrer');
     return;
   }
-  const result = await post('/api/integrations/open', {id: item.id});
-  toast(result.detail || `${item.name} is opening.`);
+  throw new Error('This project must be opened using its own supported entry point.');
 }
 
 async function probePlugins() {

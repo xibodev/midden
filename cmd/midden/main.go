@@ -29,7 +29,7 @@ func main() {
 	// `module` and `seed` are excluded for the same reason as `plugins`:
 	// they are deterministic, machine-driven surfaces, and warming the cache
 	// would create or migrate ~/.midden/index.db as a side effect.
-	if len(os.Args) < 2 || (os.Args[1] != "mcp" && os.Args[1] != "plugins" && os.Args[1] != "plugin" && os.Args[1] != "module" && os.Args[1] != "seed") {
+	if len(os.Args) < 2 || (os.Args[1] != "version" && os.Args[1] != "--version" && os.Args[1] != "-v" && os.Args[1] != "help" && os.Args[1] != "--help" && os.Args[1] != "-h" && os.Args[1] != "install" && os.Args[1] != "mcp" && os.Args[1] != "plugins" && os.Args[1] != "plugin" && os.Args[1] != "module" && os.Args[1] != "seed") {
 		index.WarmPeekCache()
 	}
 
@@ -38,7 +38,7 @@ func main() {
 	// is indistinguishable from a hang, which is exactly the failure this
 	// tool exists to notice. MCP and seed are excluded: they speak machine
 	// protocols, not to a person.
-	if len(os.Args) < 2 || (os.Args[1] != "mcp" && os.Args[1] != "seed") {
+	if len(os.Args) < 2 || (os.Args[1] != "install" && os.Args[1] != "mcp" && os.Args[1] != "seed") {
 		defer narrate()()
 	}
 

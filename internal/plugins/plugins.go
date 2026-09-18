@@ -96,7 +96,7 @@ type Poll struct {
 	States []string `yaml:"states"`
 }
 
-// The following fields model the OpenMontage declarative capability manifest.
+// The following fields model declarative external capability manifests.
 // Midden does not execute it yet, but KnownFields must understand the schema
 // it advertises so a typo is rejected while legitimate configuration remains
 // loadable.
@@ -242,6 +242,11 @@ func LoadDir(dir string) ([]Loaded, error) {
 		}
 
 		declaredName := manifestDeclaredName(data)
+		// Retired built-in video manifests must not reappear as generic actions.
+		// Keep the user's file intact, but do not load or probe it.
+		if strings.EqualFold(strings.TrimSpace(declaredName), "openmontage") {
+			continue
+		}
 		var manifest Manifest
 		decoder := yaml.NewDecoder(bytes.NewReader(data))
 		decoder.KnownFields(true)
@@ -676,7 +681,7 @@ func isLoopbackHost(host string) bool {
 }
 
 // safeDirectoryTarget preserves a configured variable name but never the
-// expanded value. A manifest can name ${OPENMONTAGE_HOME}, but it must not be
+// expanded value. A manifest can name ${CAPABILITY_HOME}, but it must not be
 // able to expand ${AWS_SECRET_ACCESS_KEY} and return that ambient secret
 // through the CLI or browser API.
 func safeDirectoryTarget(raw string) string {

@@ -48,6 +48,10 @@ def main():
                 raise SystemExit(f'Descriptor content mismatch: {relative}')
             content.append((source, relative.as_posix()))
         assets = []
+        for script in ('install.ps1', 'install.sh', 'installer/manifest.tsv'):
+            target = args.out / Path(script).name
+            target.write_bytes((root / script).read_bytes())
+            assets.append(target)
         for target in args.targets:
             goos, goarch = target.split('/')
             for variant in ('standalone', 'headless'):

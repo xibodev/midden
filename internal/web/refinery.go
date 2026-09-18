@@ -975,18 +975,22 @@ func (s *Server) handleRefineryConnections(w http.ResponseWriter, r *http.Reques
 	if err == nil {
 		for _, item := range managed {
 			category, outcome := "Knowledge and destinations", "Private notebook and audio"
-			if item.ID == "openmontage" {
+			if item.ID == "facet" {
 				category, outcome = "Video", "Rendered video production"
 			}
 			status := item.State
 			if status == "connected" {
 				status = "ready"
 			}
+			action := "Configure or test"
+			if item.ID == "facet" {
+				action = "Explore sister project"
+			}
 			connections = append(connections, refineryConnectionView{
 				ID: item.ID, Category: category, Name: item.Name,
 				Description: item.Description, Outcome: outcome, Status: status,
-				Detail: item.StateDetail, Cost: item.Cost, Action: "Configure or test",
-				Managed: true,
+				Detail: item.StateDetail, Cost: item.Cost, Action: action,
+				Managed: item.ID != "facet",
 			})
 		}
 	}

@@ -119,7 +119,7 @@ For human testing, exercise:
 - keyboard-only navigation;
 - persistent Studio workspace-agent turns, shell/tool execution in the bounded
   work area, controlled Console, collapsible work-item selection, and budget state;
-- OpenMontage setup/test, Backlot launch, video handoff import, and MP4 preview;
+- generic media handoff import and MP4 preview;
 - Recover with no assay, exact-session assay, recovery history, and reclaimed-evidence states;
 - structured JSONL review and filtered provenance;
 - Library filters, downloads, Activity history, and Cleanup eligibility;
@@ -152,15 +152,37 @@ it is not part of the build or installation.
 
 ## Release check
 
-Before a release:
+Installer tests belong to release-cutting CI. `.github/workflows/validate.yml`
+runs the lifecycle/download fixtures on GitHub-hosted Windows, Linux, and native
+macOS, plus Go tests, vet, and headless checks. Standard hosted runners are free
+for public repositories; use bounded jobs and cancel superseded validation.
+
+`.github/workflows/release.yml` runs on `v*` tags. It requires validation, builds
+all five OS/architecture targets in both variants from a clean checkout, checks
+checksums and archive contents, and smoke-tests native release binaries on all
+three operating systems before publishing a preview release. Installer scripts,
+the shared manifest, `build-manifest.json`, and `SHA256SUMS` are release assets.
+Never upload workstation builds as a substitute for these release gates.
+
+To cut a release, update `internal/core/identity.go` and the descriptor fixture,
+review documentation, commit, and push an authorized `vX.Y.Z` tag. The pipeline
+checks tag/version consistency. A failed job blocks publication. Fix the source
+and cut a new version rather than replacing a published tag or its assets.
+Live CLI acceptance remains separate from offline installer mechanics.
+
+For proportional local validation before pushing:
 
 ```powershell
 go fmt ./...
 go vet ./...
 go test ./...
-go build -trimpath -o .\bin\midden.exe .\cmd\midden
-.\bin\midden.exe version
+python scripts/test-installers.py --shell powershell --program pwsh
 ```
+
+On Linux/macOS use `python3 scripts/test-installers.py --shell bash --program /bin/bash`.
+The Pages workflow deploys only the landing-page HTML, stylesheet, and icon,
+not private local state or the whole documentation tree. Roll back website
+changes with a reviewed revert on `main`; release downloads remain versioned.
 
 For subjective UX feedback, optionally run the clean-clone procedure in
 [the manual walkthrough](ACCEPTANCE_TEST.md) using a new `MIDDEN_HOME`.

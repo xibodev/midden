@@ -44,8 +44,6 @@ type integrationSettingsView struct {
 	APIURL           string `json:"api_url,omitempty"`
 	UIURL            string `json:"ui_url,omitempty"`
 	PasswordRequired bool   `json:"password_required"`
-	Home             string `json:"home,omitempty"`
-	Backend          string `json:"backend,omitempty"`
 }
 
 type integrationWriteRequest struct {
@@ -54,8 +52,6 @@ type integrationWriteRequest struct {
 	APIURL           string `json:"api_url"`
 	UIURL            string `json:"ui_url"`
 	PasswordRequired bool   `json:"password_required"`
-	Home             string `json:"home"`
-	Backend          string `json:"backend"`
 	ReplaceLegacy    bool   `json:"replace_legacy"`
 }
 
@@ -336,12 +332,6 @@ func (s *Server) handleIntegrationRemove(w http.ResponseWriter, r *http.Request)
 			return
 		}
 		config.OpenNotebook = nil
-	case integrations.OpenMontageID:
-		if config.OpenMontage == nil {
-			http.Error(w, "OpenMontage is not managed in Settings", http.StatusNotFound)
-			return
-		}
-		config.OpenMontage = nil
 	default:
 		http.Error(w, "unknown integration", http.StatusBadRequest)
 		return
@@ -399,10 +389,6 @@ func (s *Server) handleIntegrationTest(w http.ResponseWriter, r *http.Request) {
 			config.OpenNotebook.LastVerified = now
 			config.OpenNotebook.LastStatus = result.Status
 			config.OpenNotebook.LastDetail = result.Detail
-		case integrations.OpenMontageID:
-			config.OpenMontage.LastVerified = now
-			config.OpenMontage.LastStatus = result.Status
-			config.OpenMontage.LastDetail = result.Detail
 		}
 		if err := integrations.Save(root, config); err != nil {
 			http.Error(w, "save test result: "+err.Error(), http.StatusInternalServerError)
@@ -425,8 +411,6 @@ func testIntegration(ctx context.Context, id string, manifest plugins.Manifest) 
 			return plugins.Result{Status: plugins.Unavailable, Detail: err.Error()}
 		}
 		return verified.Result
-	case integrations.OpenMontageID:
-		return testOpenMontage(ctx, manifest)
 	default:
 		return plugins.Result{Status: plugins.Unavailable, Detail: "unknown integration"}
 	}
@@ -478,17 +462,9 @@ func (s *Server) integrationViews() ([]setupIntegrationView, error) {
 			} else if item, ok := legacy[entry.ID]; ok {
 				setLegacyIntegrationState(&view, item)
 			}
-		case integrations.OpenMontageID:
-			if config.OpenMontage != nil {
-				view.Enabled = config.OpenMontage.Enabled
-				view.Settings = integrationSettingsView{
-					Home:    config.OpenMontage.Home,
-					Backend: config.OpenMontage.Backend,
-				}
-				setManagedIntegrationState(&view, config.OpenMontage.Enabled, config.OpenMontage.LastVerified, config.OpenMontage.LastStatus, config.OpenMontage.LastDetail)
-			} else if item, ok := legacy[entry.ID]; ok {
-				setLegacyIntegrationState(&view, item)
-			}
+		case integrations.FacetID:
+			view.State = "separate_project"
+			view.StateDetail = entry.InstallSummary
 		}
 		if view.Legacy {
 			if checked, ok := s.legacyTest(entry.ID); ok {
@@ -585,11 +561,6 @@ func (s *Server) effectiveIntegration(id string) (plugins.Manifest, bool, error)
 			manifest, err := integrations.OpenNotebookManifest(*config.OpenNotebook)
 			return manifest, true, err
 		}
-	case integrations.OpenMontageID:
-		if config.OpenMontage != nil {
-			manifest, err := integrations.OpenMontageManifest(*config.OpenMontage)
-			return manifest, true, err
-		}
 	default:
 		return plugins.Manifest{}, false, fmt.Errorf("unknown integration %q", id)
 	}
@@ -611,7 +582,7 @@ func loadLegacyIntegrations(root string) (map[string]legacyIntegration, error) {
 	out := map[string]legacyIntegration{}
 	for _, item := range loaded {
 		name := item.Manifest.Name
-		if name != integrations.OpenNotebookID && name != integrations.OpenMontageID {
+		if name != integrations.OpenNotebookID {
 			continue
 		}
 		if existing, exists := out[name]; exists {
@@ -637,8 +608,6 @@ func integrationConfigured(config integrations.Config, id string) bool {
 	switch id {
 	case integrations.OpenNotebookID:
 		return config.OpenNotebook != nil
-	case integrations.OpenMontageID:
-		return config.OpenMontage != nil
 	default:
 		return false
 	}
@@ -654,12 +623,6 @@ func applyIntegrationSettings(config *integrations.Config, req integrationWriteR
 			PasswordRequired: req.PasswordRequired,
 		}
 
-	case integrations.OpenMontageID:
-		config.OpenMontage = &integrations.OpenMontageSettings{
-			Enabled: req.Enabled,
-			Home:    req.Home,
-			Backend: req.Backend,
-		}
 	default:
 		return fmt.Errorf("unknown integration %q", req.ID)
 	}
@@ -673,12 +636,6 @@ func validateIntegrationSettings(config integrations.Config, id string) error {
 			return fmt.Errorf("Open Notebook settings are required")
 		}
 		_, err := integrations.OpenNotebookManifest(*config.OpenNotebook)
-		return err
-	case integrations.OpenMontageID:
-		if config.OpenMontage == nil {
-			return fmt.Errorf("OpenMontage settings are required")
-		}
-		_, err := integrations.OpenMontageManifest(*config.OpenMontage)
 		return err
 	default:
 		return fmt.Errorf("unknown integration %q", id)
@@ -703,19 +660,6 @@ func adoptLegacyIntegration(config *integrations.Config, id string, manifest plu
 			return fmt.Errorf("cannot adopt Open Notebook settings: %w", err)
 		}
 		config.OpenNotebook = &settings
-	case integrations.OpenMontageID:
-		settings := integrations.OpenMontageSettings{
-			Enabled: manifest.IsEnabled(),
-			Home:    manifest.Runs.Cwd,
-			Backend: manifest.Runs.Backend,
-		}
-		if strings.Contains(settings.Home, "${") {
-			return fmt.Errorf("the advanced OpenMontage setup uses an environment variable; enter a concrete folder in Settings instead")
-		}
-		if err := integrations.ValidateOpenMontage(settings); err != nil {
-			return fmt.Errorf("cannot adopt OpenMontage settings: %w", err)
-		}
-		config.OpenMontage = &settings
 	default:
 		return fmt.Errorf("unknown integration %q", id)
 	}
@@ -857,8 +801,8 @@ func integrationName(id string) string {
 	switch id {
 	case integrations.OpenNotebookID:
 		return "Open Notebook"
-	case integrations.OpenMontageID:
-		return "OpenMontage"
+	case integrations.FacetID:
+		return "Facet"
 	default:
 		return id
 	}
