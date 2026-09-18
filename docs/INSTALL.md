@@ -13,11 +13,38 @@ The standalone browser application is experimental. Version **0.2.0** is a previ
 Go, Git, Node, and a database server are not required for prebuilt installation.
 The scripts check host executables, but cannot prove that a host login or model works.
 
-## Download and verify
+## One-line install
+
+Windows (PowerShell 7 installed):
+
+```powershell
+irm https://xibodev.github.io/midden/install.ps1 | iex
+```
+
+Linux/macOS (run in an interactive terminal):
+
+```bash
+curl -fsSL https://xibodev.github.io/midden/install.sh | bash
+```
+
+These small entry points fetch the v0.2.0 release installer and manifest into a
+temporary directory, verify both against `SHA256SUMS`, and launch the saved
+installer. That installer verifies the platform archive. Temporary downloads
+are cleaned up when setup finishes or fails. Bash prompts read `/dev/tty`, so
+they work even though the bootstrap arrives through a pipe. The one-liner trusts
+the HTTPS-hosted entry point; checksum verification starts with its release downloads.
+
+For repeatable automation or lifecycle flags, save the entry point first and
+run `pwsh -File ./bootstrap.ps1 -Verify` or `bash ./bootstrap.sh --verify`.
+Arguments are forwarded to the versioned installer. Use `--yes` with explicit
+host choices for Bash automation without a terminal.
+
+## Download and verify manually
 
 From [v0.2.0 release assets](https://github.com/xibodev/midden/releases/tag/v0.2.0),
 save the platform installer, `manifest.tsv`, and `SHA256SUMS` in one directory.
-Run commands from that directory. Do not pipe a downloaded script into a shell.
+Run commands from that directory. These release scripts need the adjacent
+manifest; the Pages one-line entry points fetch that pair for you.
 
 PowerShell 7 (Windows):
 

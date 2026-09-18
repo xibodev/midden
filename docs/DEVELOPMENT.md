@@ -180,9 +180,12 @@ python scripts/test-installers.py --shell powershell --program pwsh
 ```
 
 On Linux/macOS use `python3 scripts/test-installers.py --shell bash --program /bin/bash`.
-The Pages workflow deploys only the landing-page HTML, stylesheet, and icon,
+The Pages workflow gates deployment on native bootstrap tests and deploys only
+the landing-page HTML, stylesheet, icon, and two bootstrap scripts,
 not private local state or the whole documentation tree. Roll back website
 changes with a reviewed revert on `main`; release downloads remain versioned.
+The bootstraps pin a published release. Update that pin only after the new release
+assets exist; do not mutate old release assets to change the one-line install.
 
 For subjective UX feedback, optionally run the clean-clone procedure in
 [the manual walkthrough](ACCEPTANCE_TEST.md) using a new `MIDDEN_HOME`.

@@ -13,6 +13,8 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  bootstraps:
+    uses: ./.github/workflows/bootstraps.yml
   installers:
     strategy:
       fail-fast: false

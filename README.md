@@ -20,20 +20,21 @@ recommended route. The standalone browser application is experimental.**
 ## Install for your agentic CLI
 
 Install and authenticate GitHub Copilot CLI, Claude Code, or OpenCode first.
-Download `install.ps1` (Windows) or `install.sh` (Linux/macOS), `manifest.tsv`,
-and `SHA256SUMS` from the same [v0.2.0 release](https://github.com/xibodev/midden/releases/tag/v0.2.0).
-Keep the script and manifest together. Verify their checksums using the
-[installation guide](docs/INSTALL.md), then run:
+Run the one-line installer in your terminal:
 
 ```powershell
 # Windows, PowerShell 7+
-pwsh -NoProfile -File ./install.ps1 -Version v0.2.0
+irm https://xibodev.github.io/midden/install.ps1 | iex
 ```
 
 ```bash
 # Linux/macOS, Bash 3.2+, curl and tar
-bash ./install.sh --version v0.2.0
+curl -fsSL https://xibodev.github.io/midden/install.sh | bash
 ```
+
+The entry points download the **v0.2.0** installer and manifest, verify both
+against the release checksums, then open interactive setup. For manual downloads
+or explicit lifecycle options, see [Install](docs/INSTALL.md).
 
 The interactive scripts select your CLI hosts, personal or project skill scope,
 binary and state directories, optional dependencies, and PATH setup. They download
