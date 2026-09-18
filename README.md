@@ -53,10 +53,10 @@ Pandoc adds editable PowerPoint/HTML rendering; D2 adds SVG diagrams. Both are
 optional, separately installed tools. Package managers confirm actual sizes and
 versions; unavailable size information is shown as not reported.
 
-Restart your CLI to discover `midden-session-recovery`, then ask:
+Restart your CLI to discover `midden-editorial-production`, then ask:
 
-> Use midden-session-recovery to assay this project's sessions and help me choose
-> evidence for a blog post and presentation. Ask before extracting or writing.
+> Use midden-editorial-production to investigate these sessions and compare
+> worthwhile stories. Help me choose an audience and outcome before drafting.
 
 Your CLI owns the model, authentication, and permissions. Midden supplies the
 recovery operations, evidence, content composition, and provenance. Inspect
@@ -64,7 +64,8 @@ generated claims and drafts before publication. Installer tests do not certify
 live behavior in every host; cross-host acceptance remains in progress.
 
 See [Install](docs/INSTALL.md) for verification, upgrades, removal, and source
-builds; [Getting started](docs/GETTING_STARTED.md) for your first recovery.
+builds; [Editorial workflow](docs/EDITORIAL_WORKFLOW.md) for the agent-first
+journey. `midden-session-recovery` remains available for recovery-only work.
 
 ## Experimental standalone journey
 

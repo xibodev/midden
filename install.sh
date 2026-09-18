@@ -441,5 +441,5 @@ shadow=$(command -v midden || true)
 if [[ -n "$shadow" && "$shadow" != "$install_dir/midden" ]]; then step notice "Another midden is on PATH: $shadow. This install: $install_dir/midden"; fi
 printf '\n  Open a new terminal in your project and launch:\n'
 for id in ${hosts//,/ }; do printf '    %s   (%s)\n' "$(field host "$id" 3)" "$(field host "$id" 6)"; done
-printf '\n  Then ask: Use midden-session-recovery to assay this project’s sessions.\n  Help me choose evidence for a blog post. Ask before extracting or writing.\n'
+printf '\n  Then ask: Use midden-editorial-production to investigate this project’s sessions.\n  Compare worthwhile stories, audiences, evidence, and gaps before drafting.\n'
 printf '\n  Manage this install with the same installer: --verify, --upgrade, --uninstall.\n'

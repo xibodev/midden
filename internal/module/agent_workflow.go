@@ -85,7 +85,7 @@ func addAgentCapabilities(d *Descriptor) {
 		requestID := "xibodev.midden." + c.ID + ".request/v1"
 		resultID := "xibodev.midden." + c.ID + ".result/v1"
 		d.Capabilities = append(d.Capabilities, Capability{ID: c.ID, Title: c.ID, Summary: c.Summary, RequestSchema: requestID,
-			ResultSchema: resultID, Effects: Effects{Local: true, CostKnown: true}, Skills: []string{SkillEvidenceSelection}})
+			ResultSchema: resultID, Effects: Effects{Local: true, CostKnown: true}, Skills: []string{SkillEditorial, SkillEvidenceSelection}})
 		d.RequestSchemas[requestID] = typedSchema(requestID, c.Input)
 		d.ResultSchemas[resultID] = typedSchema(resultID, c.Output)
 	}

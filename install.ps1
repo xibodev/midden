@@ -412,7 +412,7 @@ try {
     if($shadow -and $shadow.Source -ne $binary){Step 'notice' "Another midden is on PATH: $($shadow.Source). This install: $binary"}
     Write-Host "`n  Open a new terminal in your project and launch:"
     foreach($id in $Hosts){Write-Host "    $($hostRows[$id][2])   ($($hostRows[$id][5]))"}
-    Write-Host "`n  Then ask: Use midden-session-recovery to assay this project's sessions.`n  Help me choose evidence for a blog post. Ask before extracting or writing."
+    Write-Host "`n  Then ask: Use midden-editorial-production to investigate this project's sessions.`n  Compare worthwhile stories, audiences, evidence, and gaps before drafting."
     Write-Host "`n  Manage this install with the same installer: -Verify, -Upgrade, -Uninstall."
 } finally {
     if(-not $committed -and $pathChanged){[Environment]::SetEnvironmentVariable('Path',$pathBefore,'User')}

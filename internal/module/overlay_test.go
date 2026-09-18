@@ -65,6 +65,7 @@ func TestEmbeddedContentMatchesPublishedFiles(t *testing.T) {
 		pathSkillRecovery,
 		pathSkillEvidence,
 		pathSkillSeed,
+		pathSkillEditorial,
 	} {
 		published, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(path)))
 		if err != nil {

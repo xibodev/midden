@@ -21,7 +21,7 @@ import (
 // module directory finds them. A test asserts the two are byte-identical, so
 // the copy cannot silently drift from the published document.
 //
-//go:embed content/agents/midden-recovery.md content/skills/session-recovery/SKILL.md content/skills/evidence-selection/SKILL.md content/skills/content-seed/SKILL.md
+//go:embed content/agents/midden-recovery.md content/skills/session-recovery/SKILL.md content/skills/evidence-selection/SKILL.md content/skills/content-seed/SKILL.md content/skills/editorial-production/SKILL.md
 var overlayFS embed.FS
 
 // Overlay and skill IDs.
@@ -31,6 +31,7 @@ const (
 	SkillSessionRecovery   = "midden.session-recovery"
 	SkillEvidenceSelection = "midden.evidence-selection"
 	SkillContentSeed       = "midden.content-seed"
+	SkillEditorial         = "midden.editorial-production"
 )
 
 // Paths are relative to the module root, as the protocol requires: a module
@@ -40,6 +41,7 @@ const (
 	pathSkillRecovery   = "skills/session-recovery/SKILL.md"
 	pathSkillEvidence   = "skills/evidence-selection/SKILL.md"
 	pathSkillSeed       = "skills/content-seed/SKILL.md"
+	pathSkillEditorial  = "skills/editorial-production/SKILL.md"
 )
 
 // embedPath maps a declared module-relative path to its embedded copy.
@@ -86,6 +88,12 @@ func skills() []Skill {
 		id, title, summary, path string
 	}{
 		{
+			SkillEditorial,
+			"Editorial production",
+			"Use when discovering stories, lessons, content opportunities, or long-form projects in agentic history.",
+			pathSkillEditorial,
+		},
+		{
 			SkillSessionRecovery,
 			"Recovering a session",
 			"Finding, assaying and carrying forward a session that cannot be resumed.",
@@ -128,7 +136,7 @@ func skills() []Skill {
 // exactly the kind of capability that must not appear by accident.
 func OverlayContent(path string) ([]byte, bool) {
 	switch strings.TrimSpace(path) {
-	case pathOverlayRecovery, pathSkillRecovery, pathSkillEvidence, pathSkillSeed:
+	case pathOverlayRecovery, pathSkillRecovery, pathSkillEvidence, pathSkillSeed, pathSkillEditorial:
 		raw, err := overlayFS.ReadFile(embedPath(path))
 		if err != nil {
 			return nil, false
@@ -159,7 +167,7 @@ func CLISkillContent(path string) ([]byte, bool) {
 		return nil, false
 	}
 	out := append([]byte(nil), raw...)
-	if path == pathSkillRecovery {
+	if path == pathSkillRecovery || path == pathSkillEditorial {
 		out = append(out, []byte("\n\n## Recovery capability guidance\n\n")...)
 		out = append(out, mustRead(pathOverlayRecovery)...)
 	}

@@ -17,6 +17,7 @@ host	copilot-cli	copilot	.copilot/skills	.github/skills	GitHub Copilot CLI	https
 host	claude-code	claude	.claude/skills	.claude/skills	Claude Code	https://code.claude.com/docs/en/setup
 host	opencode	opencode	.config/opencode/skills	.opencode/skills	OpenCode	https://opencode.ai/docs/
 # skills: directory, canonical bundle path
+skill	midden-editorial-production	skills/editorial-production/SKILL.md
 skill	midden-session-recovery	skills/session-recovery/SKILL.md
 skill	midden-evidence-selection	skills/evidence-selection/SKILL.md
 skill	midden-content-seed	skills/content-seed/SKILL.md

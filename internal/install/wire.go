@@ -29,6 +29,7 @@ var bundle = []struct {
 	dir  string
 	path string
 }{
+	{"midden-editorial-production", "skills/editorial-production/SKILL.md"},
 	{"midden-session-recovery", "skills/session-recovery/SKILL.md"},
 	{"midden-evidence-selection", "skills/evidence-selection/SKILL.md"},
 	{"midden-content-seed", "skills/content-seed/SKILL.md"},

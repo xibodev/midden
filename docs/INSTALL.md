@@ -132,7 +132,8 @@ profile. The state directory is created when recovery needs it, not by installat
 
 The scripts install three canonical skills, recovery guidance, and an absolute
 binary/state binding. They do not change host model settings or grant permissions.
-Restart the host if needed to discover `midden-session-recovery`.
+Restart the host if needed to discover `midden-editorial-production` for the
+source-to-content journey, or `midden-session-recovery` for recovery only.
 
 ### Optional dependencies
 

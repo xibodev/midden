@@ -3,10 +3,14 @@
 ## Recommended: inside your agentic CLI
 
 Follow [Install](INSTALL.md), restart your selected host, and ask it to use
-`midden-session-recovery`:
+`midden-editorial-production`:
 
-> Assay this project's sessions. Show the strongest evidence for a blog post and
-> presentation. Ask before extracting evidence or writing drafts.
+> Investigate these sessions. Compare the stories worth telling, their audiences,
+> evidence, corrections, gaps, and risks. Help me choose one before drafting.
+
+Follow the [agent-first editorial workflow](EDITORIAL_WORKFLOW.md) for exact
+tools, host-authored extraction, project checkpoints, review, and delivery.
+Use `midden-session-recovery` when the goal is only to recover lost context.
 
 Start with one closed session or a narrow project scope. Review the proposed
 evidence, redact anything private, and approve only claims the sources support.
