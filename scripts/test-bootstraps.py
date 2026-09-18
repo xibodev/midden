@@ -22,7 +22,7 @@ def main():
         (downloads / 'manifest.tsv').write_text('fixture manifest\n')
         if windows:
             body = '''param([string]$Version,[string]$Probe)
-if ($Version -ne 'v0.2.1' -or $Probe -ne [string]$env:TEST_PROBE) { throw 'arguments lost' }
+if ($Version -ne 'v0.2.2' -or $Probe -ne [string]$env:TEST_PROBE) { throw 'arguments lost' }
 if (!(Test-Path (Join-Path $PSScriptRoot 'manifest.tsv'))) { throw 'manifest missing' }
 Set-Content -LiteralPath $env:TEST_MARKER -Value 'invoked'
 exit ([int]$env:TEST_EXIT)
@@ -30,7 +30,7 @@ exit ([int]$env:TEST_EXIT)
         else:
             body = '''#!/usr/bin/env bash
 set -eu
-test "$1" = --version && test "$2" = v0.2.1
+test "$1" = --version && test "$2" = v0.2.2
 shift 2
 test -f "$(dirname "$0")/manifest.tsv"
 if [[ "$1" = --interactive ]]; then
