@@ -495,6 +495,13 @@ func TestAttachmentConfinementIsResolvedNotLexical(t *testing.T) {
 	// but whose resolved location is elsewhere — what a symlink produces.
 	inside := filepath.Join(root, "innocent.txt")
 	elsewhere := filepath.Join(outside, "secret.txt")
+	// Existing files let both paths resolve consistently on Windows runners
+	// whose temporary directory has a short-name or junction alias.
+	for _, path := range []string{inside, elsewhere} {
+		if err := os.WriteFile(path, []byte("synthetic fixture"), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
 
 	if pathEscapesRoot(inside, root) {
 		t.Error("a path genuinely inside the root was reported as escaping")
