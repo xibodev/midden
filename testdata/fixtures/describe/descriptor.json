@@ -278,7 +278,7 @@
       {
         "id": "recipes.evidence",
         "title": "Select plan evidence",
-        "summary": "Save an exact evidence set. Use decision approved only after the user reviews that set; approval does not produce outputs.",
+        "summary": "Save an exact evidence set. An approved decision requires a trusted host operator-confirmation channel; plain CLI/model assertions leave review pending. Approval does not produce outputs.",
         "request_schema": "xibodev.midden.recipes.evidence.request/v1",
         "result_schema": "xibodev.midden.recipes.evidence.result/v1",
         "artifact_schemas": [],
@@ -336,9 +336,29 @@
         "long_running": false
       },
       {
+        "id": "outputs.audit",
+        "title": "Audit draft source support",
+        "summary": "Check citation scope, passage coverage and exact quotations without changing the draft. Valid references are not semantic proof; inspect the actual source support before requesting operator review.",
+        "request_schema": "xibodev.midden.outputs.audit.request/v1",
+        "result_schema": "xibodev.midden.outputs.audit.result/v1",
+        "artifact_schemas": [],
+        "effects": {
+          "local": true,
+          "network": false,
+          "external_writes": false,
+          "provider": "",
+          "cost_known": true
+        },
+        "skills": [
+          "midden.evidence-selection",
+          "midden.content-seed"
+        ],
+        "long_running": false
+      },
+      {
         "id": "outputs.review",
         "title": "Revise or review an output",
-        "summary": "Save revised draft text or a user's review decision (draft, reviewed, rejected). Supply expected_digest from inspection to reject stale reviews.",
+        "summary": "Revise a draft or request host-confirmed operator review. Supply expected_digest and, for approval, review_notes after outputs.audit. Omitting body reviews existing content. Unsupported confirmation leaves it pending.",
         "request_schema": "xibodev.midden.outputs.review.request/v1",
         "result_schema": "xibodev.midden.outputs.review.result/v1",
         "artifact_schemas": [],
@@ -420,7 +440,7 @@
       {
         "id": "evidence.prepare",
         "title": "evidence.prepare",
-        "summary": "Prepare bounded, redacted source excerpts for the host agent. Exact source required; no model or writes.",
+        "summary": "Orient across an exact session, including its beginning and end. Persist a bounded redacted packet with chronology and cumulative read budget. No model; source stores remain read-only.",
         "request_schema": "xibodev.midden.evidence.prepare.request/v1",
         "result_schema": "xibodev.midden.evidence.prepare.result/v1",
         "artifact_schemas": [],
@@ -438,9 +458,89 @@
         "long_running": false
       },
       {
+        "id": "evidence.read",
+        "title": "evidence.read",
+        "summary": "Read fuller context around 1..4 records from a stored packet, within the same source snapshot and cumulative budget. Metadata is not treated as conversation.",
+        "request_schema": "xibodev.midden.evidence.read.request/v1",
+        "result_schema": "xibodev.midden.evidence.read.result/v1",
+        "artifact_schemas": [],
+        "effects": {
+          "local": true,
+          "network": false,
+          "external_writes": false,
+          "provider": "",
+          "cost_known": true
+        },
+        "skills": [
+          "midden.editorial-production",
+          "midden.evidence-selection"
+        ],
+        "long_running": false
+      },
+      {
+        "id": "evidence.search",
+        "title": "evidence.search",
+        "summary": "Search an exact packet's source snapshot for a literal phrase. Return representative early and late matches within a cumulative read budget; no full transcript dump.",
+        "request_schema": "xibodev.midden.evidence.search.request/v1",
+        "result_schema": "xibodev.midden.evidence.search.result/v1",
+        "artifact_schemas": [],
+        "effects": {
+          "local": true,
+          "network": false,
+          "external_writes": false,
+          "provider": "",
+          "cost_known": true
+        },
+        "skills": [
+          "midden.editorial-production",
+          "midden.evidence-selection"
+        ],
+        "long_running": false
+      },
+      {
+        "id": "evidence.validate",
+        "title": "evidence.validate",
+        "summary": "Validate a proposed extraction against a stored packet without storing evidence. Use for diagnostics instead of inserting test items.",
+        "request_schema": "xibodev.midden.evidence.validate.request/v1",
+        "result_schema": "xibodev.midden.evidence.validate.result/v1",
+        "artifact_schemas": [],
+        "effects": {
+          "local": true,
+          "network": false,
+          "external_writes": false,
+          "provider": "",
+          "cost_known": true
+        },
+        "skills": [
+          "midden.editorial-production",
+          "midden.evidence-selection"
+        ],
+        "long_running": false
+      },
+      {
+        "id": "evidence.extend_budget",
+        "title": "evidence.extend_budget",
+        "summary": "Request an operator-confirmed increase of this investigation's cumulative source-text budget, at most 1 MiB. Unsupported or cancelled host confirmation leaves it unchanged.",
+        "request_schema": "xibodev.midden.evidence.extend_budget.request/v1",
+        "result_schema": "xibodev.midden.evidence.extend_budget.result/v1",
+        "artifact_schemas": [],
+        "effects": {
+          "local": true,
+          "network": false,
+          "external_writes": false,
+          "provider": "",
+          "cost_known": true
+        },
+        "skills": [
+          "midden.editorial-production",
+          "midden.evidence-selection"
+        ],
+        "long_running": false
+      },
+      {
         "id": "evidence.compose",
         "title": "evidence.compose",
-        "summary": "Validate source-record citations and store host-authored extraction. Requires the current packet digest; never calls a model.",
+        "summary": "Validate source-record citations and exact quotations, then store host-authored extraction from packet_id. No reconstruction of read parameters or source rescan; no model call.",
         "request_schema": "xibodev.midden.evidence.compose.request/v1",
         "result_schema": "xibodev.midden.evidence.compose.result/v1",
         "artifact_schemas": [],
@@ -563,6 +663,26 @@
         "summary": "Store host-authored editorial analysis after validating claims, source references, reversals and chapter dependencies. Not editorial approval.",
         "request_schema": "xibodev.midden.editorial.analyze.request/v1",
         "result_schema": "xibodev.midden.editorial.analyze.result/v1",
+        "artifact_schemas": [],
+        "effects": {
+          "local": true,
+          "network": false,
+          "external_writes": false,
+          "provider": "",
+          "cost_known": true
+        },
+        "skills": [
+          "midden.editorial-production",
+          "midden.evidence-selection"
+        ],
+        "long_running": false
+      },
+      {
+        "id": "editorial.validate",
+        "title": "editorial.validate",
+        "summary": "Check the complete proposed analysis without saving. Returns all field-path issues and preserves the meaning of refuting evidence.",
+        "request_schema": "xibodev.midden.editorial.validate.request/v1",
+        "result_schema": "xibodev.midden.editorial.validate.result/v1",
         "artifact_schemas": [],
         "effects": {
           "local": true,
@@ -807,6 +927,7 @@
                           "enum": [
                             "supported",
                             "contested",
+                            "refuted",
                             "unverified"
                           ],
                           "type": "string"
@@ -1088,6 +1209,391 @@
         ],
         "type": "object"
       },
+      "xibodev.midden.editorial.validate.request/v1": {
+        "$id": "xibodev.midden.editorial.validate.request/v1",
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "analysis": {
+            "anyOf": [
+              {
+                "additionalProperties": false,
+                "properties": {
+                  "arcs": {
+                    "items": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "evidence_ids": {
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
+                        },
+                        "id": {
+                          "type": "string"
+                        },
+                        "summary": {
+                          "type": "string"
+                        },
+                        "title": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "title",
+                        "summary",
+                        "evidence_ids"
+                      ],
+                      "type": "object"
+                    },
+                    "type": "array"
+                  },
+                  "assets": {
+                    "items": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "availability": {
+                          "enum": [
+                            "referenced",
+                            "missing"
+                          ],
+                          "type": "string"
+                        },
+                        "cluster": {
+                          "type": "string"
+                        },
+                        "evidence_id": {
+                          "type": "string"
+                        },
+                        "id": {
+                          "type": "string"
+                        },
+                        "kind": {
+                          "enum": [
+                            "image",
+                            "code",
+                            "document",
+                            "diagram",
+                            "video",
+                            "other"
+                          ],
+                          "type": "string"
+                        },
+                        "label": {
+                          "type": "string"
+                        },
+                        "locator": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "label",
+                        "kind",
+                        "evidence_id",
+                        "locator",
+                        "availability"
+                      ],
+                      "type": "object"
+                    },
+                    "type": "array"
+                  },
+                  "chapters": {
+                    "items": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "depends_on": {
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
+                        },
+                        "id": {
+                          "type": "string"
+                        },
+                        "notes": {
+                          "type": "string"
+                        },
+                        "opportunity_id": {
+                          "type": "string"
+                        },
+                        "output_id": {
+                          "type": "string"
+                        },
+                        "status": {
+                          "enum": [
+                            "planned",
+                            "drafting",
+                            "review",
+                            "complete"
+                          ],
+                          "type": "string"
+                        },
+                        "title": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "title",
+                        "opportunity_id",
+                        "status"
+                      ],
+                      "type": "object"
+                    },
+                    "type": "array"
+                  },
+                  "claims": {
+                    "items": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "contradicting_ids": {
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
+                        },
+                        "id": {
+                          "type": "string"
+                        },
+                        "status": {
+                          "enum": [
+                            "supported",
+                            "contested",
+                            "refuted",
+                            "unverified"
+                          ],
+                          "type": "string"
+                        },
+                        "supporting_ids": {
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
+                        },
+                        "text": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "text",
+                        "status",
+                        "supporting_ids"
+                      ],
+                      "type": "object"
+                    },
+                    "type": "array"
+                  },
+                  "decisions": {
+                    "items": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "evidence_ids": {
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
+                        },
+                        "id": {
+                          "type": "string"
+                        },
+                        "rationale": {
+                          "type": "string"
+                        },
+                        "statement": {
+                          "type": "string"
+                        },
+                        "status": {
+                          "enum": [
+                            "proposed",
+                            "accepted",
+                            "superseded",
+                            "rejected",
+                            "uncertain"
+                          ],
+                          "type": "string"
+                        },
+                        "supersedes": {
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "statement",
+                        "rationale",
+                        "status",
+                        "evidence_ids"
+                      ],
+                      "type": "object"
+                    },
+                    "type": "array"
+                  },
+                  "gaps": {
+                    "items": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "claim_ids": {
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
+                        },
+                        "detail": {
+                          "type": "string"
+                        },
+                        "evidence_ids": {
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
+                        },
+                        "id": {
+                          "type": "string"
+                        },
+                        "status": {
+                          "enum": [
+                            "open",
+                            "disclosed",
+                            "resolved"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "detail",
+                        "status"
+                      ],
+                      "type": "object"
+                    },
+                    "type": "array"
+                  },
+                  "opportunities": {
+                    "items": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "arc_ids": {
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
+                        },
+                        "asset_ids": {
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
+                        },
+                        "audience": {
+                          "type": "string"
+                        },
+                        "claim_ids": {
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
+                        },
+                        "decision_ids": {
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
+                        },
+                        "effort": {
+                          "enum": [
+                            "small",
+                            "medium",
+                            "large"
+                          ],
+                          "type": "string"
+                        },
+                        "formats": {
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
+                        },
+                        "gap_ids": {
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
+                        },
+                        "hook": {
+                          "type": "string"
+                        },
+                        "id": {
+                          "type": "string"
+                        },
+                        "purpose": {
+                          "type": "string"
+                        },
+                        "rationale": {
+                          "type": "string"
+                        },
+                        "risks": {
+                          "items": {
+                            "type": "string"
+                          },
+                          "type": "array"
+                        },
+                        "title": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "title",
+                        "hook",
+                        "audience",
+                        "purpose",
+                        "formats",
+                        "arc_ids",
+                        "claim_ids",
+                        "rationale",
+                        "effort",
+                        "risks"
+                      ],
+                      "type": "object"
+                    },
+                    "type": "array"
+                  }
+                },
+                "required": [
+                  "arcs",
+                  "decisions",
+                  "claims",
+                  "assets",
+                  "gaps",
+                  "opportunities",
+                  "chapters"
+                ],
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "expected_revision": {
+            "type": "integer"
+          },
+          "project_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "project_id",
+          "expected_revision",
+          "analysis"
+        ],
+        "type": "object"
+      },
       "xibodev.midden.evidence.compose.request/v1": {
         "$id": "xibodev.midden.evidence.compose.request/v1",
         "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -1117,6 +1623,25 @@
                     "brief"
                   ],
                   "type": "string"
+                },
+                "quotations": {
+                  "items": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "record_id": {
+                        "type": "string"
+                      },
+                      "text": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "record_id",
+                      "text"
+                    ],
+                    "type": "object"
+                  },
+                  "type": "array"
                 },
                 "record_ids": {
                   "items": {
@@ -1148,6 +1673,9 @@
           "max_records": {
             "type": "integer"
           },
+          "packet_id": {
+            "type": "string"
+          },
           "source": {
             "additionalProperties": false,
             "properties": {
@@ -1171,9 +1699,27 @@
           }
         },
         "required": [
-          "source",
-          "expected_digest",
           "items"
+        ],
+        "type": "object"
+      },
+      "xibodev.midden.evidence.extend_budget.request/v1": {
+        "$id": "xibodev.midden.evidence.extend_budget.request/v1",
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "limit_bytes": {
+            "maximum": 1048576,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "packet_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "packet_id",
+          "limit_bytes"
         ],
         "type": "object"
       },
@@ -1267,6 +1813,9 @@
         "additionalProperties": false,
         "properties": {
           "max_records": {
+            "default": 40,
+            "maximum": 80,
+            "minimum": 1,
             "type": "integer"
           },
           "source": {
@@ -1293,6 +1842,187 @@
         },
         "required": [
           "source"
+        ],
+        "type": "object"
+      },
+      "xibodev.midden.evidence.read.request/v1": {
+        "$id": "xibodev.midden.evidence.read.request/v1",
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "after": {
+            "maximum": 3,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "before": {
+            "maximum": 3,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "max_chars": {
+            "default": 2048,
+            "maximum": 4096,
+            "minimum": 512,
+            "type": "integer"
+          },
+          "packet_id": {
+            "type": "string"
+          },
+          "record_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "packet_id",
+          "record_ids"
+        ],
+        "type": "object"
+      },
+      "xibodev.midden.evidence.search.request/v1": {
+        "$id": "xibodev.midden.evidence.search.request/v1",
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "include_tools": {
+            "type": "boolean"
+          },
+          "max_chars": {
+            "default": 2048,
+            "maximum": 4096,
+            "minimum": 512,
+            "type": "integer"
+          },
+          "max_records": {
+            "default": 6,
+            "maximum": 12,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "packet_id": {
+            "type": "string"
+          },
+          "query": {
+            "maxLength": 200,
+            "minLength": 3,
+            "type": "string"
+          }
+        },
+        "required": [
+          "packet_id",
+          "query"
+        ],
+        "type": "object"
+      },
+      "xibodev.midden.evidence.validate.request/v1": {
+        "$id": "xibodev.midden.evidence.validate.request/v1",
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "expected_digest": {
+            "type": "string"
+          },
+          "items": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "body": {
+                  "type": "string"
+                },
+                "confidence": {
+                  "type": "number"
+                },
+                "kind": {
+                  "enum": [
+                    "decision",
+                    "error_fix",
+                    "command",
+                    "gotcha",
+                    "dead_end",
+                    "artifact",
+                    "brief"
+                  ],
+                  "type": "string"
+                },
+                "quotations": {
+                  "items": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "record_id": {
+                        "type": "string"
+                      },
+                      "text": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "record_id",
+                      "text"
+                    ],
+                    "type": "object"
+                  },
+                  "type": "array"
+                },
+                "record_ids": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "tags": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "title": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "kind",
+                "title",
+                "body",
+                "confidence",
+                "record_ids"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "max_records": {
+            "type": "integer"
+          },
+          "packet_id": {
+            "type": "string"
+          },
+          "source": {
+            "additionalProperties": false,
+            "properties": {
+              "session_id": {
+                "type": "string"
+              },
+              "tool": {
+                "enum": [
+                  "copilot",
+                  "claude",
+                  "opencode"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "tool",
+              "session_id"
+            ],
+            "type": "object"
+          }
+        },
+        "required": [
+          "items"
         ],
         "type": "object"
       },
@@ -1328,6 +2058,31 @@
           "expected_revision",
           "target",
           "output_ids"
+        ],
+        "type": "object"
+      },
+      "xibodev.midden.outputs.audit.request/v1": {
+        "$id": "xibodev.midden.outputs.audit.request/v1",
+        "additionalProperties": false,
+        "properties": {
+          "body": {
+            "type": "string"
+          },
+          "evidence_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "expected_digest": {
+            "type": "string"
+          },
+          "output_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "output_id"
         ],
         "type": "object"
       },
@@ -1409,6 +2164,10 @@
             "type": "string"
           },
           "output_id": {
+            "type": "string"
+          },
+          "review_notes": {
+            "description": "Host agent's source-support review, including unresolved limitations. Not operator approval or proof of truth.",
             "type": "string"
           }
         },
@@ -2198,6 +2957,7 @@
                           "enum": [
                             "supported",
                             "contested",
+                            "refuted",
                             "unverified"
                           ],
                           "type": "string"
@@ -2712,6 +3472,7 @@
                               "enum": [
                                 "supported",
                                 "contested",
+                                "refuted",
                                 "unverified"
                               ],
                               "type": "string"
@@ -3126,6 +3887,40 @@
         ],
         "type": "object"
       },
+      "xibodev.midden.editorial.validate.result/v1": {
+        "$id": "xibodev.midden.editorial.validate.result/v1",
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "issues": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "message": {
+                  "type": "string"
+                },
+                "path": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "path",
+                "message"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "valid": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "valid",
+          "issues"
+        ],
+        "type": "object"
+      },
       "xibodev.midden.evidence.compose.result/v1": {
         "$id": "xibodev.midden.evidence.compose.result/v1",
         "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -3206,13 +4001,39 @@
           },
           "stored": {
             "type": "integer"
+          },
+          "validation_only": {
+            "type": "boolean"
           }
         },
         "required": [
           "evidence",
           "stored",
           "packet_digest",
-          "review_state"
+          "review_state",
+          "validation_only"
+        ],
+        "type": "object"
+      },
+      "xibodev.midden.evidence.extend_budget.result/v1": {
+        "$id": "xibodev.midden.evidence.extend_budget.result/v1",
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "limit_bytes": {
+            "type": "integer"
+          },
+          "remaining_bytes": {
+            "type": "integer"
+          },
+          "used_bytes": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "limit_bytes",
+          "used_bytes",
+          "remaining_bytes"
         ],
         "type": "object"
       },
@@ -3394,19 +4215,54 @@
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "additionalProperties": false,
         "properties": {
+          "budget": {
+            "additionalProperties": false,
+            "properties": {
+              "limit_bytes": {
+                "type": "integer"
+              },
+              "remaining_bytes": {
+                "type": "integer"
+              },
+              "used_bytes": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "limit_bytes",
+              "used_bytes",
+              "remaining_bytes"
+            ],
+            "type": "object"
+          },
           "digest": {
             "type": "string"
           },
           "est_slice_tokens": {
             "type": "integer"
           },
+          "investigation_id": {
+            "type": "string"
+          },
+          "matched_records": {
+            "type": "integer"
+          },
           "max_records": {
             "type": "integer"
+          },
+          "packet_id": {
+            "type": "string"
           },
           "records": {
             "items": {
               "additionalProperties": false,
               "properties": {
+                "clipped": {
+                  "type": "boolean"
+                },
+                "end_byte": {
+                  "type": "integer"
+                },
                 "excerpt": {
                   "type": "string"
                 },
@@ -3419,6 +4275,12 @@
                 "role": {
                   "type": "string"
                 },
+                "start_byte": {
+                  "type": "integer"
+                },
+                "text_chars": {
+                  "type": "integer"
+                },
                 "time": {
                   "format": "date-time",
                   "type": "string"
@@ -3429,11 +4291,18 @@
                 "kind",
                 "role",
                 "time",
-                "excerpt"
+                "excerpt",
+                "clipped",
+                "text_chars",
+                "start_byte",
+                "end_byte"
               ],
               "type": "object"
             },
             "type": "array"
+          },
+          "selection": {
+            "type": "string"
           },
           "signal_bytes": {
             "type": "integer"
@@ -3465,8 +4334,38 @@
             ],
             "type": "object"
           },
+          "source_digest": {
+            "type": "string"
+          },
+          "source_first_time": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "source_last_time": {
+            "format": "date-time",
+            "type": "string"
+          },
           "total_records": {
             "type": "integer"
+          },
+          "unrepresented_ranges": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "first": {
+                  "type": "integer"
+                },
+                "last": {
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "first",
+                "last"
+              ],
+              "type": "object"
+            },
+            "type": "array"
           },
           "warnings": {
             "items": {
@@ -3476,8 +4375,17 @@
           }
         },
         "required": [
+          "packet_id",
+          "investigation_id",
           "source",
           "digest",
+          "source_digest",
+          "source_first_time",
+          "source_last_time",
+          "selection",
+          "matched_records",
+          "unrepresented_ranges",
+          "budget",
           "max_records",
           "records",
           "total_records",
@@ -3486,6 +4394,474 @@
           "slice_bytes",
           "est_slice_tokens",
           "warnings"
+        ],
+        "type": "object"
+      },
+      "xibodev.midden.evidence.read.result/v1": {
+        "$id": "xibodev.midden.evidence.read.result/v1",
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "budget": {
+            "additionalProperties": false,
+            "properties": {
+              "limit_bytes": {
+                "type": "integer"
+              },
+              "remaining_bytes": {
+                "type": "integer"
+              },
+              "used_bytes": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "limit_bytes",
+              "used_bytes",
+              "remaining_bytes"
+            ],
+            "type": "object"
+          },
+          "digest": {
+            "type": "string"
+          },
+          "est_slice_tokens": {
+            "type": "integer"
+          },
+          "investigation_id": {
+            "type": "string"
+          },
+          "matched_records": {
+            "type": "integer"
+          },
+          "max_records": {
+            "type": "integer"
+          },
+          "packet_id": {
+            "type": "string"
+          },
+          "records": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "clipped": {
+                  "type": "boolean"
+                },
+                "end_byte": {
+                  "type": "integer"
+                },
+                "excerpt": {
+                  "type": "string"
+                },
+                "id": {
+                  "type": "string"
+                },
+                "kind": {
+                  "type": "string"
+                },
+                "role": {
+                  "type": "string"
+                },
+                "start_byte": {
+                  "type": "integer"
+                },
+                "text_chars": {
+                  "type": "integer"
+                },
+                "time": {
+                  "format": "date-time",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "kind",
+                "role",
+                "time",
+                "excerpt",
+                "clipped",
+                "text_chars",
+                "start_byte",
+                "end_byte"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "selection": {
+            "type": "string"
+          },
+          "signal_bytes": {
+            "type": "integer"
+          },
+          "signal_records": {
+            "type": "integer"
+          },
+          "slice_bytes": {
+            "type": "integer"
+          },
+          "source": {
+            "additionalProperties": false,
+            "properties": {
+              "session_id": {
+                "type": "string"
+              },
+              "tool": {
+                "enum": [
+                  "copilot",
+                  "claude",
+                  "opencode"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "tool",
+              "session_id"
+            ],
+            "type": "object"
+          },
+          "source_digest": {
+            "type": "string"
+          },
+          "source_first_time": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "source_last_time": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "total_records": {
+            "type": "integer"
+          },
+          "unrepresented_ranges": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "first": {
+                  "type": "integer"
+                },
+                "last": {
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "first",
+                "last"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "packet_id",
+          "investigation_id",
+          "source",
+          "digest",
+          "source_digest",
+          "source_first_time",
+          "source_last_time",
+          "selection",
+          "matched_records",
+          "unrepresented_ranges",
+          "budget",
+          "max_records",
+          "records",
+          "total_records",
+          "signal_records",
+          "signal_bytes",
+          "slice_bytes",
+          "est_slice_tokens",
+          "warnings"
+        ],
+        "type": "object"
+      },
+      "xibodev.midden.evidence.search.result/v1": {
+        "$id": "xibodev.midden.evidence.search.result/v1",
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "budget": {
+            "additionalProperties": false,
+            "properties": {
+              "limit_bytes": {
+                "type": "integer"
+              },
+              "remaining_bytes": {
+                "type": "integer"
+              },
+              "used_bytes": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "limit_bytes",
+              "used_bytes",
+              "remaining_bytes"
+            ],
+            "type": "object"
+          },
+          "digest": {
+            "type": "string"
+          },
+          "est_slice_tokens": {
+            "type": "integer"
+          },
+          "investigation_id": {
+            "type": "string"
+          },
+          "matched_records": {
+            "type": "integer"
+          },
+          "max_records": {
+            "type": "integer"
+          },
+          "packet_id": {
+            "type": "string"
+          },
+          "records": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "clipped": {
+                  "type": "boolean"
+                },
+                "end_byte": {
+                  "type": "integer"
+                },
+                "excerpt": {
+                  "type": "string"
+                },
+                "id": {
+                  "type": "string"
+                },
+                "kind": {
+                  "type": "string"
+                },
+                "role": {
+                  "type": "string"
+                },
+                "start_byte": {
+                  "type": "integer"
+                },
+                "text_chars": {
+                  "type": "integer"
+                },
+                "time": {
+                  "format": "date-time",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "kind",
+                "role",
+                "time",
+                "excerpt",
+                "clipped",
+                "text_chars",
+                "start_byte",
+                "end_byte"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "selection": {
+            "type": "string"
+          },
+          "signal_bytes": {
+            "type": "integer"
+          },
+          "signal_records": {
+            "type": "integer"
+          },
+          "slice_bytes": {
+            "type": "integer"
+          },
+          "source": {
+            "additionalProperties": false,
+            "properties": {
+              "session_id": {
+                "type": "string"
+              },
+              "tool": {
+                "enum": [
+                  "copilot",
+                  "claude",
+                  "opencode"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "tool",
+              "session_id"
+            ],
+            "type": "object"
+          },
+          "source_digest": {
+            "type": "string"
+          },
+          "source_first_time": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "source_last_time": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "total_records": {
+            "type": "integer"
+          },
+          "unrepresented_ranges": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "first": {
+                  "type": "integer"
+                },
+                "last": {
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "first",
+                "last"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "packet_id",
+          "investigation_id",
+          "source",
+          "digest",
+          "source_digest",
+          "source_first_time",
+          "source_last_time",
+          "selection",
+          "matched_records",
+          "unrepresented_ranges",
+          "budget",
+          "max_records",
+          "records",
+          "total_records",
+          "signal_records",
+          "signal_bytes",
+          "slice_bytes",
+          "est_slice_tokens",
+          "warnings"
+        ],
+        "type": "object"
+      },
+      "xibodev.midden.evidence.validate.result/v1": {
+        "$id": "xibodev.midden.evidence.validate.result/v1",
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "evidence": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "body": {
+                  "type": "string"
+                },
+                "confidence": {
+                  "type": "number"
+                },
+                "created_at": {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                "kind": {
+                  "type": "string"
+                },
+                "model": {
+                  "type": "string"
+                },
+                "redacted": {
+                  "type": "boolean"
+                },
+                "repo": {
+                  "type": "string"
+                },
+                "session_id": {
+                  "type": "string"
+                },
+                "tags": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "title": {
+                  "type": "string"
+                },
+                "tool": {
+                  "type": "string"
+                },
+                "turn_ref": {
+                  "type": "string"
+                },
+                "uid": {
+                  "type": "string"
+                },
+                "workspace": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "uid",
+                "tool",
+                "session_id",
+                "kind",
+                "title",
+                "body",
+                "confidence",
+                "model",
+                "redacted",
+                "created_at"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "packet_digest": {
+            "type": "string"
+          },
+          "review_state": {
+            "type": "string"
+          },
+          "stored": {
+            "type": "integer"
+          },
+          "validation_only": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "evidence",
+          "stored",
+          "packet_digest",
+          "review_state",
+          "validation_only"
         ],
         "type": "object"
       },
@@ -3520,6 +4896,83 @@
           "manifest_digest",
           "target",
           "review_state"
+        ],
+        "type": "object"
+      },
+      "xibodev.midden.outputs.audit.result/v1": {
+        "$id": "xibodev.midden.outputs.audit.result/v1",
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "blocked": {
+            "type": "boolean"
+          },
+          "content_digest": {
+            "type": "string"
+          },
+          "findings": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "code": {
+                  "type": "string"
+                },
+                "message": {
+                  "type": "string"
+                },
+                "passage": {
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "code",
+                "passage",
+                "message"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "mechanical_valid": {
+            "type": "boolean"
+          },
+          "passages": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "evidence_ids": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "number": {
+                  "type": "integer"
+                },
+                "text": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "number",
+                "text",
+                "evidence_ids"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "semantic_review": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "content_digest",
+          "mechanical_valid",
+          "blocked",
+          "semantic_review",
+          "findings",
+          "passages"
         ],
         "type": "object"
       },
@@ -3563,9 +5016,6 @@
               "provenance_path": {
                 "type": "string"
               },
-              "quality": {
-                "type": "number"
-              },
               "recipe_id": {
                 "type": "string"
               },
@@ -3600,7 +5050,6 @@
               "status",
               "path",
               "evidence_ids",
-              "quality",
               "created_at",
               "updated_at"
             ],
@@ -3664,9 +5113,6 @@
               "provenance_path": {
                 "type": "string"
               },
-              "quality": {
-                "type": "number"
-              },
               "recipe_id": {
                 "type": "string"
               },
@@ -3701,7 +5147,6 @@
               "status",
               "path",
               "evidence_ids",
-              "quality",
               "created_at",
               "updated_at"
             ],
@@ -3805,9 +5250,6 @@
               "provenance_path": {
                 "type": "string"
               },
-              "quality": {
-                "type": "number"
-              },
               "recipe_id": {
                 "type": "string"
               },
@@ -3842,7 +5284,6 @@
               "status",
               "path",
               "evidence_ids",
-              "quality",
               "created_at",
               "updated_at"
             ],
@@ -4007,6 +5448,7 @@
                           "enum": [
                             "supported",
                             "contested",
+                            "refuted",
                             "unverified"
                           ],
                           "type": "string"
@@ -4477,6 +5919,7 @@
                           "enum": [
                             "supported",
                             "contested",
+                            "refuted",
                             "unverified"
                           ],
                           "type": "string"
@@ -5009,6 +6452,7 @@
                           "enum": [
                             "supported",
                             "contested",
+                            "refuted",
                             "unverified"
                           ],
                           "type": "string"
@@ -5365,9 +6809,6 @@
                 "provenance_path": {
                   "type": "string"
                 },
-                "quality": {
-                  "type": "number"
-                },
                 "recipe_id": {
                   "type": "string"
                 },
@@ -5402,7 +6843,6 @@
                 "status",
                 "path",
                 "evidence_ids",
-                "quality",
                 "created_at",
                 "updated_at"
               ],
@@ -5682,6 +7122,12 @@
           "evidence_report": {
             "additionalProperties": false,
             "properties": {
+              "automatic_fact_checking": {
+                "enum": [
+                  "not_performed"
+                ],
+                "type": "string"
+              },
               "blocked": {
                 "type": "boolean"
               },
@@ -5691,19 +7137,7 @@
                 },
                 "type": "object"
               },
-              "coverage": {
-                "type": "number"
-              },
-              "mean_confidence": {
-                "type": "number"
-              },
-              "needs_review": {
-                "items": {
-                  "type": "string"
-                },
-                "type": "array"
-              },
-              "quality": {
+              "model_supplied_confidence_mean": {
                 "type": "number"
               },
               "selected": {
@@ -5718,11 +7152,9 @@
             },
             "required": [
               "selected",
-              "mean_confidence",
-              "coverage",
-              "quality",
+              "model_supplied_confidence_mean",
+              "automatic_fact_checking",
               "by_kind",
-              "needs_review",
               "warnings",
               "blocked"
             ],
@@ -5837,6 +7269,12 @@
           "evidence_report": {
             "additionalProperties": false,
             "properties": {
+              "automatic_fact_checking": {
+                "enum": [
+                  "not_performed"
+                ],
+                "type": "string"
+              },
               "blocked": {
                 "type": "boolean"
               },
@@ -5846,19 +7284,7 @@
                 },
                 "type": "object"
               },
-              "coverage": {
-                "type": "number"
-              },
-              "mean_confidence": {
-                "type": "number"
-              },
-              "needs_review": {
-                "items": {
-                  "type": "string"
-                },
-                "type": "array"
-              },
-              "quality": {
+              "model_supplied_confidence_mean": {
                 "type": "number"
               },
               "selected": {
@@ -5873,11 +7299,9 @@
             },
             "required": [
               "selected",
-              "mean_confidence",
-              "coverage",
-              "quality",
+              "model_supplied_confidence_mean",
+              "automatic_fact_checking",
               "by_kind",
-              "needs_review",
               "warnings",
               "blocked"
             ],
@@ -5984,6 +7408,12 @@
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "additionalProperties": false,
         "properties": {
+          "citation_keys": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object"
+          },
           "estimate": {
             "additionalProperties": false,
             "properties": {
@@ -6096,6 +7526,12 @@
           "evidence_report": {
             "additionalProperties": false,
             "properties": {
+              "automatic_fact_checking": {
+                "enum": [
+                  "not_performed"
+                ],
+                "type": "string"
+              },
               "blocked": {
                 "type": "boolean"
               },
@@ -6105,19 +7541,7 @@
                 },
                 "type": "object"
               },
-              "coverage": {
-                "type": "number"
-              },
-              "mean_confidence": {
-                "type": "number"
-              },
-              "needs_review": {
-                "items": {
-                  "type": "string"
-                },
-                "type": "array"
-              },
-              "quality": {
+              "model_supplied_confidence_mean": {
                 "type": "number"
               },
               "selected": {
@@ -6132,11 +7556,9 @@
             },
             "required": [
               "selected",
-              "mean_confidence",
-              "coverage",
-              "quality",
+              "model_supplied_confidence_mean",
+              "automatic_fact_checking",
               "by_kind",
-              "needs_review",
               "warnings",
               "blocked"
             ],
@@ -6175,9 +7597,6 @@
                 "provenance_path": {
                   "type": "string"
                 },
-                "quality": {
-                  "type": "number"
-                },
                 "recipe_id": {
                   "type": "string"
                 },
@@ -6212,7 +7631,6 @@
                 "status",
                 "path",
                 "evidence_ids",
-                "quality",
                 "created_at",
                 "updated_at"
               ],
@@ -6437,6 +7855,7 @@
         "required": [
           "recipe",
           "evidence",
+          "citation_keys",
           "outputs",
           "runs",
           "estimate",
@@ -6605,6 +8024,12 @@
           "evidence_report": {
             "additionalProperties": false,
             "properties": {
+              "automatic_fact_checking": {
+                "enum": [
+                  "not_performed"
+                ],
+                "type": "string"
+              },
               "blocked": {
                 "type": "boolean"
               },
@@ -6614,19 +8039,7 @@
                 },
                 "type": "object"
               },
-              "coverage": {
-                "type": "number"
-              },
-              "mean_confidence": {
-                "type": "number"
-              },
-              "needs_review": {
-                "items": {
-                  "type": "string"
-                },
-                "type": "array"
-              },
-              "quality": {
+              "model_supplied_confidence_mean": {
                 "type": "number"
               },
               "selected": {
@@ -6641,11 +8054,9 @@
             },
             "required": [
               "selected",
-              "mean_confidence",
-              "coverage",
-              "quality",
+              "model_supplied_confidence_mean",
+              "automatic_fact_checking",
               "by_kind",
-              "needs_review",
               "warnings",
               "blocked"
             ],
@@ -6790,9 +8201,6 @@
                 "provenance_path": {
                   "type": "string"
                 },
-                "quality": {
-                  "type": "number"
-                },
                 "recipe_id": {
                   "type": "string"
                 },
@@ -6827,7 +8235,6 @@
                 "status",
                 "path",
                 "evidence_ids",
-                "quality",
                 "created_at",
                 "updated_at"
               ],
@@ -7590,8 +8997,8 @@
         "id": "midden.recovery",
         "title": "Midden session recovery",
         "path": "agents/midden-recovery.md",
-        "digest": "sha256:a965ee45fe5551be909722ea0866f5c6c318f448b9825930714e651d1fd4c2df",
-        "tokens": 2188
+        "digest": "sha256:462a89ad1b4ecde305488c859eb8f2ed26f3d2f8df2f7ca2dfc81755aa3a4b52",
+        "tokens": 2324
       }
     ],
     "skills": [
@@ -7600,8 +9007,8 @@
         "title": "Editorial production",
         "summary": "Use when discovering stories, lessons, content opportunities, or long-form projects in agentic history.",
         "path": "skills/editorial-production/SKILL.md",
-        "digest": "sha256:3f743055b8e856de204be71edb5aadfbd8fa976f9312f62578966956f01a1484",
-        "tokens": 1041
+        "digest": "sha256:11d6a7a59cee439153e7106bea5eb2c8b350265c723b1f9ffe55b7cb2508d40d",
+        "tokens": 1234
       },
       {
         "id": "midden.session-recovery",

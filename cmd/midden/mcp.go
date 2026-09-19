@@ -7,14 +7,11 @@ package main
 // keeps token budgeting under our control rather than a framework's.
 
 import (
-	"bufio"
 	"encoding/json"
 	"flag"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
-	"strings"
 
 	"github.com/mekjr1/midden/internal/index"
 )
@@ -97,21 +94,7 @@ func cmdMCP(args []string) error {
 		return err
 	}
 	options := mcpOptions{Workflow: *workflow, Home: root}
-	in := bufio.NewReaderSize(os.Stdin, 1<<20)
-	out := json.NewEncoder(os.Stdout)
-
-	for {
-		line, err := in.ReadBytes('\n')
-		if len(strings.TrimSpace(string(line))) > 0 {
-			handleRPCWithOptions(line, out, options)
-		}
-		if err == io.EOF {
-			return nil
-		}
-		if err != nil {
-			return err
-		}
-	}
+	return serveMCP(os.Stdin, os.Stdout, options)
 }
 
 func handleRPC(line []byte, out *json.Encoder) {
@@ -137,8 +120,15 @@ func handleRPCWithOptions(line []byte, out *json.Encoder, options mcpOptions) {
 
 	switch req.Method {
 	case "initialize":
+		protocol := mcpProtocolVersion
+		var params struct {
+			ProtocolVersion string `json:"protocolVersion"`
+		}
+		if json.Unmarshal(req.Params, &params) == nil && (params.ProtocolVersion == "2025-06-18" || params.ProtocolVersion == "2025-11-25") {
+			protocol = params.ProtocolVersion
+		}
 		resp.Result = map[string]any{
-			"protocolVersion": mcpProtocolVersion,
+			"protocolVersion": protocol,
 			"capabilities":    map[string]any{"tools": map[string]any{}},
 			"serverInfo":      map[string]any{"name": "midden", "version": version},
 			"instructions": "Midden indexes AI CLI sessions across Copilot CLI, Claude Code and " +

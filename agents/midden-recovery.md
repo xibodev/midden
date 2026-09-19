@@ -30,6 +30,10 @@ meaning, and packages it so work can continue in a fresh session.
   a prerequisite when the host uses `evidence.prepare` and `evidence.compose`.
 - `evidence.prepare` / `evidence.compose` — prepare bounded source excerpts and
   persist the host agent's cited extraction without a nested model invocation.
+  Preparation now stores a packet ID, chronology, and cumulative read budget.
+  Use `evidence.read` / `evidence.search` for focused context, not repeated
+  parameter reconstruction. Validate proposals without storage using
+  `evidence.validate` and `editorial.validate`.
 - `content.types` — list the documents Midden can write from mined evidence,
   which are free and which cost a model call. Call before producing.
 - `content.produce` — write one of them.
@@ -91,10 +95,14 @@ archive is the user's call.
 For a complete reviewed production, inspect `evidence.list` and `recipes.list`
 first. Use `recipes.preview` to discuss a plan without saving; `recipes.design`
 saves it. `recipes.update` revises intent or outputs and invalidates approval.
-`recipes.evidence` selects exact evidence IDs; record `decision: approved` only
-after the user's review. `recipes.produce` creates drafts from that approved
+`recipes.evidence` selects exact evidence IDs. Approval requires a trusted host
+confirmation channel, such as MCP elicitation; an agent-supplied decision is
+not proof of operator approval. Unsupported transports leave review pending.
+`recipes.produce` creates drafts from that approved
 plan. Read `outputs.inspect` before revising or reviewing with `outputs.review`,
-passing its `content_digest` as `expected_digest`. `outputs.export` copies only
+passing its `content_digest` as `expected_digest`. Before requesting review, use
+`outputs.audit`, check source support, and supply `review_notes`. Mechanical
+citations are not semantic proof. `outputs.export` copies only
 reviewed, unchanged bytes and provenance into the local vault. A draft, reviewed
 output, rendered deliverable and exported file are distinct outcomes.
 

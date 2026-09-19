@@ -46,6 +46,7 @@ type Change struct {
 	ExpectedDigest string            `json:"expected_digest,omitempty"`
 	Format         string            `json:"format,omitempty"`
 	Drafts         map[string]string `json:"drafts,omitempty"`
+	ReviewNotes    string            `json:"review_notes,omitempty"`
 }
 
 func (w Workflow) Design(c Change, save bool) (any, error) {
@@ -85,7 +86,7 @@ func (w Workflow) Inspect(id string) (any, error) {
 		return nil, err
 	}
 	estimate, report := Estimate(w.DB, r, evidence)
-	return map[string]any{"recipe": r, "evidence": evidence, "outputs": outputs, "runs": runs, "estimate": estimate, "evidence_report": report}, nil
+	return map[string]any{"recipe": r, "evidence": evidence, "citation_keys": CitationKeys(evidence), "outputs": outputs, "runs": runs, "estimate": estimate, "evidence_report": report}, nil
 }
 
 func (w Workflow) Update(c Change) (any, error) {
@@ -293,7 +294,7 @@ func (w Workflow) Produce(ctx context.Context, id string) (result any, err error
 		for _, n := range evidence {
 			items = append(items, map[string]any{"evidence_id": n.UID, "session_id": n.SessionID, "tool": n.Tool, "turn_ref": n.TurnRef, "kind": n.Kind, "title": n.Title, "confidence": n.Confidence, "extraction_model": n.Model})
 		}
-		manifest := map[string]any{"recipe_id": id, "run_id": run.UID, "output_kind": spec.Kind, "model": model, "status": "draft", "evidence": items, "content_digest": Digest([]byte(body)), "raw_transcripts_included": false}
+		manifest := map[string]any{"recipe_id": id, "run_id": run.UID, "output_kind": spec.Kind, "model": model, "status": "draft", "evidence": items, "citation_keys": CitationKeys(evidence), "semantic_verification": "not_proven", "content_digest": Digest([]byte(body)), "generation_digest": Digest([]byte(body)), "raw_transcripts_included": false}
 		raw, e := json.MarshalIndent(manifest, "", "  ")
 		if e != nil {
 			return nil, e
@@ -400,6 +401,14 @@ func (w Workflow) Review(c Change) (any, error) {
 	if c.ExpectedDigest != "" && c.ExpectedDigest != Digest(old) {
 		return nil, fmt.Errorf("output changed since inspection; read it again before review")
 	}
+	c.Body, c.EvidenceIDs, err = EffectiveReview(o, string(old), c)
+	if err != nil {
+		return nil, err
+	}
+	if c.Body == "" {
+		c.Body = string(old)
+	}
+	c.Body = NormalizeSourceMetadata(c.Body)
 	if c.Decision == "reviewed" && strings.TrimSpace(c.Body) == "" {
 		return nil, fmt.Errorf("a reviewed output cannot be empty")
 	}
@@ -470,6 +479,9 @@ func (w Workflow) Review(c Change) (any, error) {
 		manifest["evidence"] = filtered
 	}
 	manifest["status"] = c.Decision
+	manifest["review_state"] = c.Decision
+	manifest["delivery_state"] = "not_exported"
+	manifest["review_notes"] = c.ReviewNotes
 	manifest["content_digest"] = Digest(old)
 	p, err = json.MarshalIndent(manifest, "", "  ")
 	if err != nil {
@@ -529,6 +541,13 @@ func (w Workflow) Export(c Change) (any, error) {
 	if digest, _ := manifest["content_digest"].(string); digest == "" || digest != Digest(body) {
 		return nil, fmt.Errorf("reviewed bytes changed or digest is missing; review again before export")
 	}
+	manifest["status"] = refinery.OutputExported
+	manifest["review_state"] = refinery.OutputReviewed
+	manifest["delivery_state"] = "local_vault"
+	raw, err = json.MarshalIndent(manifest, "", "  ")
+	if err != nil {
+		return nil, err
+	}
 	// Content-addressed exports keep older reviewed revisions intact.
 	dir := filepath.Join(filepath.Dir(w.DB.Path()), "exports", refinery.Slug(r.Title), o.UID, Digest(body))
 	if err = w.checkWritePath(dir); err != nil {
@@ -549,6 +568,9 @@ func (w Workflow) Export(c Change) (any, error) {
 		return nil, err
 	}
 	if err = os.WriteFile(pt, raw, 0600); err != nil {
+		return nil, err
+	}
+	if err = os.WriteFile(prov, raw, 0600); err != nil {
 		return nil, err
 	}
 	o.Status = refinery.OutputExported

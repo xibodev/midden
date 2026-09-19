@@ -41,7 +41,7 @@ func TestWorkflowCompleteJourneyThroughModule(t *testing.T) {
 	db.Close()
 	call := func(cap string, input map[string]any) Envelope {
 		raw, _ := json.Marshal(input)
-		return Invoke(Request{Protocol: ProtocolID, Capability: cap, Input: raw, Roots: map[string]Root{RootMiddenHome: {Path: home, Mode: "rw"}}, ExplicitSourceRoots: true})
+		return Invoke(Request{Protocol: ProtocolID, Capability: cap, Input: raw, ConfirmOperator: testOperatorConsent, Roots: map[string]Root{RootMiddenHome: {Path: home, Mode: "rw"}}, ExplicitSourceRoots: true})
 	}
 	decode := func(env Envelope) map[string]json.RawMessage {
 		t.Helper()
@@ -86,7 +86,7 @@ func TestWorkflowCompleteJourneyThroughModule(t *testing.T) {
 	if call("outputs.review", map[string]any{"output_id": o.UID, "body": body, "decision": "reviewed", "expected_digest": "stale"}).OK {
 		t.Fatal("stale review accepted")
 	}
-	decode(call("outputs.review", map[string]any{"output_id": o.UID, "body": body, "decision": "reviewed", "expected_digest": digest}))
+	decode(call("outputs.review", map[string]any{"output_id": o.UID, "body": body, "decision": "reviewed", "expected_digest": digest, "review_notes": "Inspected the deterministic provenance manifest against the selected evidence."}))
 	exported := decode(call("outputs.export", map[string]any{"output_id": o.UID}))
 	var path string
 	json.Unmarshal(exported["path"], &path)
@@ -110,7 +110,7 @@ func TestWorkflowNativeModelAndMissingWriteAuthority(t *testing.T) {
 	defer db.Close()
 	db.PutNuggets([]index.Nugget{{UID: "e", Kind: "decision", Body: "A sufficiently grounded design decision", Title: "Decision", Confidence: 1, Workspace: "w", CreatedAt: time.Now()}})
 	raw := json.RawMessage(`{"workspace":"w","output_kinds":["adr"]}`)
-	req := Request{Capability: "recipes.design", Input: raw, Roots: map[string]Root{RootMiddenHome: {Path: home, Mode: "ro"}}}
+	req := Request{Capability: "recipes.design", Input: raw, ConfirmOperator: testOperatorConsent, Roots: map[string]Root{RootMiddenHome: {Path: home, Mode: "ro"}}}
 	if env := Invoke(req); env.OK || env.Error.Code != ErrPermissionDenied {
 		t.Fatalf("write authority ignored: %+v", env)
 	}

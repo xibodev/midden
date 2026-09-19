@@ -17,7 +17,7 @@ func agentWorkflowIDs() []string {
 	return append(module.AgentCapabilityIDs(),
 		"sessions.list", "sessions.assay", "content.types", "evidence.list",
 		"recipes.list", "recipes.inspect", "recipes.preview", "recipes.design", "recipes.update",
-		"recipes.evidence", "recipes.compose", "outputs.inspect", "outputs.review", "outputs.render", "outputs.export")
+		"recipes.evidence", "recipes.compose", "outputs.inspect", "outputs.audit", "outputs.review", "outputs.render", "outputs.export")
 }
 
 func agentCapability(id string) (module.Capability, bool) {
@@ -51,6 +51,27 @@ func runAgent(args []string, in io.Reader, out io.Writer) error {
 			}
 		}
 		return json.NewEncoder(out).Encode(caps)
+	}
+	if args[0] == "mcp-config" {
+		fs := flag.NewFlagSet("agent mcp-config", flag.ContinueOnError)
+		home := fs.String("home", index.Dir(), "Midden state directory for this host connection")
+		if err := fs.Parse(args[1:]); err != nil {
+			return err
+		}
+		if fs.NArg() != 0 {
+			return fmt.Errorf("unexpected MCP configuration arguments")
+		}
+		root, err := filepath.Abs(*home)
+		if err != nil {
+			return err
+		}
+		binary, err := os.Executable()
+		if err != nil {
+			return err
+		}
+		return json.NewEncoder(out).Encode(map[string]any{"mcpServers": map[string]any{"midden": map[string]any{
+			"type": "local", "command": binary, "args": []string{"mcp", "--workflow", "--home", root}, "tools": []string{"*"},
+		}}})
 	}
 	if args[0] == "schema" {
 		if len(args) != 2 {

@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/mekjr1/midden/internal/confirmation"
 	"github.com/mekjr1/midden/internal/create"
 	"github.com/mekjr1/midden/internal/exec"
 	"github.com/mekjr1/midden/internal/index"
@@ -25,10 +26,11 @@ var workflowCapabilities = []workflowCapability{
 	{"recipes.preview", "Preview a recovery plan", "Design an evidence-grounded recipe without saving or generating content.", true, false},
 	{"recipes.design", "Save a recovery plan", "Save a draft recipe from intent, output kinds and evidence. Does not approve evidence or call a model.", false, false},
 	{"recipes.update", "Revise a recovery plan", "Revise the purpose or outputs of a saved plan. Invalidates prior evidence approval.", false, false},
-	{"recipes.evidence", "Select plan evidence", "Save an exact evidence set. Use decision approved only after the user reviews that set; approval does not produce outputs.", false, false},
+	{"recipes.evidence", "Select plan evidence", "Save an exact evidence set. An approved decision requires a trusted host operator-confirmation channel; plain CLI/model assertions leave review pending. Approval does not produce outputs.", false, false},
 	{"recipes.produce", "Produce approved plan", "Generate drafts from an approved recipe. Deterministic packs need no model; narrative outputs use the host-authorized model. Drafts still require review.", false, true},
 	{"outputs.inspect", "Inspect output and provenance", "Read draft bytes, provenance and content digest before review or revision.", true, false},
-	{"outputs.review", "Revise or review an output", "Save revised draft text or a user's review decision (draft, reviewed, rejected). Supply expected_digest from inspection to reject stale reviews.", false, false},
+	{"outputs.audit", "Audit draft source support", "Check citation scope, passage coverage and exact quotations without changing the draft. Valid references are not semantic proof; inspect the actual source support before requesting operator review.", true, false},
+	{"outputs.review", "Revise or review an output", "Revise a draft or request host-confirmed operator review. Supply expected_digest and, for approval, review_notes after outputs.audit. Omitting body reviews existing content. Unsupported confirmation leaves it pending.", false, false},
 	{"outputs.export", "Export a reviewed output", "Copy reviewed, digest-verified content and provenance to the local vault. Never publishes remotely.", false, false},
 	{"outputs.render", "Render a delivery file", "Render current Markdown to standalone HTML or slide source to editable PPTX with Pandoc. Tracks source and rendered digests; does not approve or publish.", false, false},
 }
@@ -65,6 +67,7 @@ func addWorkflowCapabilities(d *Descriptor) {
 			"workspace":  map[string]any{"type": "string"}, "prompt": map[string]any{"type": "string"}, "title": map[string]any{"type": "string"},
 			"decision": map[string]any{"type": "string"}, "destination": map[string]any{"type": "string", "enum": []string{"local_vault"}},
 			"body": map[string]any{"type": "string"}, "expected_digest": map[string]any{"type": "string"},
+			"review_notes": map[string]any{"type": "string", "description": "Host agent's source-support review, including unresolved limitations. Not operator approval or proof of truth."},
 			"format":       map[string]any{"type": "string", "enum": []string{"pptx", "html"}},
 			"drafts":       map[string]any{"type": "object", "additionalProperties": map[string]any{"type": "string"}},
 			"output_kinds": map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
@@ -78,7 +81,8 @@ func addWorkflowCapabilities(d *Descriptor) {
 			"recipes.design":   {"workspace", "prompt", "title", "output_kinds", "evidence_ids"},
 			"recipes.update":   {"recipe_id", "prompt", "title", "output_kinds"},
 			"recipes.evidence": {"recipe_id", "evidence_ids", "decision"}, "recipes.produce": {"recipe_id"},
-			"outputs.inspect": {"output_id"}, "outputs.review": {"output_id", "body", "decision", "evidence_ids", "expected_digest"},
+			"outputs.inspect": {"output_id"}, "outputs.review": {"output_id", "body", "decision", "evidence_ids", "expected_digest", "review_notes"},
+			"outputs.audit":  {"output_id", "body", "evidence_ids", "expected_digest"},
 			"outputs.export": {"output_id", "destination"},
 			"outputs.render": {"output_id", "format"},
 		}
@@ -180,6 +184,55 @@ func invokeWorkflow(req Request, cap workflowCapability) Envelope {
 		return invalidRequest(req, err)
 	}
 	defer db.Close()
+	if blocked := requireStoredReview(req, db, cap.ID, c); blocked != nil {
+		return *blocked
+	}
+	var proposal confirmation.Request
+	needsConfirmation := (cap.ID == "recipes.evidence" && c.Decision == "approved") || (cap.ID == "outputs.review" && c.Decision == "reviewed")
+	if needsConfirmation {
+		if cap.ID == "outputs.review" {
+			audit, auditErr := (create.Workflow{DB: db}).AuditOutput(c)
+			if auditErr != nil {
+				return invalidRequest(req, auditErr)
+			}
+			if audit.Blocked {
+				return NewErrorEnvelope(OpInvoke, req.RequestID, Error{Code: "draft_audit_failed", Message: "Resolve the draft's citation/quotation findings before review", Details: map[string]any{"audit": audit}}, LocalFree())
+			}
+			if strings.TrimSpace(c.ReviewNotes) == "" {
+				return invalidRequest(req, fmt.Errorf("review_notes are required: examine whether each assertion is supported, and state the remaining limits; references alone do not prove truth"))
+			}
+		}
+		if req.ConfirmOperator == nil {
+			return pendingOperator(req, "This transport cannot confirm an operator decision. Use a host-confirmed MCP/native interaction, or leave the review pending.")
+		}
+		if cap.ID == "recipes.evidence" {
+			proposal, err = recipeConfirmation(db, c.RecipeID, c.EvidenceIDs)
+		} else {
+			proposal, err = outputConfirmation(db, c)
+		}
+		if err != nil {
+			return invalidRequest(req, err)
+		}
+		accepted, confirmErr := confirmedByHost(req, proposal)
+		if confirmErr != nil {
+			return pendingOperator(req, "Operator confirmation unavailable: "+confirmErr.Error())
+		}
+		if !accepted {
+			return pendingOperator(req, "The operator declined or cancelled; no approval was recorded.")
+		}
+		var current confirmation.Request
+		if cap.ID == "recipes.evidence" {
+			current, err = recipeConfirmation(db, c.RecipeID, c.EvidenceIDs)
+		} else {
+			current, err = outputConfirmation(db, c)
+		}
+		if err != nil {
+			return invalidRequest(req, err)
+		}
+		if current.Digest != proposal.Digest {
+			return invalidRequest(req, fmt.Errorf("content changed during operator confirmation; inspect again"))
+		}
+	}
 	grant := modelGrantFrom(req)
 	w := create.Workflow{DB: db, Generate: grant.NativeDriver, Model: string(grant.Backend)}
 	if w.Generate == nil && grant.Backend != "" {
@@ -233,6 +286,8 @@ func invokeWorkflow(req Request, cap workflowCapability) Envelope {
 		result, err = w.Produce(ctx, c.RecipeID)
 	case "outputs.inspect":
 		result, err = w.ReadOutput(c.OutputID)
+	case "outputs.audit":
+		result, err = w.AuditOutput(c)
 	case "outputs.review":
 		result, err = w.Review(c)
 	case "outputs.export":
@@ -246,6 +301,15 @@ func invokeWorkflow(req Request, cap workflowCapability) Envelope {
 		}
 		return invalidRequest(req, err)
 	}
+	if needsConfirmation {
+		if err = db.RecordHostReview(proposal.Action, proposal.SubjectID, proposal.Digest); err != nil {
+			return invalidRequest(req, err)
+		}
+	}
+	wire, wireErr := workflowWireResult(result)
+	if wireErr != nil {
+		return invalidRequest(req, wireErr)
+	}
 	if cap.Model {
 		if payload, ok := result.(map[string]any); ok {
 			if recipe, ok := payload["recipe"].(index.Recipe); ok {
@@ -254,15 +318,15 @@ func invokeWorkflow(req Request, cap workflowCapability) Envelope {
 					usesModel = usesModel || spec.RequiresModel
 				}
 				if !usesModel {
-					return successEnvelope(req, result, nil)
+					return successEnvelope(req, wire, nil)
 				}
 			}
 		}
-		env, e := NewResultEnvelope(OpInvoke, req.RequestID, result, UnknownCost())
+		env, e := NewResultEnvelope(OpInvoke, req.RequestID, wire, UnknownCost())
 		if e != nil {
 			return invalidRequest(req, e)
 		}
 		return env
 	}
-	return successEnvelope(req, result, nil)
+	return successEnvelope(req, wire, nil)
 }

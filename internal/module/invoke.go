@@ -362,6 +362,17 @@ func Invoke(req Request) Envelope {
 	if capability, ok := workflowCapabilityByID(req.Capability); ok {
 		return invokeWorkflow(req, capability)
 	}
+	if req.Capability == CapSessionsList || req.Capability == CapSessionsAssay {
+		var scope AssayRequest
+		if err := decodeInput(req.Input, &scope); err != nil {
+			return invalidRequest(req, fmt.Errorf("%w; %s accepts ids (an array), not session_id; inspect its input schema", err, req.Capability))
+		}
+		if req.Capability == CapSessionsAssay {
+			if err := validateInvestigationScope(scope); err != nil {
+				return invalidRequest(req, err)
+			}
+		}
+	}
 	// Precondition: the read capabilities need visible source stores.
 	// Reporting an empty success when the stores are merely invisible would be
 	// a lie the host cannot detect. seed.create runs its own checks in order:
@@ -398,10 +409,28 @@ func Invoke(req Request) Envelope {
 }
 
 func decodeInput(raw json.RawMessage, into any) error {
-	if len(raw) == 0 {
-		return nil
+	return decodeAgentInput(raw, into)
+}
+
+func validateInvestigationScope(in AssayRequest) error {
+	switch strings.ToLower(strings.TrimSpace(in.Tool)) {
+	case "", "copilot", "claude", "opencode":
+	default:
+		return fmt.Errorf("unknown source tool %q", in.Tool)
 	}
-	return json.Unmarshal(raw, into)
+	for _, id := range in.IDs {
+		if strings.TrimSpace(id) == "" {
+			return fmt.Errorf("ids must contain nonempty session identifiers")
+		}
+	}
+	if in.Days < 0 || in.MaxSessions < 0 || in.MaxCandidates < 0 {
+		return fmt.Errorf("days, max_sessions and max_candidates must be nonnegative")
+	}
+	if len(in.IDs) == 0 && strings.TrimSpace(in.IDPrefix) == "" && strings.TrimSpace(in.Workspace) == "" &&
+		strings.TrimSpace(in.Repo) == "" && in.Days == 0 {
+		return fmt.Errorf("investigation requires explicit ids, id_prefix, workspace, repo or positive days; a tool name alone is not a source scope")
+	}
+	return nil
 }
 
 func invokeList(req Request) Envelope {
@@ -444,10 +473,15 @@ func successEnvelope(req Request, payload any, warnings []string) Envelope {
 }
 
 func invalidRequest(req Request, err error) Envelope {
+	var details map[string]any
+	if withDetails, ok := err.(interface{ ErrorDetails() map[string]any }); ok {
+		details = withDetails.ErrorDetails()
+	}
 	return NewErrorEnvelope(OpInvoke, req.RequestID, Error{
 		Code:      ErrInvalidRequest,
 		Message:   err.Error(),
 		Retryable: false,
+		Details:   details,
 	}, LocalFree())
 }
 

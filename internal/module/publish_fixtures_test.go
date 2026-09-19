@@ -147,7 +147,7 @@ func TestGenerateFixtures(t *testing.T) {
 	writeOrCompare(t, "describe/descriptor.json", marshalIndent(t, env))
 
 	listIn, _ := json.Marshal(AssayRequest{Tool: "claude", MaxSessions: 2})
-	assayIn, _ := json.Marshal(AssayRequest{Tool: "claude", MaxSessions: 1, MaxCandidates: 5})
+	assayIn, _ := json.Marshal(AssayRequest{Tool: "claude", IDs: []string{"11111111-2222-3333-4444-555555555555"}, MaxSessions: 1, MaxCandidates: 5})
 	seedIn, _ := json.Marshal(SeedCreateRequest{
 		AssayRequest:         AssayRequest{Tool: "claude", MaxSessions: 1},
 		Goal:                 "Explain how session recovery works",

@@ -116,7 +116,7 @@ func TestSessionsListUsesHostSuppliedRoots(t *testing.T) {
 func TestSessionsAssayUsesHostSuppliedRoots(t *testing.T) {
 	root := writeSyntheticClaudeStore(t)
 
-	in, _ := json.Marshal(AssayRequest{Tool: "claude"})
+	in, _ := json.Marshal(AssayRequest{Tool: "claude", IDs: []string{"11111111-2222-3333-4444-555555555555"}})
 	env := Invoke(Request{
 		Protocol:   ProtocolID,
 		Capability: CapSessionsAssay,

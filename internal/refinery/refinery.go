@@ -1044,14 +1044,14 @@ func WrapOutput(output index.RecipeOutputSpec, recipe index.Recipe, body, model 
 	body = strings.TrimSpace(body)
 	switch output.Format {
 	case "markdown":
-		return fmt.Sprintf("---\ntitle: %s\nmidden_recipe: %s\nmidden_status: draft\nmaker: %s\nmodel: %s\nevidence_items: %d\n---\n\n%s\n",
+		return fmt.Sprintf("---\ntitle: %s\nmidden_recipe: %s\nmaker: %s\nmodel: %s\nevidence_items: %d\n---\n\n%s\n",
 			yamlQuote(output.Title), yamlQuote(recipe.UID), yamlQuote(output.Maker),
 			yamlQuote(model), evidence, body)
 	case "marp":
 		if strings.HasPrefix(body, "---") {
 			return body + "\n"
 		}
-		return fmt.Sprintf("---\nmarp: true\ntitle: %s\nmidden_recipe: %s\nmidden_status: draft\nmodel: %s\nevidence_items: %d\n---\n\n%s\n",
+		return fmt.Sprintf("---\nmarp: true\ntitle: %s\nmidden_recipe: %s\nmodel: %s\nevidence_items: %d\n---\n\n%s\n",
 			yamlQuote(output.Title), yamlQuote(recipe.UID), yamlQuote(model), evidence, body)
 	default:
 		return body + "\n"

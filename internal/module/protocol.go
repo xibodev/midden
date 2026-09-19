@@ -29,6 +29,8 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"strings"
+
+	"github.com/mekjr1/midden/internal/confirmation"
 )
 
 // ProtocolID is the operator-ruled protocol identifier. Vendor-neutral because
@@ -175,14 +177,15 @@ type Requirement struct {
 
 // Request is the JSON document the host supplies via --input.
 type Request struct {
-	Context      context.Context                               `json:"-"`
-	NativeDriver func(context.Context, string) (string, error) `json:"-"`
-	Protocol     string                                        `json:"protocol"`
-	Capability   string                                        `json:"capability"`
-	RequestID    string                                        `json:"request_id"`
-	Input        json.RawMessage                               `json:"input"`
-	Roots        map[string]Root                               `json:"roots"`
-	Grants       Grants                                        `json:"grants"`
+	ConfirmOperator confirmation.Handler                          `json:"-"`
+	Context         context.Context                               `json:"-"`
+	NativeDriver    func(context.Context, string) (string, error) `json:"-"`
+	Protocol        string                                        `json:"protocol"`
+	Capability      string                                        `json:"capability"`
+	RequestID       string                                        `json:"request_id"`
+	Input           json.RawMessage                               `json:"input"`
+	Roots           map[string]Root                               `json:"roots"`
+	Grants          Grants                                        `json:"grants"`
 
 	// ExplicitSourceRoots disables ambient fallback to user-profile paths,
 	// requiring all source stores to be explicitly provided in Roots.

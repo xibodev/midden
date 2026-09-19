@@ -22,7 +22,7 @@ func TestWorkflowComposeSupportsDeterministicOnlyPlan(t *testing.T) {
 	call := func(cap string, input any) Envelope {
 		t.Helper()
 		raw, _ := json.Marshal(input)
-		return Invoke(Request{Capability: cap, Input: raw, Roots: map[string]Root{RootMiddenHome: {Path: home, Mode: "rw"}}})
+		return Invoke(Request{Capability: cap, Input: raw, ConfirmOperator: testOperatorConsent, Roots: map[string]Root{RootMiddenHome: {Path: home, Mode: "rw"}}})
 	}
 	env := call("recipes.design", map[string]any{"output_kinds": []string{"notebook_pack"}, "evidence_ids": []string{"scope"}})
 	if !env.OK {
@@ -89,7 +89,7 @@ func TestWorkflowSuccessfulResponsesHonorCollectionSchemas(t *testing.T) {
 	call := func(cap string, input any) Envelope {
 		t.Helper()
 		raw, _ := json.Marshal(input)
-		env := Invoke(Request{Capability: cap, Input: raw, Roots: map[string]Root{RootMiddenHome: {Path: home, Mode: "rw"}}})
+		env := Invoke(Request{Capability: cap, Input: raw, ConfirmOperator: testOperatorConsent, Roots: map[string]Root{RootMiddenHome: {Path: home, Mode: "rw"}}})
 		if !env.OK {
 			t.Fatalf("%s: %v", cap, env.Error)
 		}
@@ -106,6 +106,6 @@ func TestWorkflowSuccessfulResponsesHonorCollectionSchemas(t *testing.T) {
 	}
 	json.Unmarshal(env.Result, &designed)
 	call("recipes.evidence", map[string]any{"recipe_id": designed.Recipe.UID, "decision": "approved", "evidence_ids": []string{"e"}})
-	call("recipes.compose", map[string]any{"recipe_id": designed.Recipe.UID, "drafts": map[string]string{"post": "# Evidence\nUse reviewed evidence. [e]"}})
+	call("recipes.compose", map[string]any{"recipe_id": designed.Recipe.UID, "drafts": map[string]string{"post": "# Evidence\nUse reviewed evidence. [E1]"}})
 	call("recipes.inspect", map[string]any{"recipe_id": designed.Recipe.UID})
 }

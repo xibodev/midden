@@ -6,7 +6,7 @@
   "ok": false,
   "error": {
     "code": "invalid_request",
-    "message": "unknown tool \"emacs\" (want copilot, claude or opencode)",
+    "message": "unknown source tool \"emacs\"",
     "retryable": false,
     "details": {}
   },

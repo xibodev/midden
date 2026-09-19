@@ -61,7 +61,7 @@ type Decision struct {
 type Claim struct {
 	ID               string   `json:"id"`
 	Text             string   `json:"text"`
-	Status           string   `json:"status" enum:"supported,contested,unverified"`
+	Status           string   `json:"status" enum:"supported,contested,refuted,unverified"`
 	SupportingIDs    []string `json:"supporting_ids"`
 	ContradictingIDs []string `json:"contradicting_ids,omitempty"`
 }

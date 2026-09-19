@@ -107,7 +107,7 @@ func TestExplicitRootsListAndAssayEverySupportedSourceReadOnly(t *testing.T) {
 	}
 	for tool, wantID := range wantIDs {
 		t.Run(tool, func(t *testing.T) {
-			input, _ := json.Marshal(AssayRequest{Tool: tool, IncludeNoise: true, MaxSessions: 5, MaxCandidates: 5})
+			input, _ := json.Marshal(AssayRequest{Tool: tool, IDs: []string{wantID}, IncludeNoise: true, MaxSessions: 5, MaxCandidates: 5})
 			for _, capability := range []string{CapSessionsList, CapSessionsAssay} {
 				env := Invoke(Request{
 					Protocol: ProtocolID, Capability: capability, RequestID: "req-" + tool,
@@ -194,7 +194,7 @@ func TestExplicitRootOutcomesAreStructuredAndSourceScoped(t *testing.T) {
 	})
 
 	t.Run("unavailable", func(t *testing.T) {
-		input, _ := json.Marshal(AssayRequest{Tool: "copilot"})
+		input, _ := json.Marshal(AssayRequest{Tool: "copilot", IDs: []string{fixtureCopilotID}})
 		env := Invoke(Request{Protocol: ProtocolID, Capability: CapSessionsAssay, RequestID: "unavailable", Input: input,
 			Roots: map[string]Root{}, ExplicitSourceRoots: true})
 		if env.OK || env.Error == nil || env.Error.Code != ErrNoSourceStores {

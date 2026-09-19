@@ -21,7 +21,7 @@ func TestAgentWorkflowFromSourceToReviewedExportWithoutNestedModel(t *testing.T)
 		if err != nil {
 			t.Fatal(err)
 		}
-		return Invoke(Request{Capability: cap, Input: raw, ExplicitSourceRoots: true, Roots: map[string]Root{
+		return Invoke(Request{Capability: cap, Input: raw, ConfirmOperator: testOperatorConsent, ExplicitSourceRoots: true, Roots: map[string]Root{
 			RootMiddenHome: {Path: home, Mode: "rw"}, RootClaude: {Path: sourceRoot, Mode: "ro"},
 		}})
 	}
@@ -86,7 +86,7 @@ func TestAgentWorkflowFromSourceToReviewedExportWithoutNestedModel(t *testing.T)
 	var produced struct {
 		Outputs []index.RefineryOutput `json:"outputs"`
 	}
-	decode("recipes.compose", map[string]any{"recipe_id": selection.Recipe.UID, "drafts": map[string]string{"post": "# Measure first\n\nAssay informs recovery. [" + evidenceID + "]"}}, &produced)
+	decode("recipes.compose", map[string]any{"recipe_id": selection.Recipe.UID, "drafts": map[string]string{"post": "# Measure first\n\nAssay informs recovery. [E1]"}}, &produced)
 	if len(produced.Outputs) != 1 {
 		t.Fatal("missing authored output")
 	}
@@ -99,7 +99,7 @@ func TestAgentWorkflowFromSourceToReviewedExportWithoutNestedModel(t *testing.T)
 		Digest string `json:"content_digest"`
 	}
 	decode("outputs.inspect", map[string]any{"output_id": output.UID}, &inspected)
-	decode("outputs.review", map[string]any{"output_id": output.UID, "body": inspected.Body, "decision": "reviewed", "expected_digest": inspected.Digest}, &ignored)
+	decode("outputs.review", map[string]any{"output_id": output.UID, "body": inspected.Body, "decision": "reviewed", "expected_digest": inspected.Digest, "review_notes": "Checked the scoped recovery decision; this is a process recommendation, not a claim of comprehensive recovery."}, &ignored)
 	var exported struct {
 		Path string `json:"path"`
 	}
@@ -120,6 +120,19 @@ func TestAgentWorkflowFromSourceToReviewedExportWithoutNestedModel(t *testing.T)
 		"target": "markdown", "output_ids": []string{output.UID}}, &handoff)
 	if handoff.Path == "" || handoff.ReviewState != "unreviewed" {
 		t.Fatalf("bad handoff state: %+v", handoff)
+	}
+	db, err := index.OpenAt(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = db.SQL().Exec("DELETE FROM host_reviews WHERE action='review_output' AND subject_id=?", output.UID); err != nil {
+		t.Fatal(err)
+	}
+	db.Close()
+	unconfirmed := call("handoffs.create", map[string]any{"project_id": selection.Project.ID, "expected_revision": selection.Project.Revision,
+		"target": "markdown", "output_ids": []string{output.UID}})
+	if unconfirmed.OK || unconfirmed.Error.Code != ErrOperatorConfirmation {
+		t.Fatal("handoff accepted an unconfirmed legacy review")
 	}
 }
 

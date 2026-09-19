@@ -4,12 +4,14 @@ import (
 	"encoding/json"
 	"strings"
 
+	"github.com/mekjr1/midden/internal/confirmation"
 	"github.com/mekjr1/midden/internal/module"
 )
 
 type mcpOptions struct {
-	Workflow bool
-	Home     string
+	Workflow        bool
+	Home            string
+	ConfirmOperator confirmation.Handler
 }
 
 func workflowMCPTools() []mcpTool {
@@ -37,7 +39,7 @@ func callWorkflowTool(name string, input json.RawMessage, opts mcpOptions) toolR
 		if name != "midden_"+strings.ReplaceAll(id, ".", "_") {
 			continue
 		}
-		env := module.Invoke(module.Request{Protocol: module.ProtocolID, Capability: id, Input: input,
+		env := module.Invoke(module.Request{Protocol: module.ProtocolID, Capability: id, Input: input, ConfirmOperator: opts.ConfirmOperator,
 			Roots: map[string]module.Root{module.RootMiddenHome: {Path: opts.Home, Mode: "rw"}}})
 		raw, err := json.Marshal(env)
 		if err != nil {

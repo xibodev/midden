@@ -17,6 +17,10 @@ type Assayer interface {
 	Assay(s core.Session, maxCandidates int) (*assay.Manifest, error)
 }
 
+type EvidenceReader interface {
+	ReadEvidence(s core.Session, selection assay.Selection) (*assay.Manifest, error)
+}
+
 // assayHeader is the minimal shape shared by the jsonl-based tools.
 type assayHeader struct {
 	Type      string `json:"type"`
@@ -28,12 +32,19 @@ type assayHeader struct {
 
 // Assay streams a Copilot events.jsonl.
 func (c *Copilot) Assay(s core.Session, maxCandidates int) (*assay.Manifest, error) {
+	return c.scanEvidence(s, assay.NewScanner(s.ID, string(core.ToolCopilot), maxCandidates))
+}
+
+func (c *Copilot) ReadEvidence(s core.Session, selection assay.Selection) (*assay.Manifest, error) {
+	return c.scanEvidence(s, assay.NewEvidenceScanner(s.ID, string(core.ToolCopilot), selection))
+}
+
+func (c *Copilot) scanEvidence(s core.Session, sc *assay.Scanner) (*assay.Manifest, error) {
 	path := s.TranscriptPath
 	if path == "" {
 		path = c.transcriptPath(s.ID)
 	}
 
-	sc := assay.NewScanner(s.ID, string(core.ToolCopilot), maxCandidates)
 	start := time.Now()
 
 	err := eachLine(path, func(line []byte) bool {
@@ -59,7 +70,14 @@ func (c *Copilot) Assay(s core.Session, maxCandidates int) (*assay.Manifest, err
 
 // Assay streams a Claude transcript.
 func (c *Claude) Assay(s core.Session, maxCandidates int) (*assay.Manifest, error) {
-	sc := assay.NewScanner(s.ID, string(core.ToolClaude), maxCandidates)
+	return c.scanEvidence(s, assay.NewScanner(s.ID, string(core.ToolClaude), maxCandidates))
+}
+
+func (c *Claude) ReadEvidence(s core.Session, selection assay.Selection) (*assay.Manifest, error) {
+	return c.scanEvidence(s, assay.NewEvidenceScanner(s.ID, string(core.ToolClaude), selection))
+}
+
+func (c *Claude) scanEvidence(s core.Session, sc *assay.Scanner) (*assay.Manifest, error) {
 	start := time.Now()
 
 	err := eachLine(s.TranscriptPath, func(line []byte) bool {
@@ -86,6 +104,14 @@ func (c *Claude) Assay(s core.Session, maxCandidates int) (*assay.Manifest, erro
 // opencode stores content in rows rather than a file, so record size is the
 // stored JSON length. Rows stream out of the driver, so memory stays bounded.
 func (o *Opencode) Assay(s core.Session, maxCandidates int) (*assay.Manifest, error) {
+	return o.scanEvidence(s, assay.NewScanner(s.ID, string(core.ToolOpencode), maxCandidates))
+}
+
+func (o *Opencode) ReadEvidence(s core.Session, selection assay.Selection) (*assay.Manifest, error) {
+	return o.scanEvidence(s, assay.NewEvidenceScanner(s.ID, string(core.ToolOpencode), selection))
+}
+
+func (o *Opencode) scanEvidence(s core.Session, sc *assay.Scanner) (*assay.Manifest, error) {
 	db, closeDB, err := openRO(o.DB)
 	if err != nil {
 		return nil, fmt.Errorf("assay opencode: %w", err)
@@ -96,13 +122,12 @@ func (o *Opencode) Assay(s core.Session, maxCandidates int) (*assay.Manifest, er
 		SELECT p.data, p.time_created
 		FROM part p
 		WHERE p.session_id = ?
-		ORDER BY p.time_created`, s.ID)
+		ORDER BY p.time_created, p.id`, s.ID)
 	if err != nil {
 		return nil, fmt.Errorf("assay opencode query: %w", err)
 	}
 	defer rows.Close()
 
-	sc := assay.NewScanner(s.ID, string(core.ToolOpencode), maxCandidates)
 	start := time.Now()
 
 	for rows.Next() {

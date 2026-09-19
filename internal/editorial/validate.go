@@ -14,229 +14,278 @@ var localID = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]{0,79}$`)
 
 func text(value string) bool { return strings.TrimSpace(value) != "" && len(value) <= 8192 }
 
-func (w Workflow) validateAnalysis(p Project, a Analysis) error {
-	if len(a.Arcs) > 32 || len(a.Decisions) > 100 || len(a.Claims) > 100 || len(a.Assets) > 100 ||
-		len(a.Gaps) > 100 || len(a.Opportunities) > 20 || len(a.Chapters) > 100 {
-		return fmt.Errorf("analysis exceeds bounded collection limits")
+type ValidationIssue struct {
+	Path    string `json:"path"`
+	Message string `json:"message"`
+}
+type ValidationReport struct {
+	Valid  bool              `json:"valid"`
+	Issues []ValidationIssue `json:"issues"`
+}
+type ValidationError struct{ Report ValidationReport }
+
+func (e ValidationError) Error() string {
+	parts := make([]string, 0, len(e.Report.Issues))
+	for _, issue := range e.Report.Issues {
+		parts = append(parts, issue.Path+": "+issue.Message)
 	}
-	groups := map[string]map[string]bool{}
-	register := func(group, id string) error {
-		if !localID.MatchString(id) {
-			return fmt.Errorf("invalid %s id %q", group, id)
+	return strings.Join(parts, "; ")
+}
+func (e ValidationError) ErrorDetails() map[string]any {
+	return map[string]any{"issues": e.Report.Issues}
+}
+
+func (w Workflow) Validate(id string, expected int, a Analysis) (ValidationReport, error) {
+	p, err := w.current(id, expected)
+	if err != nil {
+		return ValidationReport{}, err
+	}
+	_, digest, err := w.evidence(p)
+	if err != nil {
+		return ValidationReport{}, err
+	}
+	if digest != p.EvidenceDigest {
+		return ValidationReport{}, fmt.Errorf("evidence changed; refresh the project first")
+	}
+	return w.analysisReport(p, canonicalFormats(a)), nil
+}
+
+func (w Workflow) validateAnalysis(p Project, a Analysis) error {
+	report := w.analysisReport(p, a)
+	if !report.Valid {
+		return ValidationError{report}
+	}
+	return nil
+}
+
+func canonicalFormats(a Analysis) Analysis {
+	a.Opportunities = append([]Opportunity(nil), a.Opportunities...)
+	for i, o := range a.Opportunities {
+		kinds := []string{}
+		for _, kind := range o.Formats {
+			if t, ok := content.Find(kind); ok {
+				kind = t.Name
+			}
+			if !contains(kinds, kind) {
+				kinds = append(kinds, kind)
+			}
 		}
+		a.Opportunities[i].Formats = kinds
+	}
+	return a
+}
+
+func (w Workflow) analysisReport(p Project, a Analysis) ValidationReport {
+	report := ValidationReport{Valid: true, Issues: []ValidationIssue{}}
+	add := func(path, message string) {
+		report.Valid = false
+		if len(report.Issues) < 256 {
+			report.Issues = append(report.Issues, ValidationIssue{path, message})
+		}
+	}
+	if len(a.Arcs) > 32 || len(a.Decisions) > 100 || len(a.Claims) > 100 || len(a.Assets) > 100 || len(a.Gaps) > 100 || len(a.Opportunities) > 20 || len(a.Chapters) > 100 {
+		add("analysis", "collection limits: arcs 32, opportunities 20, all other collections 100")
+		return report
+	}
+	groups := map[string]map[string]bool{"evidence": {}}
+	for _, id := range p.EvidenceIDs {
+		groups["evidence"][id] = true
+	}
+	register := func(group, id, path string) {
 		if groups[group] == nil {
 			groups[group] = map[string]bool{}
 		}
+		if !localID.MatchString(id) {
+			add(path, "use a nonempty alphanumeric identifier of at most 80 characters")
+		}
 		if groups[group][id] {
-			return fmt.Errorf("duplicate %s id %q", group, id)
+			add(path, "duplicate identifier")
 		}
 		groups[group][id] = true
-		return nil
 	}
-	for _, id := range p.EvidenceIDs {
-		if groups["evidence"] == nil {
-			groups["evidence"] = map[string]bool{}
-		}
-		groups["evidence"][id] = true
+	for i, v := range a.Arcs {
+		register("arc", v.ID, fmt.Sprintf("analysis.arcs[%d].id", i))
 	}
-	for _, v := range a.Arcs {
-		if err := register("arc", v.ID); err != nil {
-			return err
-		}
+	for i, v := range a.Decisions {
+		register("decision", v.ID, fmt.Sprintf("analysis.decisions[%d].id", i))
 	}
-	for _, v := range a.Decisions {
-		if err := register("decision", v.ID); err != nil {
-			return err
-		}
+	for i, v := range a.Claims {
+		register("claim", v.ID, fmt.Sprintf("analysis.claims[%d].id", i))
 	}
-	for _, v := range a.Claims {
-		if err := register("claim", v.ID); err != nil {
-			return err
-		}
+	for i, v := range a.Assets {
+		register("asset", v.ID, fmt.Sprintf("analysis.assets[%d].id", i))
 	}
-	for _, v := range a.Assets {
-		if err := register("asset", v.ID); err != nil {
-			return err
-		}
+	for i, v := range a.Gaps {
+		register("gap", v.ID, fmt.Sprintf("analysis.gaps[%d].id", i))
 	}
-	for _, v := range a.Gaps {
-		if err := register("gap", v.ID); err != nil {
-			return err
-		}
+	for i, v := range a.Opportunities {
+		register("opportunity", v.ID, fmt.Sprintf("analysis.opportunities[%d].id", i))
 	}
-	for _, v := range a.Opportunities {
-		if err := register("opportunity", v.ID); err != nil {
-			return err
-		}
+	for i, v := range a.Chapters {
+		register("chapter", v.ID, fmt.Sprintf("analysis.chapters[%d].id", i))
 	}
-	for _, v := range a.Chapters {
-		if err := register("chapter", v.ID); err != nil {
-			return err
-		}
-	}
-	refs := func(group string, ids []string, required bool) error {
+	refs := func(path, group string, ids []string, required bool) {
 		if required && len(ids) == 0 {
-			return fmt.Errorf("%s references are required", group)
+			add(path, "at least one "+group+" reference is required")
 		}
-		if len(unique(ids)) != len(ids) {
-			return fmt.Errorf("duplicate %s reference", group)
-		}
+		seen := map[string]bool{}
 		for _, id := range ids {
 			if !groups[group][id] {
-				return fmt.Errorf("unknown %s reference %q", group, id)
+				add(path, fmt.Sprintf("unknown %s reference %q", group, id))
 			}
+			if seen[id] {
+				add(path, "duplicate reference "+id)
+			}
+			seen[id] = true
 		}
-		return nil
 	}
-	for _, v := range a.Arcs {
-		if !text(v.Title) || !text(v.Summary) {
-			return fmt.Errorf("arc %s needs a title and summary", v.ID)
+	required := func(path, value string) {
+		if !text(value) {
+			add(path, "nonempty text of at most 8192 bytes is required")
 		}
-		if err := refs("evidence", v.EvidenceIDs, true); err != nil {
-			return err
-		}
+	}
+	for i, v := range a.Arcs {
+		path := fmt.Sprintf("analysis.arcs[%d]", i)
+		required(path+".title", v.Title)
+		required(path+".summary", v.Summary)
+		refs(path+".evidence_ids", "evidence", v.EvidenceIDs, true)
 	}
 	decisions := map[string]Decision{}
+	edges := map[string][]string{}
 	for _, v := range a.Decisions {
 		decisions[v.ID] = v
 	}
-	edges := map[string][]string{}
-	for _, v := range a.Decisions {
-		if !text(v.Statement) || !text(v.Rationale) || !contains([]string{"proposed", "accepted", "superseded", "rejected", "uncertain"}, v.Status) {
-			return fmt.Errorf("invalid decision %s", v.ID)
+	for i, v := range a.Decisions {
+		path := fmt.Sprintf("analysis.decisions[%d]", i)
+		required(path+".statement", v.Statement)
+		required(path+".rationale", v.Rationale)
+		if !contains([]string{"proposed", "accepted", "superseded", "rejected", "uncertain"}, v.Status) {
+			add(path+".status", "use proposed, accepted, superseded, rejected or uncertain")
 		}
-		if err := refs("evidence", v.EvidenceIDs, true); err != nil {
-			return err
-		}
-		if err := refs("decision", v.Supersedes, false); err != nil {
-			return err
-		}
+		refs(path+".evidence_ids", "evidence", v.EvidenceIDs, true)
+		refs(path+".supersedes", "decision", v.Supersedes, false)
 		for _, id := range v.Supersedes {
-			if decisions[id].Status != "superseded" {
-				return fmt.Errorf("decision %s must be marked superseded", id)
+			if target, ok := decisions[id]; ok && target.Status != "superseded" {
+				add(path+".supersedes", "decision "+id+" must be marked superseded")
 			}
 		}
 		edges[v.ID] = v.Supersedes
 	}
 	if err := acyclic(edges); err != nil {
-		return fmt.Errorf("decision supersession: %w", err)
+		add("analysis.decisions", err.Error())
 	}
-	for _, v := range a.Claims {
-		if !text(v.Text) || !contains([]string{"supported", "contested", "unverified"}, v.Status) {
-			return fmt.Errorf("invalid claim %s", v.ID)
+	for i, v := range a.Claims {
+		path := fmt.Sprintf("analysis.claims[%d]", i)
+		required(path+".text", v.Text)
+		if !contains([]string{"supported", "contested", "refuted", "unverified"}, v.Status) {
+			add(path+".status", "use supported, contested, refuted or unverified")
 		}
-		if err := refs("evidence", v.SupportingIDs, v.Status != "unverified"); err != nil {
-			return err
-		}
-		if err := refs("evidence", v.ContradictingIDs, v.Status == "contested"); err != nil {
-			return err
-		}
+		refs(path+".supporting_ids", "evidence", v.SupportingIDs, v.Status == "supported" || v.Status == "contested")
+		refs(path+".contradicting_ids", "evidence", v.ContradictingIDs, v.Status == "contested" || v.Status == "refuted")
 		if v.Status == "supported" && len(v.ContradictingIDs) > 0 {
-			return fmt.Errorf("claim %s has contradictions; mark contested", v.ID)
+			add(path+".status", "contradictions require contested/refuted status, not supported")
+		}
+		if v.Status == "contested" && len(v.SupportingIDs) == 0 && len(v.ContradictingIDs) > 0 {
+			add(path+".status", "use refuted for evidence only against a claim; do not relabel counterevidence as support")
 		}
 		for _, id := range v.SupportingIDs {
 			if contains(v.ContradictingIDs, id) {
-				return fmt.Errorf("claim %s uses the same evidence on both sides", v.ID)
+				add(path+".supporting_ids", "the same item cannot support and contradict this claim; separate claims or split the evidence")
 			}
 		}
 	}
-	for _, v := range a.Assets {
-		if !text(v.Label) || !contains([]string{"image", "code", "document", "diagram", "video", "other"}, v.Kind) ||
-			!contains([]string{"referenced", "missing"}, v.Availability) {
-			return fmt.Errorf("invalid asset %s", v.ID)
+	for i, v := range a.Assets {
+		path := fmt.Sprintf("analysis.assets[%d]", i)
+		required(path+".label", v.Label)
+		if !contains([]string{"image", "code", "document", "diagram", "video", "other"}, v.Kind) {
+			add(path+".kind", "unknown asset kind")
 		}
-		if err := refs("evidence", []string{v.EvidenceID}, true); err != nil {
-			return err
+		if !contains([]string{"referenced", "missing"}, v.Availability) {
+			add(path+".availability", "use referenced or missing; discovery is not visual inspection")
 		}
-		path := strings.ReplaceAll(v.Locator, `\`, "/")
-		if !text(path) || filepath.IsAbs(path) || strings.HasPrefix(path, "/") || strings.Contains(path, ":") || contains(strings.Split(path, "/"), "..") {
-			return fmt.Errorf("asset %s locator must be a relative source reference, not an external path", v.ID)
-		}
-	}
-	for _, v := range a.Gaps {
-		if !text(v.Detail) || !contains([]string{"open", "disclosed", "resolved"}, v.Status) {
-			return fmt.Errorf("invalid gap %s", v.ID)
-		}
-		if err := refs("claim", v.ClaimIDs, false); err != nil {
-			return err
-		}
-		if err := refs("evidence", v.EvidenceIDs, v.Status == "resolved"); err != nil {
-			return err
+		refs(path+".evidence_id", "evidence", []string{v.EvidenceID}, true)
+		locator := strings.ReplaceAll(v.Locator, `\`, "/")
+		if !text(locator) || filepath.IsAbs(locator) || strings.HasPrefix(locator, "/") || strings.Contains(locator, ":") || contains(strings.Split(locator, "/"), "..") {
+			add(path+".locator", "use a relative source reference, not an external path")
 		}
 	}
-	for _, v := range a.Opportunities {
-		if !text(v.Title) || !text(v.Hook) || !text(v.Audience) || !text(v.Purpose) || !text(v.Rationale) ||
-			!contains([]string{"small", "medium", "large"}, v.Effort) {
-			return fmt.Errorf("opportunity %s needs a reasoned audience, purpose, hook and effort", v.ID)
+	for i, v := range a.Gaps {
+		path := fmt.Sprintf("analysis.gaps[%d]", i)
+		required(path+".detail", v.Detail)
+		if !contains([]string{"open", "disclosed", "resolved"}, v.Status) {
+			add(path+".status", "use open, disclosed or resolved")
+		}
+		refs(path+".claim_ids", "claim", v.ClaimIDs, false)
+		refs(path+".evidence_ids", "evidence", v.EvidenceIDs, v.Status == "resolved")
+	}
+	for i, v := range a.Opportunities {
+		path := fmt.Sprintf("analysis.opportunities[%d]", i)
+		for field, value := range map[string]string{"title": v.Title, "hook": v.Hook, "audience": v.Audience, "purpose": v.Purpose, "rationale": v.Rationale} {
+			required(path+"."+field, value)
+		}
+		if !contains([]string{"small", "medium", "large"}, v.Effort) {
+			add(path+".effort", "use small, medium or large")
 		}
 		if len(v.Formats) == 0 || len(v.Formats) > 8 || len(unique(v.Formats)) != len(v.Formats) {
-			return fmt.Errorf("opportunity %s needs 1..8 distinct formats", v.ID)
+			add(path+".formats", "choose 1..8 distinct content kinds")
 		}
 		for _, kind := range v.Formats {
 			if _, ok := content.Find(kind); !ok {
-				return fmt.Errorf("unknown format %q", kind)
+				add(path+".formats", fmt.Sprintf("unknown kind %q; use content.types, for example post, lessons, handbook or slides", kind))
 			}
 		}
-		for _, check := range []struct {
-			group    string
-			ids      []string
-			required bool
-		}{
-			{"arc", v.ArcIDs, true}, {"claim", v.ClaimIDs, false}, {"decision", v.DecisionIDs, false}, {"asset", v.AssetIDs, false}, {"gap", v.GapIDs, false},
-		} {
-			if err := refs(check.group, check.ids, check.required); err != nil {
-				return err
-			}
-		}
-		for _, risk := range v.Risks {
-			if !text(risk) {
-				return fmt.Errorf("invalid risk in %s", v.ID)
-			}
+		refs(path+".arc_ids", "arc", v.ArcIDs, true)
+		refs(path+".claim_ids", "claim", v.ClaimIDs, false)
+		refs(path+".decision_ids", "decision", v.DecisionIDs, false)
+		refs(path+".asset_ids", "asset", v.AssetIDs, false)
+		refs(path+".gap_ids", "gap", v.GapIDs, false)
+		for j, risk := range v.Risks {
+			required(fmt.Sprintf("%s.risks[%d]", path, j), risk)
 		}
 	}
 	edges = map[string][]string{}
-	for _, v := range a.Chapters {
-		if !text(v.Title) || !contains([]string{"planned", "drafting", "review", "complete"}, v.Status) {
-			return fmt.Errorf("invalid chapter %s", v.ID)
+	for i, v := range a.Chapters {
+		path := fmt.Sprintf("analysis.chapters[%d]", i)
+		required(path+".title", v.Title)
+		if !contains([]string{"planned", "drafting", "review", "complete"}, v.Status) {
+			add(path+".status", "use planned, drafting, review or complete")
 		}
-		if err := refs("opportunity", []string{v.OpportunityID}, true); err != nil {
-			return err
-		}
-		if err := refs("chapter", v.DependsOn, false); err != nil {
-			return err
-		}
+		refs(path+".opportunity_id", "opportunity", []string{v.OpportunityID}, true)
+		refs(path+".depends_on", "chapter", v.DependsOn, false)
 		edges[v.ID] = v.DependsOn
 		if v.Status == "complete" && v.OutputID == "" {
-			return fmt.Errorf("complete chapter %s needs a reviewed output", v.ID)
+			add(path+".output_id", "a complete chapter requires a reviewed output")
 		}
-		if v.OutputID != "" {
-			o, err := w.DB.RefineryOutput(v.OutputID)
-			if err != nil {
-				return fmt.Errorf("chapter output: %w", err)
+		if v.OutputID == "" {
+			continue
+		}
+		o, err := w.DB.RefineryOutput(v.OutputID)
+		if err != nil {
+			add(path+".output_id", err.Error())
+			continue
+		}
+		linked := false
+		for _, s := range p.Selections {
+			if s.RecipeID == o.RecipeID && s.OpportunityID == v.OpportunityID {
+				linked = true
 			}
-			linked := false
-			for _, s := range p.Selections {
-				if s.RecipeID == o.RecipeID && s.OpportunityID == v.OpportunityID {
-					linked = true
-				}
-			}
-			if !linked {
-				return fmt.Errorf("chapter output must belong to its selected opportunity")
-			}
-			if err := w.validateOutputEvidence(p, v.OutputID); err != nil {
-				return err
-			}
-			if v.Status == "complete" && o.Status != "reviewed" && o.Status != "exported" {
-				return fmt.Errorf("chapter output is not reviewed")
-			}
-			if v.Status == "complete" {
-				if _, err := (create.Workflow{DB: w.DB}).ReviewedSource(v.OutputID); err != nil {
-					return err
-				}
+		}
+		if !linked {
+			add(path+".output_id", "output must belong to this chapter's selected opportunity")
+		}
+		if err = w.validateOutputEvidence(p, v.OutputID); err != nil {
+			add(path+".output_id", err.Error())
+		}
+		if v.Status == "complete" {
+			if _, err = (create.Workflow{DB: w.DB}).ReviewedSource(v.OutputID); err != nil {
+				add(path+".output_id", err.Error())
 			}
 		}
 	}
-	return acyclic(edges)
+	if err := acyclic(edges); err != nil {
+		add("analysis.chapters", err.Error())
+	}
+	return report
 }
 
 func acyclic(edges map[string][]string) error {
@@ -273,8 +322,6 @@ func subset(a Analysis, o Opportunity) Analysis {
 			out.Arcs = append(out.Arcs, v)
 		}
 	}
-	// Close the claim/gap relation so an omitted convenience link cannot hide
-	// a known caveat. Related claims may themselves bring additional gaps.
 	for changed := true; changed; {
 		changed = false
 		for _, v := range a.Gaps {

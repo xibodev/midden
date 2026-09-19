@@ -78,6 +78,7 @@ func (w Workflow) Update(req UpdateRequest) (Project, error) {
 }
 
 func (w Workflow) Analyze(id string, expected int, analysis Analysis) (Project, error) {
+	analysis = canonicalFormats(analysis)
 	p, err := w.current(id, expected)
 	if err != nil {
 		return p, err

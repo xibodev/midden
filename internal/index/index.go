@@ -223,7 +223,13 @@ func (d *DB) migrate() error {
 	if err := d.migrateWorkbench(); err != nil {
 		return err
 	}
-	return d.migrateEditorial()
+	if err := d.migrateEditorial(); err != nil {
+		return err
+	}
+	if err := d.migrateReading(); err != nil {
+		return err
+	}
+	return d.migrateHostReviews()
 }
 
 // ensureSessionGeneration upgrades indexes created before scan_gen existed.

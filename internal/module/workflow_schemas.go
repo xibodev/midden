@@ -5,6 +5,7 @@ import (
 	"reflect"
 
 	"github.com/mekjr1/midden/internal/cost"
+	"github.com/mekjr1/midden/internal/create"
 	"github.com/mekjr1/midden/internal/index"
 	"github.com/mekjr1/midden/internal/refinery"
 )
@@ -21,6 +22,7 @@ type designResult struct {
 type inspectRecipeResult struct {
 	Recipe         index.Recipe            `json:"recipe"`
 	Evidence       []index.Nugget          `json:"evidence"`
+	CitationKeys   map[string]string       `json:"citation_keys"`
 	Outputs        []index.RefineryOutput  `json:"outputs"`
 	Runs           []index.RefineryRun     `json:"runs"`
 	Estimate       cost.Estimate           `json:"estimate"`
@@ -83,6 +85,17 @@ func workflowResultSchema(id, cap string) json.RawMessage {
 		"recipes.update": shape[recipeResult](), "recipes.evidence": shape[evidenceReviewResult](),
 		"outputs.inspect": shape[inspectOutputResult](), "outputs.review": shape[reviewOutputResult](),
 		"outputs.export": shape[exportOutputResult](), "outputs.render": shape[renderOutputResult](),
+		"outputs.audit": shape[create.DraftAudit](),
 	}
-	return typedSchema(id, kinds[cap])
+	raw := typedSchema(id, kinds[cap])
+	var schema map[string]any
+	if err := json.Unmarshal(raw, &schema); err != nil {
+		panic(err)
+	}
+	stripWorkflowScores(schema, true)
+	raw, err := json.Marshal(schema)
+	if err != nil {
+		panic(err)
+	}
+	return raw
 }
