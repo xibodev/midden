@@ -37,7 +37,7 @@ jobs:
           go-version-file: go.mod
       - name: Focused agentic regression checks
         run: |
-          go test -tags headless ./internal/editorial ./internal/module ./internal/install ./cmd/midden -run 'TestEditorial|TestAgent|TestWorkflow|TestMCPWorkflow|TestEmbedded|TestCapabilitySkills|TestInstallWrites|TestUninstall' -count=1
+          go test -tags headless ./internal/assay ./internal/adapter ./internal/index ./internal/create ./internal/editorial ./internal/module ./internal/install ./cmd/midden -run 'TestEditorial|TestAgent|TestWorkflow|TestMCP|TestEmbedded|TestCapabilitySkills|TestInstallWrites|TestUninstall|TestInvestigation|TestExactAssay|TestOrientation|TestInjected|TestSourceTime|TestFocused|TestEvidence|TestPacket|TestReading|TestOverlappingReading|TestDraftAudit|TestAutomaticContinuation|TestOperator|TestSourceFrontmatter|TestExportLifecycle|TestRefuted|TestAnalysisValidation|TestHostReviewReceipt|TestSearchExposes|TestClaudeToolResults|TestUnchangedNotebook' -count=1
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Full suite only when explicitly requested
         if: inputs.full_tests

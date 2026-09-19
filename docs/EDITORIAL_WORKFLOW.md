@@ -35,16 +35,26 @@ field. The placeholder must be replaced with an ID returned by `sessions.list`.
    describe composition, not publishable value.
 2. Check `evidence.list` using `tool` and exact `session_id`, plus bounded
    `limit`/`offset`, before re-extracting.
-3. `evidence.prepare` returns at most 80 redacted excerpts from one exact source,
-   record IDs, signal denominators, and a packet digest. The default is 40.
-   The host performs semantic extraction, then `evidence.compose` verifies the
-   current digest and every record citation before storing host-authored items.
+3. `evidence.prepare` scans the selected source, retaining a representative
+   beginning/middle/end orientation rather than its first records. It persists a
+   `packet_id`, source fingerprint, observed time range, unrepresented record
+   ranges, clipping and a shared read budget. The default is 40 excerpts, maximum
+   80. `evidence.search` returns offset-bearing windows around literal matches;
+   `evidence.read` expands context around selected records. Tool results are
+   available explicitly, including Claude's nested tool-result blocks. Source
+   stores remain read-only; packets live in Midden state.
+   The host performs semantic extraction. `evidence.validate` checks a proposal
+   without storing it; `evidence.compose` consumes `packet_id` and validates every
+   source-record citation and exact quotation, without rebuilding read parameters.
    This is **no additional model invocation by Midden**, not free host reasoning.
 4. `projects.create` requires a title, goal, exact `sources` and selected
    `evidence_ids`. It rejects evidence outside that corpus.
 5. `editorial.prepare` supplies the scoped evidence and investigative guidance.
    The host authors an analysis and submits it to `editorial.analyze` with the
-   inspected `expected_revision`.
+   inspected `expected_revision`. Use `editorial.validate` first to receive
+   aggregate field-path issues without changing durable state. Evidence solely
+   against a claim can be represented as `refuted`; never move it into support
+   merely to satisfy a validator.
 6. Compare opportunities by hook, audience, purpose, evidence, caveats, usefulness,
    effort and risks. A format catalog or nugget count is not an editorial map.
    Analysis validation verifies references and consistency, not factual truth.
@@ -62,13 +72,23 @@ request contain only the selected story, its claims, reversal chain, gaps, asset
 and risks. Open gaps need explicit `acknowledge_gaps` to proceed with disclosure.
 
 Inspect the recipe, present its exact evidence to the operator, and use
-`recipes.evidence` with `decision: approved` only after that review. The host
+`recipes.evidence` with `decision: approved` only after that review. The transition
+requires a trusted host confirmation callback, such as MCP elicitation. A JSON
+boolean, an automatic continuation, or broad shell permissions do not establish
+operator approval. CLI-only/unsupported hosts leave it pending. The host
 authors drafts and submits `recipes.compose`; no nested model is needed.
 Deterministic packs use the same recipe lifecycle; submit `"drafts": {}` for a
 deterministic-only recipe. Every narrative output still requires an authored draft.
 
-Inspect each output and check material claims against the cited evidence.
-`outputs.review` requires an inspected `expected_digest` and a decision.
+Recipe inspection supplies stable `citation_keys` such as `[E1]`. Inspect each
+output, use `outputs.audit`, and check material claims against actual sources.
+The audit detects missing/out-of-scope citations and reconstructed quotations in
+Markdown; it does not prove semantic entailment. Unchanged deterministic source
+packs are handled as containers rather than falsely labeled authored narratives.
+The agent surface reports specific findings, not a weighted quality score.
+`outputs.review` requires an inspected `expected_digest`, a decision, and
+`review_notes` for approval. An omitted body means review existing content.
+Confirmation and persistence use the same normalized bytes/evidence set.
 Approval of evidence is not approval of the draft. Review decisions represent
 the operator, not the agent's self-review. Export only through `outputs.export`;
 it verifies reviewed bytes and provenance. Rendering remains a separate step
@@ -115,6 +135,11 @@ Handoffs are recorded in the existing artifact inventory.
 
 Projects contain at most 25 exact sources and 300 selected evidence items, with
 256 KiB of evidence and 512 KiB of project state per revision. Lists are bounded.
+An investigation initially exposes at most 128 KiB of unique source-text byte
+ranges. Overlapping windows and identical retries do not double-charge that
+budget. `evidence.extend_budget` requests a host-confirmed increase, capped at
+1 MiB; an agent cannot grant this itself. A sample boundary is not a session ending; use chronology and focused
+reads before concluding an outcome.
 Narrow a corpus instead of constructing a whole transcript through repeated
 requests. Changes to selected evidence invalidate preparation/selection until
 the project is explicitly refreshed. Concurrent edits require reinspection.
@@ -129,3 +154,12 @@ workflow. It runs focused checks and packages only the headless binary and decla
 skills/overlay into staging artifacts. It does not publish a release or deploy
 Pages. The full Go suite remains opt-in through its `full_tests` dispatch input;
 the repository's existing release validation is unchanged.
+
+## Host confirmation setup
+
+`midden agent mcp-config --home <state-directory>` emits a configuration for the
+running binary. Load it once in the host (for Copilot CLI,
+`--additional-mcp-config @<file>`). A client advertising MCP elicitation can
+display operator approval forms. Decline, cancel, missing support and a closed
+channel all leave decisions pending. Confirmation is bound to exact content;
+unrestricted access to the same OS user or database is not a sandbox.

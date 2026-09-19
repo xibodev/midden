@@ -15,7 +15,7 @@ when the window closes.
 ```powershell
 $ErrorActionPreference = 'Stop'
 $repo = 'xibodev/midden'
-$branch = 'feat/editorial-production-handoffs'
+$branch = 'feat/agentic-investigation-repair'
 $sha = gh api "repos/$repo/git/ref/heads/$branch" --jq '.object.sha'
 if ($LASTEXITCODE -ne 0) { throw 'Cannot read staging feature revision.' }
 $run = gh run list --repo $repo --branch $branch --commit $sha `
@@ -77,6 +77,8 @@ $midden = Join-Path $bin 'midden.exe'
 & $midden agent schema handoffs.create
 & $midden agent content.types --home $state
 & $midden agent projects.list --home $state
+$mcpConfig = Join-Path $lab 'midden-mcp.json'
+& $midden agent mcp-config --home $state | Set-Content -LiteralPath $mcpConfig -Encoding utf8
 copilot -C $workspace --no-custom-instructions skill list
 ```
 
@@ -100,7 +102,7 @@ Midden reads. Alternate source-store locations require explicit module roots.
 
 ```powershell
 copilot -C $workspace --mode interactive --no-custom-instructions `
-    --disable-builtin-mcps --no-remote --no-remote-export
+    --additional-mcp-config "@$mcpConfig" --disable-builtin-mcps --no-remote --no-remote-export
 ```
 
 Do not resume this implementation conversation or use automatic all-tool
@@ -113,14 +115,12 @@ configured skill locations and select the project-installed entry explicitly.
 
 For the first prompt, use one **closed** session:
 
-> Use the project-installed midden-editorial-production skill and its bound lab
-> binary/state. Investigate only the Copilot session
-> e8d45bbc-8a5a-49f7-97fb-cdde78961650. Begin with a free assay and at most 40
-> candidate excerpts. Do not widen the scope or read raw transcripts. Compare
-> useful stories, audiences, decisions that changed, evidence gaps, and privacy
-> risks. Stop for my choice before drafting. Do not invoke another AI CLI,
-> approve anything on my behalf, install tools, upload, publish, or modify source
-> sessions.
+> Look through session SESSION_ID. Is there anything worth developing into
+> content? Show me the strongest possibilities.
+
+Replace `SESSION_ID` with the chosen exact ID. Do not supply tool names, expected
+findings, sampling limits or the workflow. Keep the assessment criteria below
+outside the prompt: the installed bundle must guide the agent.
 
 Use another exact ID if that source is still active. Source stores can change
 when their owning CLI is running; test a paused/closed source for stable digest
@@ -132,24 +132,22 @@ Midden's prepare/compose operations do not invoke another model.
 | Checkpoint | Expected behavior |
 |---|---|
 | Discover | Exact source identity, composition, bounded candidate count, and coverage caveats; no claim to have read the whole transcript. |
-| Investigate | Evidence is cited and stored in the lab. Competing stories distinguish original decisions from later corrections and unresolved failures. |
+| Investigate | The agent orients across the full time range, retrieves focused context, and distinguishes early claims from later corrections. A sample endpoint never becomes a claimed session ending. |
 | Select | After the operator chooses, a draft recipe links only the selected opportunity's evidence. Selection is not approval. |
-| Evidence review | The agent shows the exact evidence and gaps. Only the operator's explicit approval permits the approval transition. |
+| Evidence review | The host presents an actual operator confirmation. Choice of a story or an automatic continuation must not be recorded as evidence approval. Unsupported confirmation leaves review pending. |
 | Draft | The host authors a Markdown draft and submits it. Material claims have evidence references; disputed or unverified claims are labeled. |
-| Output review | The operator inspects the actual draft. Review uses the current content digest; a draft cannot be exported. |
+| Output review | Citation/quotation findings are addressed; the agent examines support rather than equating identifiers with truth. The operator confirms the exact draft. |
 | Deliver | Local export preserves reviewed bytes and provenance. Optional handoffs are source bundles, not automatically rendered publications. |
 | Resume | A new conversation, with the same lab environment, finds the stored project/revision and continues without re-mining or resetting progress. |
 
 A useful follow-up after choosing a story:
 
-> Develop this as an internal Markdown article. First show the outline, claims,
-> supporting evidence, unresolved gaps and the exact recipe evidence selection.
-> Wait for my evidence approval before composing. Leave the output as a draft
-> until I review it.
+> Develop the third idea as an internal article.
 
-Do not start with every session, several formats, a book, renderers, or MCP.
+Do not start with every session, several formats, a book, or renderers.
 After this single-output journey works, test a second explicit source, chapter
-dependencies, and optional transports/renderers independently.
+dependencies, and optional renderers independently. The workflow MCP connection
+provides operator confirmation, not a second AI runtime.
 
 ## 5. Record the result and reset safely
 

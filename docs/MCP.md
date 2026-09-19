@@ -20,6 +20,12 @@ The server operator fixes the writable state root at startup; a tool call cannot
 override it. Mutations affect Midden state only. Model subprocess extraction,
 publishing, installation and cleanup are not exposed. The host agent performs
 semantic work between prepare/compose operations and owns its model budget.
+Clients supporting MCP elicitation receive real operator confirmation forms for
+evidence approval, draft review and larger read budgets. A declined/cancelled
+form, missing elicitation capability or disconnected client leaves review pending.
+Tool arguments cannot supply a confirmation callback. Read-only CLI discovery
+and investigation remain useful without elicitation; CLI approval calls cannot
+turn an agent's assertion into human consent.
 For production use, configure the host's per-tool approval policy for state
 changes, evidence approvals, draft reviews and local exports. Turning on workflow
 tools does not mean every output is approved.
@@ -27,6 +33,11 @@ tools does not mean every output is approved.
 See [Editorial workflow](EDITORIAL_WORKFLOW.md). Configure MCP `args` as
 `["mcp", "--workflow", "--home", "C:\\absolute\\midden-state"]` on Windows;
 leave `["mcp"]` unchanged when only recovery tools are wanted.
+
+For the exact installed binary/state binding, use
+`midden agent mcp-config --home <state-directory>` and load that generated
+configuration in the host. This is a one-time setup step, not operator-driven
+tool orchestration during an investigation.
 
 ## Before registration
 
