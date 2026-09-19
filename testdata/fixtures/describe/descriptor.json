@@ -138,7 +138,7 @@
       {
         "id": "recipes.compose",
         "title": "Submit authored drafts",
-        "summary": "Store host-authored content for every model-backed output in an approved recipe. No additional model call; retains evidence provenance and stops at draft review.",
+        "summary": "Store explicitly requested local drafts against selected evidence without requiring or claiming human approval. No additional model call. Outputs remain unreviewed; review/export still require positive confirmation.",
         "request_schema": "xibodev.midden.recipes.compose.request/v1",
         "result_schema": "xibodev.midden.recipes.compose.result/v1",
         "artifact_schemas": [],
@@ -198,7 +198,7 @@
       {
         "id": "recipes.inspect",
         "title": "Inspect a recovery plan",
-        "summary": "Read a recipe, its exact evidence, quality report, outputs and production runs.",
+        "summary": "Read a recipe, its exact evidence, review findings, citation keys, outputs and production runs.",
         "request_schema": "xibodev.midden.recipes.inspect.request/v1",
         "result_schema": "xibodev.midden.recipes.inspect.result/v1",
         "artifact_schemas": [],
@@ -412,6 +412,46 @@
         "skills": [
           "midden.evidence-selection",
           "midden.content-seed"
+        ],
+        "long_running": false
+      },
+      {
+        "id": "host.status",
+        "title": "host.status",
+        "summary": "Inspect the host confirmation channel. Optional probe_confirmation tests one operator dialog without changing evidence, approvals, drafts or exports.",
+        "request_schema": "xibodev.midden.host.status.request/v1",
+        "result_schema": "xibodev.midden.host.status.result/v1",
+        "artifact_schemas": [],
+        "effects": {
+          "local": true,
+          "network": false,
+          "external_writes": false,
+          "provider": "",
+          "cost_known": true
+        },
+        "skills": [
+          "midden.editorial-production",
+          "midden.evidence-selection"
+        ],
+        "long_running": false
+      },
+      {
+        "id": "results.inspect",
+        "title": "results.inspect",
+        "summary": "Read bounded pages of a detailed result using its _view.result_id and returned JSON-pointer paths. No shell parsing is needed. The result cache retains the latest 128 distinct views; durable projects and packets are separate.",
+        "request_schema": "xibodev.midden.results.inspect.request/v1",
+        "result_schema": "xibodev.midden.results.inspect.result/v1",
+        "artifact_schemas": [],
+        "effects": {
+          "local": true,
+          "network": false,
+          "external_writes": false,
+          "provider": "",
+          "cost_known": true
+        },
+        "skills": [
+          "midden.editorial-production",
+          "midden.evidence-selection"
         ],
         "long_running": false
       },
@@ -1628,6 +1668,9 @@
                   "items": {
                     "additionalProperties": false,
                     "properties": {
+                      "packet_id": {
+                        "type": "string"
+                      },
                       "record_id": {
                         "type": "string"
                       },
@@ -1675,6 +1718,13 @@
           },
           "packet_id": {
             "type": "string"
+          },
+          "packet_ids": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 8,
+            "type": "array"
           },
           "source": {
             "additionalProperties": false,
@@ -1951,6 +2001,9 @@
                   "items": {
                     "additionalProperties": false,
                     "properties": {
+                      "packet_id": {
+                        "type": "string"
+                      },
                       "record_id": {
                         "type": "string"
                       },
@@ -1998,6 +2051,13 @@
           },
           "packet_id": {
             "type": "string"
+          },
+          "packet_ids": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 8,
+            "type": "array"
           },
           "source": {
             "additionalProperties": false,
@@ -2059,6 +2119,18 @@
           "target",
           "output_ids"
         ],
+        "type": "object"
+      },
+      "xibodev.midden.host.status.request/v1": {
+        "$id": "xibodev.midden.host.status.request/v1",
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "probe_confirmation": {
+            "type": "boolean"
+          }
+        },
+        "required": [],
         "type": "object"
       },
       "xibodev.midden.outputs.audit.request/v1": {
@@ -2348,6 +2420,34 @@
           },
           "output_kinds": {
             "items": {
+              "enum": [
+                "tutorial",
+                "howto",
+                "faq",
+                "tsg",
+                "adr",
+                "changelog",
+                "post",
+                "readme",
+                "lessons",
+                "release_pack",
+                "slides",
+                "diagram",
+                "video_brief",
+                "handbook",
+                "flashcards",
+                "quiz",
+                "notebook_pack",
+                "skill",
+                "instruction_patch",
+                "agent_profile",
+                "eval_pack",
+                "retrieval_pack",
+                "sft_pack",
+                "preference_pack",
+                "privacy_manifest",
+                "provenance_manifest"
+              ],
               "type": "string"
             },
             "type": "array"
@@ -2423,6 +2523,34 @@
           },
           "output_kinds": {
             "items": {
+              "enum": [
+                "tutorial",
+                "howto",
+                "faq",
+                "tsg",
+                "adr",
+                "changelog",
+                "post",
+                "readme",
+                "lessons",
+                "release_pack",
+                "slides",
+                "diagram",
+                "video_brief",
+                "handbook",
+                "flashcards",
+                "quiz",
+                "notebook_pack",
+                "skill",
+                "instruction_patch",
+                "agent_profile",
+                "eval_pack",
+                "retrieval_pack",
+                "sft_pack",
+                "preference_pack",
+                "privacy_manifest",
+                "provenance_manifest"
+              ],
               "type": "string"
             },
             "type": "array"
@@ -2458,6 +2586,34 @@
         "properties": {
           "output_kinds": {
             "items": {
+              "enum": [
+                "tutorial",
+                "howto",
+                "faq",
+                "tsg",
+                "adr",
+                "changelog",
+                "post",
+                "readme",
+                "lessons",
+                "release_pack",
+                "slides",
+                "diagram",
+                "video_brief",
+                "handbook",
+                "flashcards",
+                "quiz",
+                "notebook_pack",
+                "skill",
+                "instruction_patch",
+                "agent_profile",
+                "eval_pack",
+                "retrieval_pack",
+                "sft_pack",
+                "preference_pack",
+                "privacy_manifest",
+                "provenance_manifest"
+              ],
               "type": "string"
             },
             "type": "array"
@@ -2474,6 +2630,33 @@
         },
         "required": [
           "recipe_id"
+        ],
+        "type": "object"
+      },
+      "xibodev.midden.results.inspect.request/v1": {
+        "$id": "xibodev.midden.results.inspect.request/v1",
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "limit": {
+            "default": 5,
+            "maximum": 20,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "offset": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "path": {
+            "type": "string"
+          },
+          "result_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "result_id"
         ],
         "type": "object"
       },
@@ -4345,6 +4528,26 @@
             "format": "date-time",
             "type": "string"
           },
+          "source_view": {
+            "additionalProperties": false,
+            "properties": {
+              "bytes": {
+                "type": "integer"
+              },
+              "kind": {
+                "type": "string"
+              },
+              "records": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "kind",
+              "bytes",
+              "records"
+            ],
+            "type": "object"
+          },
           "total_records": {
             "type": "integer"
           },
@@ -4380,6 +4583,7 @@
           "source",
           "digest",
           "source_digest",
+          "source_view",
           "source_first_time",
           "source_last_time",
           "selection",
@@ -4532,6 +4736,26 @@
             "format": "date-time",
             "type": "string"
           },
+          "source_view": {
+            "additionalProperties": false,
+            "properties": {
+              "bytes": {
+                "type": "integer"
+              },
+              "kind": {
+                "type": "string"
+              },
+              "records": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "kind",
+              "bytes",
+              "records"
+            ],
+            "type": "object"
+          },
           "total_records": {
             "type": "integer"
           },
@@ -4567,6 +4791,7 @@
           "source",
           "digest",
           "source_digest",
+          "source_view",
           "source_first_time",
           "source_last_time",
           "selection",
@@ -4719,6 +4944,26 @@
             "format": "date-time",
             "type": "string"
           },
+          "source_view": {
+            "additionalProperties": false,
+            "properties": {
+              "bytes": {
+                "type": "integer"
+              },
+              "kind": {
+                "type": "string"
+              },
+              "records": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "kind",
+              "bytes",
+              "records"
+            ],
+            "type": "object"
+          },
           "total_records": {
             "type": "integer"
           },
@@ -4754,6 +4999,7 @@
           "source",
           "digest",
           "source_digest",
+          "source_view",
           "source_first_time",
           "source_last_time",
           "selection",
@@ -4896,6 +5142,31 @@
           "manifest_digest",
           "target",
           "review_state"
+        ],
+        "type": "object"
+      },
+      "xibodev.midden.host.status.result/v1": {
+        "$id": "xibodev.midden.host.status.result/v1",
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "confirmation_available": {
+            "type": "boolean"
+          },
+          "confirmation_outcome": {
+            "type": "string"
+          },
+          "diagnostic": {
+            "type": "string"
+          },
+          "workflow_changed": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "confirmation_available",
+          "confirmation_outcome",
+          "workflow_changed"
         ],
         "type": "object"
       },
@@ -8564,6 +8835,74 @@
         ],
         "type": "object"
       },
+      "xibodev.midden.results.inspect.result/v1": {
+        "$id": "xibodev.midden.results.inspect.result/v1",
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "complete": {
+            "type": "boolean"
+          },
+          "fields": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "count": {
+                  "type": "integer"
+                },
+                "kind": {
+                  "type": "string"
+                },
+                "path": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "path",
+                "kind"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "next_offset": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "offset": {
+            "type": "integer"
+          },
+          "path": {
+            "type": "string"
+          },
+          "result_id": {
+            "type": "string"
+          },
+          "total": {
+            "type": "integer"
+          },
+          "value": {}
+        },
+        "required": [
+          "result_id",
+          "path",
+          "kind",
+          "offset",
+          "total",
+          "value",
+          "complete"
+        ],
+        "type": "object"
+      },
       "xibodev.midden.seed.create.result/v1": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "$id": "xibodev.midden.seed.create.result/v1",
@@ -8997,8 +9336,8 @@
         "id": "midden.recovery",
         "title": "Midden session recovery",
         "path": "agents/midden-recovery.md",
-        "digest": "sha256:462a89ad1b4ecde305488c859eb8f2ed26f3d2f8df2f7ca2dfc81755aa3a4b52",
-        "tokens": 2324
+        "digest": "sha256:99983c9e573db5efca933bb0ec767702d6614899239509a61f3d25a03ed3caa7",
+        "tokens": 2455
       }
     ],
     "skills": [
@@ -9007,8 +9346,8 @@
         "title": "Editorial production",
         "summary": "Use when discovering stories, lessons, content opportunities, or long-form projects in agentic history.",
         "path": "skills/editorial-production/SKILL.md",
-        "digest": "sha256:11d6a7a59cee439153e7106bea5eb2c8b350265c723b1f9ffe55b7cb2508d40d",
-        "tokens": 1234
+        "digest": "sha256:b418436076a9cff052c1106ff38919b1f47c89c2aaf17c3ad6acde9ef0895784",
+        "tokens": 1132
       },
       {
         "id": "midden.session-recovery",

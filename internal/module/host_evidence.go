@@ -11,6 +11,7 @@ import (
 	"github.com/mekjr1/midden/internal/core"
 	"github.com/mekjr1/midden/internal/editorial"
 	"github.com/mekjr1/midden/internal/index"
+	"github.com/mekjr1/midden/internal/quotation"
 	"github.com/mekjr1/midden/internal/redact"
 )
 
@@ -37,6 +38,7 @@ type EvidencePacket struct {
 	Source          editorial.Source    `json:"source"`
 	Digest          string              `json:"digest"`
 	SourceDigest    string              `json:"source_digest"`
+	SourceView      assay.SourceView    `json:"source_view"`
 	SourceFirstTime time.Time           `json:"source_first_time"`
 	SourceLastTime  time.Time           `json:"source_last_time"`
 	Selection       string              `json:"selection"`
@@ -65,6 +67,7 @@ type HostEvidenceItem struct {
 
 type EvidenceComposeInput struct {
 	PacketID       string             `json:"packet_id,omitempty"`
+	PacketIDs      []string           `json:"packet_ids,omitempty" max:"8"`
 	Source         editorial.Source   `json:"source,omitzero"`
 	MaxRecords     int                `json:"max_records,omitempty"`
 	ExpectedDigest string             `json:"expected_digest,omitempty"`
@@ -88,20 +91,27 @@ func composeHostEvidence(input EvidenceComposeInput, req Request, db *index.DB) 
 	if len(input.Items) > 80 {
 		return out, fmt.Errorf("at most 80 evidence items can be submitted")
 	}
-	stored, err := loadReadingPacket(db, input.PacketID, input.ExpectedDigest)
+	packets, err := compatibleReadingPackets(db, input)
 	if err != nil {
 		return out, err
 	}
+	stored := packets[0]
 	packet, source := stored.Packet, stored.Session
 	if input.Source.SessionID != "" && (input.Source != packet.Source) {
 		return out, fmt.Errorf("source does not match the stored packet")
 	}
-	allowed := map[string]EvidenceRecord{}
-	for _, r := range packet.Records {
-		allowed[r.ID] = r
+	type candidate struct {
+		packetID string
+		record   EvidenceRecord
+	}
+	allowed := map[string][]candidate{}
+	for _, p := range packets {
+		for _, r := range p.Packet.Records {
+			allowed[r.ID] = append(allowed[r.ID], candidate{p.Packet.PacketID, r})
+		}
 	}
 	seen := map[string]bool{}
-	for _, item := range input.Items {
+	for itemIndex, item := range input.Items {
 		if !index.ValidKind(item.Kind) || strings.TrimSpace(item.Title) == "" || strings.TrimSpace(item.Body) == "" ||
 			len(item.Title) > 300 || len(item.Body) > 6000 || item.Confidence < 0 || item.Confidence > 1 || len(item.Tags) > 8 {
 			return out, fmt.Errorf("invalid evidence item: use a known kind, bounded title/body, and confidence 0..1")
@@ -116,13 +126,32 @@ func composeHostEvidence(input EvidenceComposeInput, req Request, db *index.DB) 
 				return out, fmt.Errorf("unknown or duplicate record ID %q", id)
 			}
 		}
-		for _, quotation := range item.Quotations {
-			record, ok := allowed[quotation.RecordID]
-			if !ok || assay.Classify(record.Kind) == assay.Artifact || !containsName(ids, quotation.RecordID) || strings.TrimSpace(quotation.Text) == "" ||
-				!strings.Contains(record.Excerpt, quotation.Text) {
-				return out, fmt.Errorf("quotation for %s must exactly match its cited source excerpt", quotation.RecordID)
+		usedPackets := map[string]bool{}
+		for _, id := range ids {
+			for _, c := range allowed[id] {
+				usedPackets[c.packetID] = true
 			}
 		}
+		for quoteIndex, q := range item.Quotations {
+			matched := false
+			for _, c := range allowed[q.RecordID] {
+				if q.PacketID != "" && q.PacketID != c.packetID {
+					continue
+				}
+				if assay.Classify(c.record.Kind) != assay.Artifact && containsName(ids, q.RecordID) && quotation.Matches(c.record.Excerpt, q.Text) {
+					matched = true
+					break
+				}
+			}
+			if !matched {
+				return out, EvidenceWindowError{Path: fmt.Sprintf("items[%d].quotations[%d]", itemIndex, quoteIndex), RecordID: q.RecordID, PacketID: q.PacketID}
+			}
+		}
+		packetIDs := []string{}
+		for id := range usedPackets {
+			packetIDs = append(packetIDs, id)
+		}
+		sort.Strings(packetIDs)
 		for _, tag := range item.Tags {
 			if len(tag) > 80 || strings.Contains(tag, ",") {
 				return out, fmt.Errorf("tags must be bounded and contain no commas")
@@ -138,11 +167,12 @@ func composeHostEvidence(input EvidenceComposeInput, req Request, db *index.DB) 
 		}
 		refRaw, err := json.Marshal(struct {
 			PacketID   string            `json:"packet_id"`
+			PacketIDs  []string          `json:"packet_ids"`
 			Packet     string            `json:"packet_digest"`
 			Snapshot   string            `json:"source_digest"`
 			Records    []string          `json:"record_ids"`
 			Quotations []SourceQuotation `json:"quotations,omitempty"`
-		}{packet.PacketID, packet.Digest, packet.SourceDigest, ids, item.Quotations})
+		}{packet.PacketID, packetIDs, packet.Digest, packet.SourceDigest, ids, item.Quotations})
 		if err != nil {
 			return out, err
 		}

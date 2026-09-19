@@ -78,8 +78,8 @@ func TestAgentWorkflowFromSourceToReviewedExportWithoutNestedModel(t *testing.T)
 	decode("editorial.analyze", map[string]any{"project_id": p.ID, "expected_revision": p.Revision, "analysis": a}, &p)
 	var selection editorial.SelectionResult
 	decode("editorial.select", editorial.SelectRequest{ProjectID: p.ID, ExpectedRevision: p.Revision, OpportunityID: "post", OutputKinds: []string{"post"}}, &selection)
-	if call("recipes.compose", map[string]any{"recipe_id": selection.Recipe.UID, "drafts": map[string]string{"post": "Unapproved"}}).OK {
-		t.Fatal("unapproved composition succeeded")
+	if call("recipes.compose", map[string]any{"recipe_id": selection.Recipe.UID, "drafts": map[string]string{"unknown_kind": "Unexpected"}}).OK {
+		t.Fatal("out-of-plan composition succeeded")
 	}
 	var ignored map[string]any
 	decode("recipes.evidence", map[string]any{"recipe_id": selection.Recipe.UID, "evidence_ids": []string{evidenceID}, "decision": "approved"}, &ignored)

@@ -155,7 +155,7 @@ func WorkflowGuidance() string {
 		fmt.Fprintf(&b, "- `%s`: %s\n", cap.ID, cap.Summary)
 	}
 	b.WriteString("\nUse recipes.preview to discuss a plan; recipes.design saves it. recipes.evidence records the user's exact evidence selection and review. recipes.produce starts only from an approved plan. Read outputs.inspect and its content_digest before outputs.review; send that digest as expected_digest. Revisions invalidate earlier review. Export only reviewed, unchanged bytes with provenance. A model's self-review is not a human's editorial approval. Never claim a seed or a source document is a finished rendered deliverable.\n")
-	b.WriteString("\nWhen the host agent authors the content itself, recipes.compose accepts drafts keyed by output kind and saves them into the same approved-plan lifecycle without a nested model call. Use outputs.render for editable PPTX from slides or standalone HTML from Markdown. Pandoc must be installed; surface missing renderer errors. A source preview is not a visual verification of PowerPoint rendering.\n")
+	b.WriteString("\nWhen the operator requests development, recipes.compose saves host-authored local drafts without requiring or inventing human approval. They remain unreviewed. Review/export still require positive trusted confirmation. Agent replies with _view are previews: use results.inspect handles and pages, not ad hoc shell parsing. Use host.status for precise confirmation diagnostics. Use outputs.render for editable PPTX from slides or standalone HTML from Markdown only when needed; missing renderers are explicit errors, not an invitation to install silently.\n")
 	return b.String()
 }
 

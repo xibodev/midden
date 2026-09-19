@@ -104,7 +104,21 @@ func confirmedByHost(req Request, proposal confirmation.Request) (bool, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	return req.ConfirmOperator(ctx, proposal)
+	accepted, err := req.ConfirmOperator(ctx, proposal)
+	fmt.Fprintf(os.Stderr, "midden confirmation: action=%s outcome=%s\n", proposal.Action, confirmation.Outcome(accepted, err))
+	return accepted, err
+}
+
+func confirmationPending(req Request, accepted bool, err error) Envelope {
+	outcome := confirmation.Outcome(accepted, err)
+	message := "No positive operator confirmation was received."
+	if err != nil {
+		message = err.Error()
+	}
+	env := pendingOperator(req, message)
+	env.Error.Details["outcome"] = outcome
+	env.Error.Details["channel_available"] = req.ConfirmOperator != nil
+	return env
 }
 
 func pendingOperator(req Request, message string) Envelope {
@@ -116,7 +130,7 @@ func requireStoredReview(req Request, db *index.DB, cap string, c create.Change)
 	var proposal confirmation.Request
 	var err error
 	switch cap {
-	case "recipes.compose", "recipes.produce":
+	case "recipes.produce":
 		proposal, err = recipeConfirmation(db, c.RecipeID, nil)
 	case "outputs.export":
 		o, e := db.RefineryOutput(c.OutputID)

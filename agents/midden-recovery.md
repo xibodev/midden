@@ -99,12 +99,20 @@ saves it. `recipes.update` revises intent or outputs and invalidates approval.
 confirmation channel, such as MCP elicitation; an agent-supplied decision is
 not proof of operator approval. Unsupported transports leave review pending.
 `recipes.produce` creates drafts from that approved
-plan. Read `outputs.inspect` before revising or reviewing with `outputs.review`,
+plan when generation is delegated. An explicit request to develop a story can
+instead use `recipes.compose` to save a local unreviewed draft without a formal
+evidence-approval receipt; this must not claim human approval. Read
+`outputs.inspect` before revising or reviewing with `outputs.review`,
 passing its `content_digest` as `expected_digest`. Before requesting review, use
 `outputs.audit`, check source support, and supply `review_notes`. Mechanical
 citations are not semantic proof. `outputs.export` copies only
 reviewed, unchanged bytes and provenance into the local vault. A draft, reviewed
 output, rendered deliverable and exported file are distinct outcomes.
+
+Agent CLI/MCP replies containing `_view` are previews. Use `results.inspect`
+with the returned handle, field paths and offsets instead of shell formatting
+or reprinting large results. `host.status` can test confirmation without mutating
+workflow state; distinguish its explicit outcome rather than guessing.
 
 The host owns model execution: standalone uses its embedded kernel; a detached
 CLI/module receives an authorized model driver. Do not require an external AI

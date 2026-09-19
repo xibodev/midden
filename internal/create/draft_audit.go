@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/mekjr1/midden/internal/index"
+	"github.com/mekjr1/midden/internal/quotation"
 )
 
 type AuditFinding struct {
@@ -98,6 +99,10 @@ func AuditDraft(db *index.DB, body string, evidence []index.Nugget, keys map[str
 	}
 
 	for _, block := range strings.Split(stripFrontmatter(body), "\n\n") {
+		metadata := strings.TrimSpace(block)
+		if len(report.Passages) == 0 && !strings.Contains(metadata, "\n") && len(metadata) <= 160 && strings.HasPrefix(metadata, "**Audience:**") {
+			continue
+		}
 		lines := []string{}
 		for _, line := range strings.Split(block, "\n") {
 			line = strings.TrimSpace(line)
@@ -147,7 +152,7 @@ func AuditDraft(db *index.DB, body string, evidence []index.Nugget, keys map[str
 					return report, err
 				}
 				for _, excerpt := range excerpts {
-					if strings.Contains(strings.Join(strings.Fields(excerpt), " "), strings.Join(strings.Fields(quote), " ")) {
+					if quotation.Matches(excerpt, quote) {
 						exact = true
 						break
 					}
@@ -166,33 +171,40 @@ func AuditDraft(db *index.DB, body string, evidence []index.Nugget, keys map[str
 
 func sourceExcerpts(db *index.DB, n index.Nugget) ([]string, error) {
 	var ref struct {
-		PacketID string   `json:"packet_id"`
-		Records  []string `json:"record_ids"`
+		PacketID  string   `json:"packet_id"`
+		PacketIDs []string `json:"packet_ids"`
+		Records   []string `json:"record_ids"`
 	}
-	if json.Unmarshal([]byte(n.TurnRef), &ref) != nil || ref.PacketID == "" {
+	if json.Unmarshal([]byte(n.TurnRef), &ref) != nil || (ref.PacketID == "" && len(ref.PacketIDs) == 0) {
 		return nil, nil
 	}
-	raw, err := db.ReadingPacket(ref.PacketID)
-	if err != nil {
-		return nil, err
-	}
-	var doc struct {
-		Packet struct {
-			Records []struct{ ID, Excerpt, Kind string } `json:"records"`
-		} `json:"packet"`
-	}
-	if err = json.Unmarshal(raw, &doc); err != nil {
-		return nil, err
+	keys := ref.PacketIDs
+	if len(keys) == 0 {
+		keys = []string{ref.PacketID}
 	}
 	out := []string{}
-	for _, record := range doc.Packet.Records {
-		if record.Kind == "session.binary_asset" || record.Kind == "session.workspace_file_changed" {
-			continue
+	for _, key := range keys {
+		raw, err := db.ReadingPacket(key)
+		if err != nil {
+			return nil, err
 		}
-		for _, id := range ref.Records {
-			if record.ID == id {
-				out = append(out, record.Excerpt)
-				break
+		var doc struct {
+			Packet struct {
+				Records []struct{ ID, Excerpt, Kind string } `json:"records"`
+			} `json:"packet"`
+		}
+		if err = json.Unmarshal(raw, &doc); err != nil {
+			return nil, err
+		}
+		for _, record := range doc.Packet.Records {
+			if record.Kind == "session.binary_asset" || record.Kind == "session.workspace_file_changed" {
+				continue
+			}
+			for _, id := range ref.Records {
+				if record.ID == id {
+					out = append(out, record.Excerpt)
+					break
+				}
 			}
 		}
 	}

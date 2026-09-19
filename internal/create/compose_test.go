@@ -8,7 +8,7 @@ import (
 	"time"
 )
 
-func TestAuthoredDraftsRequireCompleteApprovedPlan(t *testing.T) {
+func TestAuthoredDraftsRequireCompleteScopedPlan(t *testing.T) {
 	db, err := index.OpenAt(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -23,10 +23,7 @@ func TestAuthoredDraftsRequireCompleteApprovedPlan(t *testing.T) {
 	r := v.(map[string]any)["recipe"].(index.Recipe)
 	w.Drafts = map[string]string{"tutorial": "# Blog"}
 	if _, err = w.Produce(context.Background(), r.UID); err == nil {
-		t.Fatal("unapproved authored content accepted")
-	}
-	if _, err = w.SelectEvidence(Change{RecipeID: r.UID, EvidenceIDs: []string{"e"}}, true); err != nil {
-		t.Fatal(err)
+		t.Fatal("incomplete authored content accepted")
 	}
 	if _, err = w.Produce(context.Background(), r.UID); err == nil {
 		t.Fatal("missing slide draft accepted")

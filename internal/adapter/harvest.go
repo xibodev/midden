@@ -79,7 +79,11 @@ func eachLine(path string, fn func(line []byte) bool) error {
 	}
 	defer f.Close()
 
-	r := bufio.NewReaderSize(f, 256<<10)
+	return eachLineReader(f, fn)
+}
+
+func eachLineReader(input io.Reader, fn func(line []byte) bool) error {
+	r := bufio.NewReaderSize(input, 256<<10)
 	buf := make([]byte, 0, 8<<10)
 
 	for {

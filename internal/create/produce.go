@@ -71,6 +71,9 @@ func (p Producer) CheckRunnable(recipe index.Recipe, evidence []index.Nugget, re
 	if recipe.Status != refinery.RecipeApproved && recipe.Status != refinery.RecipeFailed {
 		return fmt.Errorf("approve the evidence before running this recipe")
 	}
+	if recipe.Status == refinery.RecipeFailed && recipe.ApprovedAt.IsZero() {
+		return fmt.Errorf("a failed local draft is not authorization for delegated production; approve the evidence first")
+	}
 	if report.Blocked {
 		return fmt.Errorf("the approved evidence is no longer available")
 	}

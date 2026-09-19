@@ -10,6 +10,7 @@ import (
 
 type mcpOptions struct {
 	Workflow        bool
+	ProbeOnly       bool
 	Home            string
 	ConfirmOperator confirmation.Handler
 }
@@ -32,6 +33,9 @@ func workflowMCPTools() []mcpTool {
 }
 
 func callWorkflowTool(name string, input json.RawMessage, opts mcpOptions) toolResult {
+	if opts.ProbeOnly && name != "midden_host_status" {
+		return errResult("confirmation-probe mode exposes no source or workflow tools")
+	}
 	if !opts.Workflow {
 		return errResult("workflow tools require server-side --workflow opt-in")
 	}
@@ -39,7 +43,7 @@ func callWorkflowTool(name string, input json.RawMessage, opts mcpOptions) toolR
 		if name != "midden_"+strings.ReplaceAll(id, ".", "_") {
 			continue
 		}
-		env := module.Invoke(module.Request{Protocol: module.ProtocolID, Capability: id, Input: input, ConfirmOperator: opts.ConfirmOperator,
+		env := module.InvokeAgent(module.Request{Protocol: module.ProtocolID, Capability: id, Input: input, ConfirmOperator: opts.ConfirmOperator,
 			Roots: map[string]module.Root{module.RootMiddenHome: {Path: opts.Home, Mode: "rw"}}})
 		raw, err := json.Marshal(env)
 		if err != nil {

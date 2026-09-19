@@ -20,6 +20,7 @@ type RecordRange struct {
 	Last  int64 `json:"last"`
 }
 type SourceQuotation struct {
+	PacketID string `json:"packet_id,omitempty"`
 	RecordID string `json:"record_id"`
 	Text     string `json:"text"`
 }
@@ -112,7 +113,7 @@ func readSourceEvidence(source editorial.Source, selection assay.Selection, req 
 }
 
 func packetFromManifest(source editorial.Source, m *assay.Manifest, max int, warnings []string) EvidencePacket {
-	packet := EvidencePacket{Source: source, SourceDigest: m.SourceDigest, SourceFirstTime: m.FirstTime, SourceLastTime: m.LastTime,
+	packet := EvidencePacket{Source: source, SourceDigest: m.SourceDigest, SourceView: m.SourceView, SourceFirstTime: m.FirstTime, SourceLastTime: m.LastTime,
 		Selection: m.Selection, MaxRecords: max, MatchedRecords: m.MatchedRecords, Records: []EvidenceRecord{}, Unrepresented: []RecordRange{},
 		TotalRecords: m.TotalRecords, SignalRecords: m.Counts["signal"], SignalBytes: m.SignalBytes(),
 		Warnings: append([]string{"This is a snapshot of bounded excerpts, not a complete account. The source time range is not proof of complete inspection.",
@@ -189,12 +190,16 @@ func focusedEvidence(packetID string, selection assay.Selection, req Request, db
 	if err != nil {
 		return EvidencePacket{}, err
 	}
+	if stored.Packet.SourceView.Kind == "" {
+		return EvidencePacket{}, fmt.Errorf("saved packet predates stable views; prepare a fresh orientation once")
+	}
+	selection.View = &stored.Packet.SourceView
 	m, session, warnings, err := readSourceEvidence(stored.Packet.Source, selection, req)
 	if err != nil {
 		return EvidencePacket{}, err
 	}
 	if m.SourceDigest != stored.Packet.SourceDigest {
-		return EvidencePacket{}, fmt.Errorf("source snapshot changed; prepare a new orientation, do not mix records across snapshots")
+		return EvidencePacket{}, fmt.Errorf("source snapshot changed inside the saved view; earlier records were edited, reordered or truncated")
 	}
 	return storeReadingPacket(db, packetFromManifest(stored.Packet.Source, m, selection.MaxRecords, warnings), session)
 }

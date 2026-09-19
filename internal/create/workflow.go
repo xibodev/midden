@@ -173,8 +173,17 @@ func (w Workflow) Produce(ctx context.Context, id string) (result any, err error
 	if w.Drafts != nil {
 		estimate = cost.Estimate{Op: "compose"}
 	}
-	if e = (Producer{DB: w.DB}).CheckRunnable(r, evidence, report); e != nil {
-		return nil, e
+	if w.Drafts != nil {
+		if r.Status == refinery.RecipeRunning || r.Status == refinery.RecipeArchived {
+			return nil, fmt.Errorf("cannot compose while recipe is %s", r.Status)
+		}
+		if len(evidence) == 0 || len(evidence) != len(r.EvidenceIDs) || report.Blocked {
+			return nil, fmt.Errorf("select available evidence before composing a local draft")
+		}
+	} else {
+		if e = (Producer{DB: w.DB}).CheckRunnable(r, evidence, report); e != nil {
+			return nil, e
+		}
 	}
 	for _, spec := range r.Outputs {
 		if spec.RequiresModel && w.Drafts != nil && strings.TrimSpace(w.Drafts[spec.Kind]) == "" {
@@ -200,7 +209,12 @@ func (w Workflow) Produce(ctx context.Context, id string) (result any, err error
 	if e = ctx.Err(); e != nil {
 		return nil, e
 	}
-	claimed, e := w.DB.ClaimRecipeForRun(id)
+	var claimed bool
+	if w.Drafts != nil {
+		claimed, e = w.DB.ClaimRecipeForDraft(id)
+	} else {
+		claimed, e = w.DB.ClaimRecipeForRun(id)
+	}
 	if e != nil {
 		return nil, e
 	}
@@ -209,7 +223,9 @@ func (w Workflow) Produce(ctx context.Context, id string) (result any, err error
 	}
 	run := index.RefineryRun{RecipeID: id, Status: "running", Model: w.Model, Backend: "host", Estimate: estimate}
 	if e = w.DB.PutRefineryRun(&run); e != nil {
-		r.Status = refinery.RecipeFailed
+		if w.Drafts == nil {
+			r.Status = refinery.RecipeFailed
+		}
 		_ = w.DB.PutRecipe(&r)
 		return nil, e
 	}
@@ -219,7 +235,9 @@ func (w Workflow) Produce(ctx context.Context, id string) (result any, err error
 			run.Error = err.Error()
 			run.EndedAt = time.Now()
 			_ = w.DB.PutRefineryRun(&run)
-			r.Status = refinery.RecipeFailed
+			if w.Drafts == nil {
+				r.Status = refinery.RecipeFailed
+			}
 			_ = w.DB.PutRecipe(&r)
 		}
 	}()

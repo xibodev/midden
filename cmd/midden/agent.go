@@ -82,7 +82,9 @@ func runAgent(args []string, in io.Reader, out io.Writer) error {
 			return fmt.Errorf("unknown agent capability %q", args[1])
 		}
 		d := module.Describe()
-		return json.NewEncoder(out).Encode(map[string]any{"id": c.ID, "summary": c.Summary, "input_schema": d.RequestSchemas[c.RequestSchema], "result_schema": d.ResultSchemas[c.ResultSchema]})
+		return json.NewEncoder(out).Encode(map[string]any{"id": c.ID, "summary": c.Summary, "input_schema": d.RequestSchemas[c.RequestSchema],
+			"result_schema":      map[string]any{"anyOf": []any{d.ResultSchemas[c.ResultSchema], map[string]any{"type": "object", "required": []string{"_view"}, "properties": map[string]any{"_view": map[string]any{"type": "object", "description": "Compact preview metadata; use results.inspect with its result_id and returned paths for complete data."}}}}},
+			"reply_target_bytes": module.AgentReplyTarget, "reply_ceiling_bytes": module.AgentReplyCeiling})
 	}
 	cap := args[0]
 	if _, ok := agentCapability(cap); !ok {
@@ -109,7 +111,7 @@ func runAgent(args []string, in io.Reader, out io.Writer) error {
 		}
 	}
 	req := module.Request{Protocol: module.ProtocolID, Capability: cap, Input: raw, Roots: map[string]module.Root{module.RootMiddenHome: {Path: root, Mode: "rw"}}}
-	env := module.Invoke(req)
+	env := module.InvokeAgent(req)
 	if err = json.NewEncoder(out).Encode(env); err != nil {
 		return err
 	}

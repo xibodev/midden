@@ -75,13 +75,14 @@ type Manifest struct {
 	ByKind map[string]int64 `json:"by_kind"`
 
 	// Candidates are Signal records worth handing to a model, newest last.
-	Candidates      []Record  `json:"candidates,omitempty"`
-	FirstTime       time.Time `json:"first_time"`
-	LastTime        time.Time `json:"last_time"`
-	SourceDigest    string    `json:"source_digest"`
-	Selection       string    `json:"selection"`
-	EligibleRecords int64     `json:"eligible_records"`
-	MatchedRecords  int64     `json:"matched_records"`
+	Candidates      []Record   `json:"candidates,omitempty"`
+	FirstTime       time.Time  `json:"first_time"`
+	LastTime        time.Time  `json:"last_time"`
+	SourceDigest    string     `json:"source_digest"`
+	SourceView      SourceView `json:"source_view"`
+	Selection       string     `json:"selection"`
+	EligibleRecords int64      `json:"eligible_records"`
+	MatchedRecords  int64      `json:"matched_records"`
 
 	DuplicateReads int64 `json:"duplicate_reads"`
 	DuplicateBytes int64 `json:"duplicate_bytes"`

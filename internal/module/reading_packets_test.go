@@ -115,12 +115,14 @@ func TestEvidenceSearchRejectsEmptyQueryAndSurfacesSourceChange(t *testing.T) {
 		t.Fatal("unbounded empty search accepted")
 	}
 	transcript := filepath.Join(source, "projects", "E--synthetic-workspace", "11111111-2222-3333-4444-555555555555.jsonl")
-	f, err := os.OpenFile(transcript, os.O_APPEND|os.O_WRONLY, 0600)
+	raw, err := os.ReadFile(transcript)
 	if err != nil {
 		t.Fatal(err)
 	}
-	f.WriteString("\n" + `{"type":"assistant","message":{"content":"Changed source after orientation"}}` + "\n")
-	f.Close()
+	raw = []byte(strings.Replace(string(raw), "Recovery", "Modified", 1))
+	if err = os.WriteFile(transcript, raw, 0600); err != nil {
+		t.Fatal(err)
+	}
 	env := call("evidence.search", map[string]any{"packet_id": packet["packet_id"], "query": "recovery"})
 	if env.OK || !strings.Contains(env.Error.Message, "source snapshot changed") {
 		t.Fatalf("source change must be explicit: %+v", env)

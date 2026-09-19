@@ -55,6 +55,8 @@ type agentCapability struct {
 func shape[T any]() reflect.Type { return reflect.TypeFor[T]() }
 
 var agentCapabilities = []agentCapability{
+	{"host.status", "Inspect the host confirmation channel. Optional probe_confirmation tests one operator dialog without changing evidence, approvals, drafts or exports.", "", false, shape[HostStatusInput](), shape[HostStatus]()},
+	{"results.inspect", "Read bounded pages of a detailed result using its _view.result_id and returned JSON-pointer paths. No shell parsing is needed. The result cache retains the latest 128 distinct views; durable projects and packets are separate.", "", false, shape[ResultInspectInput](), shape[ResultPage]()},
 	{"handoffs.create", "Package reviewed project outputs with editorial context and provenance for Markdown, Quarto, Pandoc or D2. Local source files only; never renders, transfers or publishes.", "create_editorial_handoff", true, shape[editorial.HandoffRequest](), shape[create.HandoffResult]()},
 	{"evidence.prepare", "Orient across an exact session, including its beginning and end. Persist a bounded redacted packet with chronology and cumulative read budget. No model; source stores remain read-only.", "prepare_host_evidence", true, shape[EvidencePrepareInput](), shape[EvidencePacket]()},
 	{"evidence.read", "Read fuller context around 1..4 records from a stored packet, within the same source snapshot and cumulative budget. Metadata is not treated as conversation.", "prepare_host_evidence", true, shape[EvidenceReadInput](), shape[EvidencePacket]()},
@@ -211,6 +213,13 @@ func decodeAgentInput(raw json.RawMessage, out any) error {
 }
 
 func invokeAgent(req Request, cap agentCapability) Envelope {
+	if cap.ID == "host.status" {
+		var input HostStatusInput
+		if err := decodeAgentInput(req.Input, &input); err != nil {
+			return invalidRequest(req, err)
+		}
+		return successEnvelope(req, hostStatus(req, input), nil)
+	}
 	root, ok := req.Roots[RootMiddenHome]
 	if cap.ID == "evidence.prepare" {
 		var input EvidencePrepareInput
@@ -251,6 +260,8 @@ func invokeAgent(req Request, cap agentCapability) Envelope {
 	w := editorial.Workflow{DB: db}
 	var result any
 	switch c := input.(type) {
+	case *ResultInspectInput:
+		result, err = inspectResult(req, db, *c)
 	case *EvidenceBudgetInput:
 		if req.ConfirmOperator == nil {
 			return pendingOperator(req, "Increasing the cumulative read budget requires a trusted operator confirmation")

@@ -79,6 +79,7 @@ func errResult(format string, a ...any) toolResult {
 func cmdMCP(args []string) error {
 	fs := flag.NewFlagSet("mcp", flag.ContinueOnError)
 	workflow := fs.Bool("workflow", false, "opt in to local evidence, project, recipe, review and export tools; no model subprocess")
+	probeOnly := fs.Bool("confirmation-probe", false, "expose only a non-mutating host confirmation diagnostic")
 	home := fs.String("home", index.Dir(), "state root for opt-in workflow tools")
 	if err := fs.Parse(args); err != nil {
 		if err == flag.ErrHelp {
@@ -93,7 +94,7 @@ func cmdMCP(args []string) error {
 	if err != nil {
 		return err
 	}
-	options := mcpOptions{Workflow: *workflow, Home: root}
+	options := mcpOptions{Workflow: *workflow || *probeOnly, ProbeOnly: *probeOnly, Home: root}
 	return serveMCP(os.Stdin, os.Stdout, options)
 }
 
@@ -136,11 +137,26 @@ func handleRPCWithOptions(line []byte, out *json.Encoder, options mcpOptions) {
 				"Start with midden_health for orientation, then midden_list_sessions with filters, " +
 				"then midden_session_brief for one session.",
 		}
+		if options.Workflow {
+			resp.Result.(map[string]any)["instructions"] = workflowInstructions()
+		}
+		if options.ProbeOnly {
+			resp.Result.(map[string]any)["instructions"] = "This connection exposes only a non-mutating confirmation diagnostic. It cannot read source sessions or change workflow state."
+		}
 
 	case "tools/list":
 		tools := mcpTools()
 		if options.Workflow {
-			tools = append(tools, workflowMCPTools()...)
+			tools = workflowMCPTools()
+		}
+		if options.ProbeOnly {
+			filtered := []mcpTool{}
+			for _, tool := range tools {
+				if tool.Name == "midden_host_status" {
+					filtered = append(filtered, tool)
+				}
+			}
+			tools = filtered
 		}
 		resp.Result = map[string]any{"tools": tools}
 
@@ -151,6 +167,10 @@ func handleRPCWithOptions(line []byte, out *json.Encoder, options mcpOptions) {
 		}
 		if json.Unmarshal(req.Params, &p) != nil {
 			resp.Error = &rpcError{Code: errInvalidRequest, Message: "bad params"}
+			break
+		}
+		if options.ProbeOnly && p.Name != "midden_host_status" {
+			resp.Result = errResult("confirmation-probe mode exposes only midden_host_status")
 			break
 		}
 		workflowTool := false

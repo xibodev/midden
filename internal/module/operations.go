@@ -113,6 +113,8 @@ var Operations = []Operation{
 // They are still bound by the effects model -- a capability that projects no
 // Operation is not thereby unregulated.
 var capabilityOperations = map[string]string{
+	"results.inspect":  "",
+	"host.status":      "",
 	"handoffs.create":  "create_editorial_handoff",
 	"evidence.prepare": "prepare_host_evidence", "evidence.compose": "compose_host_evidence",
 	"evidence.read": "prepare_host_evidence", "evidence.search": "prepare_host_evidence", "evidence.validate": "",

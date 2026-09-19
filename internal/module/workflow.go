@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/mekjr1/midden/internal/confirmation"
+	"github.com/mekjr1/midden/internal/content"
 	"github.com/mekjr1/midden/internal/create"
 	"github.com/mekjr1/midden/internal/exec"
 	"github.com/mekjr1/midden/internal/index"
@@ -19,10 +20,10 @@ type workflowCapability struct {
 }
 
 var workflowCapabilities = []workflowCapability{
-	{"recipes.compose", "Submit authored drafts", "Store host-authored content for every model-backed output in an approved recipe. No additional model call; retains evidence provenance and stops at draft review.", false, false},
+	{"recipes.compose", "Submit authored drafts", "Store explicitly requested local drafts against selected evidence without requiring or claiming human approval. No additional model call. Outputs remain unreviewed; review/export still require positive confirmation.", false, false},
 	{"evidence.list", "List stored evidence", "Inspect existing mined evidence before planning or re-extracting. Results are bounded and include evidence IDs.", true, false},
 	{"recipes.list", "List recovery plans", "List saved recovery production plans and their review status.", true, false},
-	{"recipes.inspect", "Inspect a recovery plan", "Read a recipe, its exact evidence, quality report, outputs and production runs.", true, false},
+	{"recipes.inspect", "Inspect a recovery plan", "Read a recipe, its exact evidence, review findings, citation keys, outputs and production runs.", true, false},
 	{"recipes.preview", "Preview a recovery plan", "Design an evidence-grounded recipe without saving or generating content.", true, false},
 	{"recipes.design", "Save a recovery plan", "Save a draft recipe from intent, output kinds and evidence. Does not approve evidence or call a model.", false, false},
 	{"recipes.update", "Revise a recovery plan", "Revise the purpose or outputs of a saved plan. Invalidates prior evidence approval.", false, false},
@@ -54,6 +55,10 @@ func workflowCapabilityByID(id string) (workflowCapability, bool) {
 }
 
 func addWorkflowCapabilities(d *Descriptor) {
+	kinds := []string{}
+	for _, kind := range content.Templates() {
+		kinds = append(kinds, kind.Name)
+	}
 	for _, c := range workflowCapabilities {
 		requestID := "xibodev.midden." + c.ID + ".request/v1"
 		resultID := "xibodev.midden." + c.ID + ".result/v1"
@@ -70,7 +75,7 @@ func addWorkflowCapabilities(d *Descriptor) {
 			"review_notes": map[string]any{"type": "string", "description": "Host agent's source-support review, including unresolved limitations. Not operator approval or proof of truth."},
 			"format":       map[string]any{"type": "string", "enum": []string{"pptx", "html"}},
 			"drafts":       map[string]any{"type": "object", "additionalProperties": map[string]any{"type": "string"}},
-			"output_kinds": map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
+			"output_kinds": map[string]any{"type": "array", "items": map[string]any{"type": "string", "enum": kinds}},
 			"evidence_ids": map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
 		}}
 		properties := schema["properties"].(map[string]any)
@@ -214,11 +219,8 @@ func invokeWorkflow(req Request, cap workflowCapability) Envelope {
 			return invalidRequest(req, err)
 		}
 		accepted, confirmErr := confirmedByHost(req, proposal)
-		if confirmErr != nil {
-			return pendingOperator(req, "Operator confirmation unavailable: "+confirmErr.Error())
-		}
-		if !accepted {
-			return pendingOperator(req, "The operator declined or cancelled; no approval was recorded.")
+		if confirmErr != nil || !accepted {
+			return confirmationPending(req, accepted, confirmErr)
 		}
 		var current confirmation.Request
 		if cap.ID == "recipes.evidence" {

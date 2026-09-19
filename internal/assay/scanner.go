@@ -43,6 +43,7 @@ type Selection struct {
 	MaxRecords, MaxChars int
 	IncludeTools         bool
 	Offsets              map[int64]int
+	View                 *SourceView
 }
 
 type rankedRecord struct {

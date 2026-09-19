@@ -39,7 +39,12 @@ func serveMCP(in io.Reader, out io.Writer, options mcpOptions) error {
 				}
 				if json.Unmarshal(req.Params, &params) == nil {
 					value, present := params.Capabilities["elicitation"]
-					connection.elicitation = present && !bytes.Equal(bytes.TrimSpace(value), []byte("null")) &&
+					var modes map[string]json.RawMessage
+					formSupported := json.Unmarshal(value, &modes) == nil && modes != nil
+					if formSupported && len(modes) > 0 {
+						_, formSupported = modes["form"]
+					}
+					connection.elicitation = present && formSupported &&
 						(params.ProtocolVersion == "2025-06-18" || params.ProtocolVersion == "2025-11-25")
 				}
 			}
@@ -61,6 +66,7 @@ func (c *mcpConnection) confirm(ctx context.Context, proposal confirmation.Reque
 	c.nextID++
 	id, _ := json.Marshal("midden-confirmation-" + strconv.Itoa(c.nextID))
 	params := map[string]any{
+		"mode":    "form",
 		"message": proposal.Message + "\n\nReview fingerprint: " + proposal.Digest,
 		"requestedSchema": map[string]any{"type": "object", "properties": map[string]any{
 			"approved": map[string]any{"type": "boolean", "title": "I approve this exact selection/content", "default": false},
@@ -94,13 +100,28 @@ func (c *mcpConnection) confirm(ctx context.Context, proposal confirmation.Reque
 			var decision struct {
 				Action  string `json:"action"`
 				Content struct {
-					Approved bool `json:"approved"`
+					Approved *bool `json:"approved"`
 				} `json:"content"`
 			}
 			if err = json.Unmarshal(message.Result, &decision); err != nil {
-				return false, err
+				return false, confirmation.Failure{Code: "invalid_response", Message: "Host confirmation response has an invalid shape"}
 			}
-			return decision.Action == "accept" && decision.Content.Approved, nil
+			switch decision.Action {
+			case "accept":
+				if decision.Content.Approved == nil {
+					return false, confirmation.Failure{Code: "invalid_response", Message: "Host accepted the form but omitted the required approved field"}
+				}
+				if !*decision.Content.Approved {
+					return false, confirmation.Failure{Code: "not_approved", Message: "Host returned the form with approved=false"}
+				}
+				return true, nil
+			case "decline":
+				return false, confirmation.Failure{Code: "declined", Message: "Host reported an explicit decline"}
+			case "cancel":
+				return false, confirmation.Failure{Code: "cancelled", Message: "Host cancelled the confirmation form"}
+			default:
+				return false, confirmation.Failure{Code: "invalid_response", Message: "Host returned an unknown confirmation action"}
+			}
 		}
 		if message.Method == "notifications/cancelled" {
 			var cancellation struct {
@@ -108,7 +129,7 @@ func (c *mcpConnection) confirm(ctx context.Context, proposal confirmation.Reque
 			}
 			if json.Unmarshal(message.Params, &cancellation) == nil &&
 				(bytes.Equal(cancellation.RequestID, c.activeID) || bytes.Equal(cancellation.RequestID, id)) {
-				return false, nil
+				return false, confirmation.Failure{Code: "cancelled", Message: "Host cancelled the pending tool request"}
 			}
 		}
 		if len(message.ID) > 0 {

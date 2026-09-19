@@ -3,6 +3,7 @@ module github.com/mekjr1/midden
 go 1.26.5
 
 require (
+	github.com/gomarkdown/markdown v0.0.0-20260411013819-759bbc3e3207
 	github.com/xibodev/facet-studio v1.0.0
 	golang.org/x/sys v0.46.0
 	gopkg.in/yaml.v3 v3.0.1
@@ -41,7 +42,6 @@ require (
 	github.com/go-logr/logr v1.4.3 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/golang-jwt/jwt/v5 v5.3.1 // indirect
-	github.com/gomarkdown/markdown v0.0.0-20260411013819-759bbc3e3207 // indirect
 	github.com/google/jsonschema-go v0.4.3 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/h2non/filetype v1.1.3 // indirect

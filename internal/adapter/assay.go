@@ -47,7 +47,7 @@ func (c *Copilot) scanEvidence(s core.Session, sc *assay.Scanner) (*assay.Manife
 
 	start := time.Now()
 
-	err := eachLine(path, func(line []byte) bool {
+	m, err := readFileView(path, sc, func(line []byte) bool {
 		var h assayHeader
 		if json.Unmarshal(line, &h) != nil {
 			// Unparseable lines are still bytes on disk; count them as
@@ -62,7 +62,6 @@ func (c *Copilot) scanEvidence(s core.Session, sc *assay.Scanner) (*assay.Manife
 		return nil, fmt.Errorf("assay copilot: %w", err)
 	}
 
-	m := sc.Manifest()
 	m.Title = s.Title
 	m.Elapsed = time.Since(start)
 	return m, nil
@@ -80,7 +79,7 @@ func (c *Claude) ReadEvidence(s core.Session, selection assay.Selection) (*assay
 func (c *Claude) scanEvidence(s core.Session, sc *assay.Scanner) (*assay.Manifest, error) {
 	start := time.Now()
 
-	err := eachLine(s.TranscriptPath, func(line []byte) bool {
+	m, err := readFileView(s.TranscriptPath, sc, func(line []byte) bool {
 		var h assayHeader
 		if json.Unmarshal(line, &h) != nil {
 			sc.Observe("unparsed", "", line, time.Time{})
@@ -93,7 +92,6 @@ func (c *Claude) scanEvidence(s core.Session, sc *assay.Scanner) (*assay.Manifes
 		return nil, fmt.Errorf("assay claude: %w", err)
 	}
 
-	m := sc.Manifest()
 	m.Title = s.Title
 	m.Elapsed = time.Since(start)
 	return m, nil
@@ -131,6 +129,14 @@ func (o *Opencode) scanEvidence(s core.Session, sc *assay.Scanner) (*assay.Manif
 	start := time.Now()
 
 	for rows.Next() {
+		if view := sc.ViewBoundary(); view != nil {
+			if view.Kind != "record-prefix-v1" {
+				return nil, fmt.Errorf("unsupported saved database view; prepare a new orientation")
+			}
+			if sc.ObservedRecords() >= view.Records {
+				break
+			}
+		}
 		var data string
 		var created int64
 		if rows.Scan(&data, &created) != nil {
@@ -148,6 +154,10 @@ func (o *Opencode) scanEvidence(s core.Session, sc *assay.Scanner) (*assay.Manif
 	}
 
 	m := sc.Manifest()
+	if view := sc.ViewBoundary(); view != nil && m.TotalRecords < view.Records {
+		return nil, fmt.Errorf("source view was truncated")
+	}
+	m.SourceView = assay.SourceView{Kind: "record-prefix-v1", Records: m.TotalRecords}
 	m.Title = s.Title
 	m.Elapsed = time.Since(start)
 	return m, rows.Err()

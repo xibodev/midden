@@ -210,6 +210,18 @@ func (d *DB) ClaimRecipeForRun(uid string) (bool, error) {
 }
 
 // Recipe returns one saved production plan.
+// ClaimRecipeForDraft permits reversible local authoring without fabricating
+// evidence approval. Approval timestamps and host receipts are left unchanged.
+func (d *DB) ClaimRecipeForDraft(uid string) (bool, error) {
+	result, err := d.sql.Exec(`UPDATE refinery_recipes SET status='running',updated_at=?
+WHERE uid=? AND status IN ('draft','evidence_review','review','complete','approved','failed')`, time.Now().Unix(), uid)
+	if err != nil {
+		return false, err
+	}
+	n, err := result.RowsAffected()
+	return n == 1, err
+}
+
 func (d *DB) Recipe(uid string) (Recipe, error) {
 	var recipe Recipe
 	var outputs, evidence string
