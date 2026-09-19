@@ -19,6 +19,16 @@ the capability's payload, not a module envelope. Use `--input -` for stdin.
 roots, and now also accepts stdin. Use the installer-bound state path or
 `MIDDEN_HOME` consistently: these are not the same as source-store locations.
 
+The agent CLI and workflow MCP use compact delivery: normal responses target
+8 KiB, with a 16 KiB envelope ceiling. Mutations acknowledge identity, state and
+revision rather than echoing entire plans. A `_view` field marks a preview;
+`results.inspect` retrieves bounded pages or text windows using its `result_id`
+and returned JSON-pointer paths. Array and object pages report `next_offset`.
+The latest 128 distinct full results are cached inside Midden state, separate
+from durable project/evidence records. Expired views can be recreated by
+inspecting the durable object. The raw module API remains available to native
+consumers that need its full contract.
+
 For example, pipe an exact-source request to the installed binary:
 
 ```powershell
@@ -42,10 +52,15 @@ field. The placeholder must be replaced with an ID returned by `sessions.list`.
    80. `evidence.search` returns offset-bearing windows around literal matches;
    `evidence.read` expands context around selected records. Tool results are
    available explicitly, including Claude's nested tool-result blocks. Source
-   stores remain read-only; packets live in Midden state.
+   stores remain read-only; packets live in Midden state. File-backed views pin
+   an exact byte prefix; database-backed views pin an ordered record prefix.
+   Appended events do not invalidate that view. Edits, reordering or truncation
+   inside it do. Call `evidence.prepare` again explicitly to include newer work.
    The host performs semantic extraction. `evidence.validate` checks a proposal
-   without storing it; `evidence.compose` consumes `packet_id` and validates every
-   source-record citation and exact quotation, without rebuilding read parameters.
+   without storing it; `evidence.compose` consumes `packet_id` or compatible
+   `packet_ids` from the same source view. Each quotation can name its precise
+   packet/window. Visible words must match, allowing presentation-only Markdown
+   differences without losing word boundaries or changing numbers/negation.
    This is **no additional model invocation by Midden**, not free host reasoning.
 4. `projects.create` requires a title, goal, exact `sources` and selected
    `evidence_ids`. It rejects evidence outside that corpus.
@@ -71,12 +86,16 @@ clusters do not establish visual duplicates.
 request contain only the selected story, its claims, reversal chain, gaps, assets,
 and risks. Open gaps need explicit `acknowledge_gaps` to proceed with disclosure.
 
-Inspect the recipe, present its exact evidence to the operator, and use
-`recipes.evidence` with `decision: approved` only after that review. The transition
+Inspect the recipe and selected evidence. An explicit request to develop a story
+allows `recipes.compose` to create a local unreviewed draft; no human approval
+receipt is invented, and lack of a confirmation UI does not block that reversible
+step. Formal evidence approval remains a distinct action through
+`recipes.evidence` with `decision: approved`. That transition
 requires a trusted host confirmation callback, such as MCP elicitation. A JSON
 boolean, an automatic continuation, or broad shell permissions do not establish
-operator approval. CLI-only/unsupported hosts leave it pending. The host
-authors drafts and submits `recipes.compose`; no nested model is needed.
+operator approval. CLI-only/unsupported hosts leave review pending. No nested
+model is needed for host-authored composition; delegated generation retains its
+approval/spend gate.
 Deterministic packs use the same recipe lifecycle; submit `"drafts": {}` for a
 deterministic-only recipe. Every narrative output still requires an authored draft.
 

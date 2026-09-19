@@ -14,18 +14,22 @@ Start `midden mcp --workflow --home <absolute-state-directory>` to expose
 `midden_evidence_prepare`, `midden_evidence_compose`, project/editorial operations,
 and the shared recipe, composition, review, rendering and local-export tools.
 Tool names are capability names prefixed by `midden_` with dots replaced by
-underscores. Each tool uses the module's input schema and returns its envelope.
+underscores. Workflow mode advertises the canonical workflow tools, not the
+duplicated legacy discovery tools. Each tool uses the module's input schema and
+returns a compact envelope. `_view` identifies an inspectable preview; use
+`midden_results_inspect` for bounded object/array pages or text windows.
 
 The server operator fixes the writable state root at startup; a tool call cannot
 override it. Mutations affect Midden state only. Model subprocess extraction,
 publishing, installation and cleanup are not exposed. The host agent performs
 semantic work between prepare/compose operations and owns its model budget.
-Clients supporting MCP elicitation receive real operator confirmation forms for
-evidence approval, draft review and larger read budgets. A declined/cancelled
-form, missing elicitation capability or disconnected client leaves review pending.
-Tool arguments cannot supply a confirmation callback. Read-only CLI discovery
-and investigation remain useful without elicitation; CLI approval calls cannot
-turn an agent's assertion into human consent.
+Clients supporting MCP **form** elicitation receive operator confirmation forms
+for formal evidence approval, draft review and larger read budgets. Outcomes
+distinguish `accepted`, `declined`, `cancelled`, `not_approved`,
+`invalid_response` and `unavailable`; a negative result never invents approval.
+Tool arguments cannot supply a confirmation callback. CLI discovery, investigation and explicitly requested local unreviewed drafting
+remain useful without elicitation; approval calls cannot turn an agent assertion
+into human consent.
 For production use, configure the host's per-tool approval policy for state
 changes, evidence approvals, draft reviews and local exports. Turning on workflow
 tools does not mean every output is approved.
@@ -38,6 +42,12 @@ For the exact installed binary/state binding, use
 `midden agent mcp-config --home <state-directory>` and load that generated
 configuration in the host. This is a one-time setup step, not operator-driven
 tool orchestration during an investigation.
+
+`midden mcp --confirmation-probe` exposes only `midden_host_status` for a tiny,
+non-mutating diagnostic. With `probe_confirmation: true`, it requests one test
+dialog and records no approval or workflow state. Server stderr logs only the
+action and outcome, not source contents. A headless probe can establish the host
+response but cannot certify the experience of a real operator using the UI.
 
 ## Before registration
 

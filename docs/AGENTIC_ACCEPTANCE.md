@@ -15,7 +15,7 @@ when the window closes.
 ```powershell
 $ErrorActionPreference = 'Stop'
 $repo = 'xibodev/midden'
-$branch = 'feat/agentic-investigation-repair'
+$branch = 'feat/agentic-efficient-journey'
 $sha = gh api "repos/$repo/git/ref/heads/$branch" --jq '.object.sha'
 if ($LASTEXITCODE -ne 0) { throw 'Cannot read staging feature revision.' }
 $run = gh run list --repo $repo --branch $branch --commit $sha `
@@ -102,18 +102,22 @@ Midden reads. Alternate source-store locations require explicit module roots.
 
 ```powershell
 copilot -C $workspace --mode interactive --no-custom-instructions `
-    --additional-mcp-config "@$mcpConfig" --disable-builtin-mcps --no-remote --no-remote-export
+    --additional-mcp-config "@$mcpConfig" --allow-all-mcp-server-instructions `
+    --disable-builtin-mcps --no-remote --no-remote-export
 ```
 
 Do not resume this implementation conversation or use automatic all-tool
 approval. A fresh Copilot profile may request sign-in; use its normal login
 flow rather than copying credentials or configuration from the old profile.
+This isolated profile must contain only the trusted Midden MCP connection before
+enabling server instructions. That flag loads the bundle's process contract; it
+does not supply expected findings or tool choices in the operator's prompt.
 Use `/skills` to confirm the project skill source if needed. The new Git
 repository stops inheritance from parent project directories; a fresh Copilot
 profile avoids the old personal Midden install. Check for additional globally
 configured skill locations and select the project-installed entry explicitly.
 
-For the first prompt, use one **closed** session:
+For the first comparison, use one identified source view:
 
 > Look through session SESSION_ID. Is there anything worth developing into
 > content? Show me the strongest possibilities.
@@ -122,9 +126,10 @@ Replace `SESSION_ID` with the chosen exact ID. Do not supply tool names, expecte
 findings, sampling limits or the workflow. Keep the assessment criteria below
 outside the prompt: the installed bundle must guide the agent.
 
-Use another exact ID if that source is still active. Source stores can change
-when their owning CLI is running; test a paused/closed source for stable digest
-checks. Host reasoning still consumes the host's normal model budget even though
+The investigation pins the source prefix it observes. Appends should not break
+historical reads; refresh explicitly for newer events. Start comparisons from the
+same captured view and record when that is not possible. Host reasoning consumes
+the host's normal model budget even though
 Midden's prepare/compose operations do not invoke another model.
 
 ## 4. Walk the checkpoints separately
@@ -134,11 +139,22 @@ Midden's prepare/compose operations do not invoke another model.
 | Discover | Exact source identity, composition, bounded candidate count, and coverage caveats; no claim to have read the whole transcript. |
 | Investigate | The agent orients across the full time range, retrieves focused context, and distinguishes early claims from later corrections. A sample endpoint never becomes a claimed session ending. |
 | Select | After the operator chooses, a draft recipe links only the selected opportunity's evidence. Selection is not approval. |
-| Evidence review | The host presents an actual operator confirmation. Choice of a story or an automatic continuation must not be recorded as evidence approval. Unsupported confirmation leaves review pending. |
-| Draft | The host authors a Markdown draft and submits it. Material claims have evidence references; disputed or unverified claims are labeled. |
+| Evidence selection | The exact source set is saved. Choice of a story or automatic continuation does not create evidence approval. |
+| Draft | An explicit development request produces a local unreviewed draft without a mandatory human-approval receipt. Material claims have source references and limitations. |
 | Output review | Citation/quotation findings are addressed; the agent examines support rather than equating identifiers with truth. The operator confirms the exact draft. |
 | Deliver | Local export preserves reviewed bytes and provenance. Optional handoffs are source bundles, not automatically rendered publications. |
 | Resume | A new conversation, with the same lab environment, finds the stored project/revision and continues without re-mining or resetting progress. |
+
+Before a costly end-to-end run, use `host.status` and its optional non-mutating
+confirmation probe. Record the precise outcome rather than inferring that a
+decline means the channel is unsupported. Positive human review must be tested
+with an operator present; headless interactive agent mode is not a UI test.
+
+For the cost comparison, record model, reasoning effort, source view, warm/cold
+cache condition, input/cache/output tokens and credits per stage. Also record
+response bytes, retries and formatting calls. Normal replies should fit 8 KiB,
+all compact envelopes should fit 16 KiB, and mutation acknowledgements should not
+repeat whole plans. Do not infer a cost saving merely from fewer tool calls.
 
 A useful follow-up after choosing a story:
 
