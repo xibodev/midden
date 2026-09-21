@@ -8,5 +8,11 @@ permissions:
   contents: read
 
 jobs:
+  staging:
+    runs-on: ubuntu-latest
+    environment: staging
+    steps:
+      - run: echo "Validate the feature revision for staging; no merge or release."
   validate:
+    needs: staging
     uses: ./.github/workflows/validate.yml
