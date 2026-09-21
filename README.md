@@ -1,220 +1,97 @@
 # Midden
 
-Midden is a local evidence refinery for AI coding sessions. It indexes sessions
-from GitHub Copilot CLI, Claude Code, and OpenCode, identifies reusable evidence,
-and turns approved evidence into reviewed drafts with provenance.
+**Deterministic tools for session material. Outcome bundles for the work.**
 
-Midden is:
+Midden has two independent deliverables:
 
-- **Local-first:** a Go recovery engine and local SQLite index, used from your agentic CLI.
-- **Read-only recovery:** inventory, assay and extraction do not modify source
-  stores. Explicit cleanup commands are separate source-mutation operations.
-- **Approval-gated:** model spend, evidence approval, production, export, and
-  cleanup are separate decisions.
-- **Evidence-grounded:** Studio will not create or run an unsupported work item
-  when no reclaimed evidence exists.
+- **Core:** a standalone CLI for discovering, reading, measuring, searching,
+  collecting and exporting recorded work from Copilot CLI, Claude Code and
+  OpenCode. It does not call a model.
+- **Agentic bundle:** investigation, article/tutorial, presentation and long-form
+  guidance, templates and external-tool requirements. An existing AI CLI and its
+  human operator apply the bundle and actually create, inspect and revise files.
 
-Current version: **0.2.3 (preview)**. **Using Midden in an agentic CLI is the
-recommended route. The standalone browser application is experimental.**
+The dependency direction is bundle to core and existing tools, never core to an
+AI runtime. A local draft is an ordinary working file, not a database approval
+transition.
 
-## Install for your agentic CLI
+**Version: 0.3.0-dev.** This is the core/bundle architecture transition. The former
+module, embedded runtime, Studio and editorial recipe/approval interfaces are
+retired from the active application. See [Migration](docs/MIGRATION.md) before
+switching an existing installation.
 
-Install and authenticate GitHub Copilot CLI, Claude Code, or OpenCode first.
-Run the one-line installer in your terminal:
+## Use the core
 
-```powershell
-# Windows, built-in PowerShell or PowerShell 7
-irm https://xibodev.github.io/midden/install.ps1 | iex
-```
-
-```bash
-# Linux/macOS, Bash 3.2+, curl and tar
-curl -fsSL https://xibodev.github.io/midden/install.sh | sh
-```
-
-The entry points download a pinned released installer and manifest, verify both
-against the release checksums, then open interactive setup. For manual downloads
-or explicit lifecycle options, see [Install](docs/INSTALL.md).
-
-The terminal wizard offers **Quick start** and **Custom setup**, keyboard-selectable
-hosts and capabilities, an install-plan summary, and three visible progress stages.
-Use Up/Down and Enter, or Q to cancel. Quick start uses personal skills and PATH;
-Custom setup lets you choose project scope, folders, and PATH interactively.
-Redirected terminals use numbered text choices; `MIDDEN_PLAIN=1` also selects that
-mode. They download
-and verify a prebuilt **headless** archive; Go and Git are not needed to install.
-Pandoc adds editable PowerPoint/HTML rendering; D2 adds SVG diagrams. Both are
-optional, separately installed tools. Package managers confirm actual sizes and
-versions; unavailable size information is shown as not reported.
-
-Restart your CLI to discover `midden-session-recovery`, then ask:
-
-> Use midden-session-recovery to assay this project's sessions and help me choose
-> evidence for a blog post and presentation. Ask before extracting or writing.
-
-Your CLI owns the model, authentication, and permissions. Midden supplies the
-recovery operations, evidence, content composition, and provenance. Inspect
-generated claims and drafts before publication. Installer tests do not certify
-live behavior in every host; cross-host acceptance remains in progress.
-
-See [Install](docs/INSTALL.md) for verification, upgrades, removal, and source
-builds; [Getting started](docs/GETTING_STARTED.md) for your first recovery.
-
-## Experimental standalone journey
-
-Download a **standalone** archive from the release, verify `SHA256SUMS`, extract
-it, and run `midden ui` (`.\midden.exe ui` on Windows). It opens a loopback-only
-browser application at `http://127.0.0.1:7777`. Use `--port 7788` if needed.
-Its embedded Facet Studio v1.0.0 kernel manages models and conversation;
-provider onboarding and end-to-end product validation remain incomplete.
-
-1. Open **Mine / Recover**, filter or select exact sessions, and start a free assay.
-   The job continues in the background while you use the rest of Midden.
-2. Extract a small evidence scope. Choose a real depth, inspect the long-running
-   estimate once, then approve the recovery job.
-3. Create a **Plan / Studio** work item from that evidence.
-4. Continue with one persistent workspace agent. It can inspect files, use
-   local tools, and run commands in the work context. Destructive, publishing,
-   credential, upload, and unapproved paid-provider actions remain explicit
-   approval points in chat.
-5. Approve the evidence, run the output plan, and inspect rendered previews,
-   editable source, and provenance side by side.
-6. Download your source or rendered output, or export a reviewed result.
-7. Open **Cleanup** to see which dormant source sessions are eligible for a
-   reversible archive and exactly which recovery gates support that decision.
-
-Nothing publishes, installs software, uploads data, trains a model, or executes
-a shell command merely because a page was opened. Studio tool use begins only
-after an operator sends a work request.
-
-See [Getting started](docs/GETTING_STARTED.md) for a guided first run and the
-[optional manual walkthrough](docs/ACCEPTANCE_TEST.md) for subjective UX
-feedback.
-
-## What is free and what can spend
-
-Most of Midden is deterministic and free: scanning, indexing, assay, session
-search, briefs, recipes, evidence review, deterministic packs, provenance,
-local export, MCP, and operations history.
-
-These operations can call a model through an authenticated backend:
-
-- `reclaim`
-- `refine`
-- `ask`
-- persistent Studio work-item chat
-- model-backed refinery outputs
-
-Long-running model-backed actions have a preview step. Studio chat instead uses
-one visible per-work-item budget envelope and shows cumulative estimated usage.
-Changing scope or exceeding that envelope is blocked explicitly. The CLI
-equivalents support `--dry-run`.
-
-With the recommended agentic CLI route, the host owns model access. The
-experimental standalone runtime uses the embedded kernel's provider configuration.
-Provider subscriptions, quotas, and charges remain the user's responsibility.
-
-## CLI orientation
-
-```text
-midden start      guided first run
-midden scan       refresh the session index
-midden scan --assay
-                  classify transcripts and calculate reclaimable yield
-midden ls         list indexed sessions
-midden doctor     show risk, footprint, and dead workspaces
-midden brief ID   recover context from an oversized session
-midden reclaim    extract reusable evidence; previews before spending
-midden catalog    show what the current evidence can support
-midden refine     generate named artifacts; previews before spending
-midden ask        answer from reclaimed evidence; previews before spending
-midden cost       show recorded model operations and estimate accuracy
-midden ui         start the loopback web app
-midden mcp        expose the bounded read-only MCP server over stdio
-```
-
-Run `midden help` for every command in workflow order and
-`midden <command> -h` for exact flags.
-
-## Data and privacy
-
-The installer binds the installed skills to a separate state directory, defaulting
-to `~/.local/share/midden-cli/state`. Direct binary invocations outside that binding
-use these defaults unless `MIDDEN_HOME` is set:
-
-- Windows: `%USERPROFILE%\.midden`
-- macOS/Linux: `~/.midden`
-
-Set `MIDDEN_HOME` before launching Midden to use another directory. This changes
-only Midden's index, settings, recipes, runs, and exports; it does not relocate
-or alter source session stores.
-
-Supported source locations:
-
-| Source | Location |
-|---|---|
-| GitHub Copilot CLI | `~\.copilot\session-store.db` and `~\.copilot\session-state\` |
-| Claude Code | `~\.claude\projects\` |
-| OpenCode | `~\.local\share\opencode\opencode.db` |
-
-Midden opens source databases read-only. Its own SQLite database is the only
-database it writes.
-
-See [Configuration](docs/CONFIGURATION.md) for the complete state layout,
-backend selection, ports, environment variables, and backup guidance.
-
-## Experimental web surfaces
-
-| Surface | Purpose |
-|---|---|
-| **Recover** | Session inventory, exact scopes, free assay, evidence extraction, and durable mine history |
-| **Studio** | Persistent tool-capable workspace agent, collapsible work-item list, controlled Console, evidence approval, production, rendered media preview, source, and provenance |
-| **Library** | Every generated output with type filters, download, review, and export |
-| **Cleanup** | Explainable eligibility gates and reversible archive previews |
-| **Activity** | Restart-safe jobs, recovery runs, cost ledger, and audit history |
-| **Tools** | Plugins, callable tools, skills, viewers, destinations, and managed integrations |
-
-## Safety boundaries
-
-- Source stores remain read-only.
-- Scan and assay do not call a model.
-- Raw transcripts are not copied into generated drafts.
-- Reclaimed evidence is redacted and provenance-carrying.
-- A recipe cannot run before its evidence is approved.
-- Generated outputs begin as drafts.
-- Export is local and requires per-output review.
-- Studio's workspace agent can use local tools and shell commands after an
-  explicit work request. It is instructed to ask before destructive,
-  publishing, credential, upload, or unapproved paid-provider actions.
-- Studio Console remains allowlisted diagnostics, not an arbitrary host shell.
-- Publishing, installation, upload, training, and unrestricted shell execution
-  remain out of scope or require a separate explicit action.
-- Cleanup commands default to preview and preserve source meaning in new files.
-
-## Documentation
-
-- [Install](docs/INSTALL.md)
-- [Getting started](docs/GETTING_STARTED.md)
-- [Configuration](docs/CONFIGURATION.md)
-- [Troubleshooting](docs/TROUBLESHOOTING.md)
-- [MCP setup](docs/MCP.md)
-- [Optional integrations](docs/INTEGRATIONS.md)
-- [Development](docs/DEVELOPMENT.md)
-- [Optional manual walkthrough](docs/ACCEPTANCE_TEST.md)
-- [Release status](STATUS.md)
-
-## Development snapshot
-
-The application is a pure-Go module with an embedded HTML/CSS/JavaScript UI and
-pure-Go SQLite. It has no Node build, Docker, CGO, or external service
-requirement for the core product.
+Build from source with Go 1.26.5 or use a matching core artifact from
+[GitHub Actions](https://github.com/xibodev/midden/actions).
 
 ```powershell
-go fmt ./...
-go vet ./...
+go build -trimpath -o midden.exe .\cmd\midden
+.\midden.exe ls --days 7 --json
+.\midden.exe read --tool copilot --session SESSION_ID --json
+.\midden.exe search "deployment" --view VIEW_ID --json
+.\midden.exe collect --view VIEW_ID --record RECORD_ID --out sources --json
+.\midden.exe collection verify sources --json
+.\midden.exe collection export sources --format markdown --out source-notes.md
+```
+
+Use the exact IDs returned by the preceding command. `--help` describes each
+operation's bounds and output options. Read/search views pin a source prefix:
+appends do not invalidate existing context, while edits inside the prefix do.
+
+Core returns data directly, not a module envelope. Portable collections contain
+`manifest.json`, `records.jsonl`, and an `assets` directory. They can be read
+without the original conversation or Midden index.
+
+See [Core commands and contracts](docs/CORE.md).
+
+## Use the bundle with an AI CLI
+
+Install the bundle for the host you already use, bind it to a matching core
+binary, and describe an outcome in ordinary language:
+
+> Look through this session. What is worth developing into useful content?
+
+> Develop the strongest idea as an internal article.
+
+> Turn the feature's development story into a presentation.
+
+The agent performs the investigation and production. It uses normal CLI and file
+tools, follows the relevant playbook, invokes external renderers when needed,
+checks actual artifacts and incorporates feedback. The operator does not have to
+name internal APIs or construct JSON requests.
+
+Bundle material has one canonical source under [bundles](bundles/README.md).
+External rendering is optional and outcome-specific; it is not installed merely
+to read sessions. See [Installation](docs/INSTALL.md) and
+[Acceptance](docs/ACCEPTANCE.md).
+
+## Working data and privacy
+
+Source stores are read-only during inventory, analysis, investigation and
+collection. Explicit archive/prune operations are separate and must not be
+confused with content production.
+
+`MIDDEN_HOME` selects Midden's own cache directory. The new core uses
+`core-index.db` and source-view files, leaving a legacy `index.db` untouched.
+Drafts, notes, source collections and delivered files belong in an ordinary
+working directory, not only in an index.
+
+Recorded text is untrusted data. A valid citation or a model's confidence does
+not establish factual truth. Credential filtering is not privacy clearance:
+names, private prose, proprietary code and the substance of a conversation may
+remain. Review any intended disclosure through the host/operator workflow.
+
+Public fixtures and examples are synthetic. Private evaluation material and
+local operational details do not belong in this repository.
+
+## Development
+
+```powershell
 go test ./...
-go build -trimpath -o .\bin\midden.exe .\cmd\midden
+go vet ./...
 ```
 
-See [Development](docs/DEVELOPMENT.md) before changing adapters, persistence,
-the refinery workflow, or the embedded UI.
+There is no special headless build: the default application is the core CLI.
+Core correctness, installer behavior and agentic-bundle effectiveness have
+separate acceptance criteria. See [Development](docs/DEVELOPMENT.md).

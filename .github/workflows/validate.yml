@@ -1,4 +1,4 @@
-name: Validate
+name: Validate core and bundles
 on:
   pull_request:
   push:
@@ -13,54 +13,70 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  linux-renderers:
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@v4
-      - name: Real Both capabilities on a clean apt-based Linux system
-        run: >-
-          docker run --rm -v "$PWD:/src:ro" ubuntu:24.04
-          bash -c 'apt-get update -qq && apt-get install -y -qq python3 curl ca-certificates > /dev/null && python3 /src/scripts/test-linux-renderers.py --disposable-container'
-  bootstraps:
-    uses: ./.github/workflows/bootstraps.yml
-  installers:
+  core-and-install:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - os: windows-latest
-            shell: powershell
-            program: pwsh
-          - os: windows-latest
-            shell: powershell
-            program: powershell
-          - os: ubuntu-latest
-            shell: bash
-            program: /bin/bash
-          - os: macos-latest
-            shell: bash
-            program: /bin/bash
+        os: [ubuntu-latest, windows-latest]
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-      - run: python scripts/test-installers.py --shell ${{ matrix.shell }} --program ${{ matrix.program }}
-      - if: runner.os == 'Windows'
-        run: python -m pip install pywinpty==2.0.15
-      - run: python scripts/test-installer-terminal.py --program ${{ matrix.program }}
-  go:
-    runs-on: ubuntu-latest
     timeout-minutes: 20
+    defaults:
+      run:
+        shell: pwsh
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
-      - run: go vet ./...
-      - run: go test ./...
-      - run: go test -tags headless ./cmd/midden ./internal/install ./internal/module
-      - run: git diff --exit-code
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Full deterministic core validation
+        run: |
+          go test ./... -count=1
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          go vet ./...
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $dependencies = go list -deps ./cmd/midden
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          if ($dependencies -match 'facet-studio|anthropic-sdk|openai-go|copilot-sdk|midden/internal/(module|editorial|create|exec|web)') {
+            throw 'Core depends on a retired runtime/editorial layer'
+          }
+      - name: Installer and archive behavior
+        run: |
+          python -B -m unittest discover -s tests/installer -p "test_*.py" -v
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python -B -m unittest discover -s tests/release -p "test_*.py" -v
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Independent native products
+        run: |
+          $target = if ($IsWindows) { 'windows/amd64' } else { 'linux/amd64' }
+          $release = Join-Path $env:RUNNER_TEMP 'midden-products'
+          python -B scripts/build-release.py --out $release --targets $target
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python -B scripts/verify-release.py --directory $release --commit $env:GITHUB_SHA --smoke
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          git diff --exit-code
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: midden-products-${{ runner.os }}-${{ github.sha }}
+          path: ${{ runner.temp }}/midden-products/*
+          if-no-files-found: error
+          retention-days: 14
+  bundle-rendering:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install declared rendering dependency on the disposable runner
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq pandoc
+      - name: Install declared HTML inspection dependency
+        run: |
+          python -m pip install playwright==1.63.0
+          python -m playwright install --with-deps chromium --only-shell
+      - name: Render and inspect synthetic outcome artifacts
+        run: python -B -m unittest discover -s tests/bundles -p "test_*.py" -v

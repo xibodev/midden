@@ -43,16 +43,24 @@ func (d *DB) Sessions(sc core.Scope) ([]core.Session, error) {
 		args = append(args, cutoff.Unix())
 	}
 	if sc.Workspace != "" {
-		where = append(where, "LOWER(dir) LIKE ?")
-		args = append(args, "%"+strings.ToLower(sc.Workspace)+"%")
+		where = append(where, `LOWER(dir) LIKE ? ESCAPE '\'`)
+		args = append(args, "%"+escapeLike(strings.ToLower(sc.Workspace))+"%")
 	}
 	if sc.Repo != "" {
-		where = append(where, "LOWER(COALESCE(repo,'')) LIKE ?")
-		args = append(args, "%"+strings.ToLower(sc.Repo)+"%")
+		where = append(where, `LOWER(COALESCE(repo,'')) LIKE ? ESCAPE '\'`)
+		args = append(args, "%"+escapeLike(strings.ToLower(sc.Repo))+"%")
 	}
 	if sc.IDPrefix != "" {
-		where = append(where, "id LIKE ?")
-		args = append(args, sc.IDPrefix+"%")
+		where = append(where, `id LIKE ? ESCAPE '\'`)
+		args = append(args, escapeLike(sc.IDPrefix)+"%")
+	}
+	if len(sc.IDs) > 0 {
+		holes := make([]string, len(sc.IDs))
+		for i, id := range sc.IDs {
+			holes[i] = "?"
+			args = append(args, id)
+		}
+		where = append(where, "id IN ("+strings.Join(holes, ",")+")")
 	}
 
 	q := `SELECT tool,id,dir,COALESCE(title,''),COALESCE(repo,''),

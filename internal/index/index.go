@@ -9,6 +9,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -16,6 +17,7 @@ import (
 
 	_ "modernc.org/sqlite"
 
+	"github.com/mekjr1/midden/internal/adapter"
 	"github.com/mekjr1/midden/internal/assay"
 	"github.com/mekjr1/midden/internal/core"
 )
@@ -39,7 +41,7 @@ func Dir() string {
 }
 
 // Path is the index database location.
-func Path() string { return filepath.Join(Dir(), "index.db") }
+func Path() string { return filepath.Join(Dir(), "core-index.db") }
 
 // Open creates or opens the index, applying the schema.
 func Open() (*DB, error) { return OpenAt(Dir()) }
@@ -50,8 +52,26 @@ func OpenReadOnly(dir string) (*DB, error) {
 	if !filepath.IsAbs(dir) {
 		return nil, fmt.Errorf("index root must be absolute")
 	}
-	path := filepath.Join(dir, "index.db")
-	sdb, err := sql.Open("sqlite", "file:"+filepath.ToSlash(path)+"?mode=ro&_pragma=query_only(1)&_pragma=busy_timeout(10000)")
+	return openReadOnlyFile(filepath.Join(dir, "core-index.db"), false)
+}
+
+func openReadOnlyFile(path string, immutable bool) (*DB, error) {
+	info, err := os.Stat(path)
+	if err != nil {
+		return nil, err
+	}
+	if !info.Mode().IsRegular() {
+		return nil, fmt.Errorf("core index is not a regular file")
+	}
+	options := "mode=ro&_pragma=query_only(1)&_pragma=busy_timeout(10000)"
+	if immutable {
+		options += "&immutable=1"
+	}
+	dsn, err := indexDSN(path, options)
+	if err != nil {
+		return nil, err
+	}
+	sdb, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, err
 	}
@@ -65,22 +85,27 @@ func OpenReadOnly(dir string) (*DB, error) {
 // OpenAt opens the index under an EXPLICIT directory rather than resolving one
 // from the environment.
 //
-// The module protocol requires this: a host runs modules with an empty
-// environment and supplies every path in the request, so Dir() would resolve
-// to a relative ".midden" and quietly read an index that is not the user's.
-// Open() is OpenAt(Dir()), so every existing caller is unchanged.
+// The core cache is separate from legacy editorial state. Opening it never
+// migrates or deletes an existing index.db or its associated working files.
 func OpenAt(dir string) (*DB, error) {
 	if strings.TrimSpace(dir) == "" {
 		return nil, fmt.Errorf("index directory is empty")
 	}
+	dbPath := filepath.Join(dir, "core-index.db")
+	roots := adapter.EnvironmentRoots()
+	for _, destination := range []string{dir, dbPath, dbPath + "-wal", dbPath + "-shm", dbPath + "-journal"} {
+		if err := adapter.CheckDestination(destination, roots); err != nil {
+			return nil, fmt.Errorf("index destination: %w", err)
+		}
+	}
+	// WAL keeps reads working while a scan writes.
+	dsn, err := indexDSN(dbPath, "_pragma=journal_mode(WAL)&_pragma=busy_timeout(10000)&_pragma=foreign_keys(1)")
+	if err != nil {
+		return nil, err
+	}
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return nil, fmt.Errorf("create %s: %w", dir, err)
 	}
-
-	dbPath := filepath.Join(dir, "index.db")
-	p := filepath.ToSlash(dbPath)
-	// WAL keeps reads working while a scan writes.
-	dsn := "file:" + p + "?_pragma=journal_mode(WAL)&_pragma=busy_timeout(10000)&_pragma=foreign_keys(1)"
 
 	sdb, err := sql.Open("sqlite", dsn)
 	if err != nil {
@@ -97,6 +122,18 @@ func OpenAt(dir string) (*DB, error) {
 		return nil, err
 	}
 	return db, nil
+}
+
+func indexDSN(path, query string) (string, error) {
+	absolute, err := filepath.Abs(path)
+	if err != nil {
+		return "", err
+	}
+	p := filepath.ToSlash(absolute)
+	if !strings.HasPrefix(p, "/") {
+		p = "/" + p
+	}
+	return (&url.URL{Scheme: "file", Path: p, RawQuery: query}).String(), nil
 }
 
 func (d *DB) Close() error { return d.sql.Close() }
@@ -156,35 +193,12 @@ CREATE TABLE IF NOT EXISTS manifests (
   PRIMARY KEY (tool, id)
 );
 
--- Nuggets are the reclaimed value. Provenance is mandatory: every nugget
--- names the session and the model that produced it.
-CREATE TABLE IF NOT EXISTS nuggets (
-  uid         TEXT PRIMARY KEY,
-  tool        TEXT NOT NULL,
-  session_id  TEXT NOT NULL,
-  kind        TEXT NOT NULL,
-  title       TEXT,
-  body        TEXT NOT NULL,
-  tags        TEXT,
-  workspace   TEXT,
-  repo        TEXT,
-  confidence  REAL,
-  model       TEXT,
-  redacted    INTEGER DEFAULT 0,
-  turn_ref    TEXT,
-  created_at  INTEGER NOT NULL
-);
-CREATE INDEX IF NOT EXISTS idx_nuggets_session ON nuggets(session_id);
-CREATE INDEX IF NOT EXISTS idx_nuggets_kind    ON nuggets(kind);
-
 CREATE TABLE IF NOT EXISTS artifacts (
   uid        TEXT PRIMARY KEY,
   kind       TEXT NOT NULL,
   title      TEXT,
   path       TEXT,
   scope      TEXT,
-  nugget_ids TEXT,
-  model      TEXT,
   created_at INTEGER NOT NULL
 );
 
@@ -214,13 +228,7 @@ func (d *DB) migrate() error {
 	if err := d.ensureSessionGeneration(); err != nil {
 		return err
 	}
-	if err := d.migrateRuns(); err != nil {
-		return err
-	}
-	if err := d.migrateRefinery(); err != nil {
-		return err
-	}
-	return d.migrateWorkbench()
+	return nil
 }
 
 // ensureSessionGeneration upgrades indexes created before scan_gen existed.

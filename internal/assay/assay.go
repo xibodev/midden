@@ -41,13 +41,17 @@ func (c Class) String() string {
 
 // Record is one classified line or row from a transcript.
 type Record struct {
-	Class   Class     `json:"class"`
-	Kind    string    `json:"kind"`
-	Bytes   int64     `json:"bytes"`
-	Role    string    `json:"role,omitempty"`
-	Time    time.Time `json:"time,omitempty"`
-	Preview string    `json:"preview,omitempty"`
-	Index   int64     `json:"index"`
+	Class     Class     `json:"class"`
+	Kind      string    `json:"kind"`
+	Bytes     int64     `json:"bytes"`
+	Role      string    `json:"role,omitempty"`
+	Time      time.Time `json:"time,omitempty"`
+	Preview   string    `json:"preview,omitempty"`
+	Index     int64     `json:"index"`
+	Clipped   bool      `json:"clipped"`
+	TextChars int       `json:"text_chars"`
+	StartByte int       `json:"start_byte"`
+	EndByte   int       `json:"end_byte"`
 }
 
 // Manifest is the result of assaying one session.
@@ -71,7 +75,14 @@ type Manifest struct {
 	ByKind map[string]int64 `json:"by_kind"`
 
 	// Candidates are Signal records worth handing to a model, newest last.
-	Candidates []Record `json:"candidates,omitempty"`
+	Candidates      []Record   `json:"candidates,omitempty"`
+	FirstTime       time.Time  `json:"first_time"`
+	LastTime        time.Time  `json:"last_time"`
+	SourceDigest    string     `json:"source_digest"`
+	SourceView      SourceView `json:"source_view"`
+	Selection       string     `json:"selection"`
+	EligibleRecords int64      `json:"eligible_records"`
+	MatchedRecords  int64      `json:"matched_records"`
 
 	DuplicateReads int64 `json:"duplicate_reads"`
 	DuplicateBytes int64 `json:"duplicate_bytes"`
@@ -252,6 +263,9 @@ var classByKind = map[string]Class{
 // anything else falls back to Signal because wrongly discarding meaning is
 // worse than wrongly keeping bulk.
 func Classify(kind string) Class {
+	if strings.HasPrefix(kind, "model.") || strings.HasPrefix(kind, "hook.") {
+		return Bookkeeping
+	}
 	if c, ok := classByKind[kind]; ok {
 		return c
 	}
