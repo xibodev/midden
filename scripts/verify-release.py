@@ -11,6 +11,9 @@ import tarfile
 import tempfile
 import zipfile
 
+sys.dont_write_bytecode = True
+from release_contract import bundle_inputs, verify_bundle_members
+
 
 def members(path):
     if path.suffix == ".zip":
@@ -34,6 +37,7 @@ def main():
         assert args.tag == "v" + manifest["version"], "tag/version mismatch"
     assert manifest["products"] == ["core", "bundle"]
     expected = set(manifest["archives"]) | {"build-manifest.json"}
+    expected_bundle = {name for _, name in bundle_inputs(Path(__file__).resolve().parent.parent, args.commit)}
     checksums = {}
     for line in (root / "SHA256SUMS").read_text(encoding="utf-8").splitlines():
         digest, name = line.split("  ", 1)
@@ -55,8 +59,7 @@ def main():
             assert names == {binary, "LICENSE", "CORE.md"}, "core archive contains bundle/runtime data"
         else:
             assert name.startswith("midden-bundle_")
-            assert {"LICENSE", "install.ps1", "install.sh"} <= names
-            assert all(n in {"LICENSE", "install.ps1", "install.sh"} or n.startswith(("bundles/", "installer/")) for n in names)
+            verify_bundle_members(names, expected_bundle)
             assert all(f"bundles/{outcome}/SKILL.md" in names for outcome in ("investigation", "article", "presentation", "long-form"))
     if args.smoke:
         system = {"Windows": "windows", "Linux": "linux", "Darwin": "darwin"}[platform.system()]

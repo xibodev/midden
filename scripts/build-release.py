@@ -6,9 +6,13 @@ import os
 from pathlib import Path
 import re
 import subprocess
+import sys
 import tarfile
 import tempfile
 import zipfile
+
+sys.dont_write_bytecode = True
+from release_contract import bundle_inputs
 
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -80,16 +84,7 @@ def main():
                 (ROOT / "docs/CORE.md", "CORE.md"),
             ])
             archives.append(archive)
-        files = [(ROOT / "LICENSE", "LICENSE")]
-        for name in ("install.ps1", "install.sh"):
-            files.append((ROOT / name, name))
-        for folder in ("bundles", "installer"):
-            for path in sorted((ROOT / folder).rglob("*")):
-                if not path.is_file() or "__pycache__" in path.parts:
-                    continue
-                if path.suffix not in {".md", ".py", ".ps1", ".sh", ".json", ".yaml", ".yml", ".css", ".svg", ".png", ".lua"}:
-                    raise RuntimeError(f"Unexpected bundle file type: {path.relative_to(ROOT)}")
-                files.append((path, path.relative_to(ROOT).as_posix()))
+        files = bundle_inputs(ROOT, "HEAD")
         bundle = args.out / f"midden-bundle_{release}.zip"
         write_archive(bundle, files)
         archives.append(bundle)

@@ -48,6 +48,9 @@ The artifacts are independent:
 
 Release tooling packages only allowlisted public source files. It does not bundle
 state, private source material, generated acceptance outputs or credentials.
+Bundle inputs come from the reviewed Git commit, not recursive directory scans.
+Ignored local settings are excluded even when the checkout reports clean. Archive
+verification checks the exact member set against that source revision.
 
 ## Test responsibilities
 

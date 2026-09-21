@@ -490,6 +490,115 @@ class InstallerUnitTests(unittest.TestCase):
         self.assertEqual(snapshot(self.project), before)
         self.run_installer("--verify")
 
+    def test_post_publication_cleanup_failure_rolls_back_the_target_and_prior_updates(self):
+        self.run_installer()
+        before = snapshot(self.project)
+        addition = self.bundle / "article" / "added.md"
+        addition.write_text("Synthetic upgrade addition.\n")
+        fixture_manifest(self.bundle, self.manifest)
+        with self.core.open("ab") as stream:
+            stream.write(b"\n# synthetic updated core\n")
+        target = self.skills / "midden-article" / "added.md"
+        module = self.backend_module()
+        unlink = Path.unlink
+        failed = False
+
+        def fail_published_link_cleanup(path, *args, **kwargs):
+            nonlocal failed
+            if (
+                not failed and path.name.startswith(".midden-write-")
+                and path.exists() and target.exists() and os.path.samefile(path, target)
+            ):
+                failed = True
+                raise PermissionError("Synthetic post-publication cleanup failure")
+            return unlink(path, *args, **kwargs)
+
+        args = module.parser().parse_args(self.arguments("--upgrade"))
+        with patch.object(Path, "unlink", fail_published_link_cleanup), patch.dict(
+            os.environ, self.env, clear=True
+        ):
+            with self.assertRaisesRegex(OSError, "post-publication cleanup failure"):
+                module.execute(args)
+        self.assertTrue(failed, "The failure must occur after a real hard-link publication")
+        self.assertEqual(snapshot(self.project), before)
+        self.run_installer("--upgrade")
+        self.assertEqual(target.read_text(), "Synthetic upgrade addition.\n")
+        self.run_installer("--verify")
+
+    @unittest.skipUnless(os.name == "nt", "Windows deny-delete sharing semantics")
+    def test_locked_published_target_retains_explicit_recovery_state(self):
+        self.assert_locked_publication_recovery(lock_target=True)
+
+    @unittest.skipUnless(os.name == "nt", "Windows deny-delete sharing semantics")
+    def test_locked_staging_link_retains_explicit_cleanup_recovery_state(self):
+        self.assert_locked_publication_recovery(lock_target=False)
+
+    def assert_locked_publication_recovery(self, lock_target):
+        import ctypes
+        from ctypes import wintypes
+
+        kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+        open_file = kernel.CreateFileW
+        open_file.argtypes = [
+            wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD, wintypes.LPVOID,
+            wintypes.DWORD, wintypes.DWORD, wintypes.HANDLE,
+        ]
+        open_file.restype = wintypes.HANDLE
+        close_handle = kernel.CloseHandle
+        close_handle.argtypes = [wintypes.HANDLE]
+        close_handle.restype = wintypes.BOOL
+        module = self.backend_module()
+        link = module.os.link
+        target = self.bin / BINARY
+        work = self.root / "retained publication recovery"
+        work.mkdir()
+        sentinel = self.project / "keep.txt"
+        sentinel.write_text("Unowned content to preserve.\n")
+        handles = []
+        temporary_paths = []
+
+        def publish_then_lock(source, destination, *args, **kwargs):
+            link(source, destination, *args, **kwargs)
+            if Path(destination) == target:
+                locked_names = (source, destination) if lock_target else (source,)
+                for locked_path in locked_names:
+                    handle = open_file(str(locked_path), 0x80000000, 0x1 | 0x2, None, 3, 0x80, None)
+                    if handle == wintypes.HANDLE(-1).value:
+                        raise ctypes.WinError(ctypes.get_last_error())
+                    handles.append(handle)
+                temporary_paths.append(Path(source))
+
+        args = module.parser().parse_args(self.arguments())
+        outcome = None
+        try:
+            with patch.object(module.os, "link", publish_then_lock), patch.object(
+                module.tempfile, "mkdtemp", return_value=str(work)
+            ), patch.dict(os.environ, self.env, clear=True):
+                try:
+                    module.execute(args)
+                except (OSError, module.InstallError) as error:
+                    outcome = error
+            self.assertEqual(len(handles), 2 if lock_target else 1)
+            self.assertIsInstance(outcome, module.RecoveryRequired)
+            self.assertIn(str(work), str(outcome))
+            if lock_target:
+                self.assertTrue(target.is_file())
+            self.assertFalse((self.bin / RECEIPT).exists())
+            if target.exists():
+                self.assertEqual(digest(target), digest(self.core))
+            self.assertEqual(digest(temporary_paths[0]), digest(self.core))
+            self.assertEqual(sentinel.read_text(), "Unowned content to preserve.\n")
+            recovery = json.loads((work / "recovery.json").read_text())
+            entry = next(item for item in recovery if item["path"] == str(target))
+            self.assertIsNone(entry["backup"])
+            self.assertEqual(entry["replacement_sha256"], digest(self.core))
+            self.assertTrue(entry["published"])
+            self.assertIn(str(temporary_paths[0]), entry["temporary_files"])
+        finally:
+            for handle in handles:
+                if not close_handle(handle):
+                    raise ctypes.WinError(ctypes.get_last_error())
+
     def test_recovery_backups_survive_rollback_and_lock_cleanup_failures(self):
         self.run_installer()
         original_core = (self.bin / BINARY).read_bytes()

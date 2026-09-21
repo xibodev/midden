@@ -1,11 +1,13 @@
 import importlib.util
 from pathlib import Path
 import tempfile
+import sys
 import unittest
 import zipfile
 
 
 ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT / "scripts"))
 SPEC = importlib.util.spec_from_file_location("midden_release", ROOT / "scripts/build-release.py")
 BUILD = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(BUILD)

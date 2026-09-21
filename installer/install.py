@@ -351,10 +351,11 @@ def installation_lock(ctx: Context):
             raise
 
 
-def atomic_write(path: Path, data: bytes, mode: int, expected: Optional[str]) -> None:
+def atomic_write(path: Path, data: bytes, mode: int, expected: Optional[str]) -> Optional[Path]:
     check_expected(path, expected)
     descriptor, name = tempfile.mkstemp(prefix=".midden-write-", dir=path.parent)
     temporary = Path(name)
+    published = False
     try:
         with os.fdopen(descriptor, "wb") as stream:
             stream.write(data)
@@ -367,14 +368,19 @@ def atomic_write(path: Path, data: bytes, mode: int, expected: Optional[str]) ->
             os.link(temporary, path)
         else:
             os.replace(temporary, path)
+        published = True
+        # The transaction records publication before cleaning up the staging link.
+        return temporary if expected is None else None
     finally:
-        temporary.unlink(missing_ok=True)
+        if not published:
+            temporary.unlink(missing_ok=True)
 
 
 def commit(changes: dict, expected: dict, modes: dict, work: Path) -> None:
     backups = {}
     created = []
     applied = []
+    temporary_files = {}
     for index, path in enumerate(changes):
         check_expected(path, expected[path])
         if expected[path] is not None:
@@ -383,21 +389,33 @@ def commit(changes: dict, expected: dict, modes: dict, work: Path) -> None:
             if digest(backup.read_bytes()) != expected[path]:
                 raise InstallError(f"File changed while backing up: {path}")
             backups[path] = (backup, stat.S_IMODE(path.stat().st_mode))
-    (work / "recovery.json").write_bytes(
-        json_bytes([
-            {"path": str(path), "backup": backup.name, "sha256": expected[path], "mode": mode}
-            for path, (backup, mode) in backups.items()
-        ])
-    )
+    recovery = [
+        {
+            "path": str(path),
+            "backup": backups[path][0].name if path in backups else None,
+            "sha256": expected[path],
+            "replacement_sha256": digest(data) if data is not None else None,
+            "mode": backups[path][1] if path in backups else modes[path],
+            "published": False,
+            "temporary_files": [],
+        }
+        for path, data in changes.items()
+    ]
+    (work / "recovery.json").write_bytes(json_bytes(recovery))
     try:
         for path, data in changes.items():
             check_expected(path, expected[path])
+            temporary = None
             if data is None:
                 path.unlink()
             else:
                 created.extend(make_directory(path.parent))
-                atomic_write(path, data, modes[path], expected[path])
+                temporary = atomic_write(path, data, modes[path], expected[path])
             applied.append(path)
+            if temporary is not None:
+                temporary_files[temporary] = (path, digest(data))
+                temporary.unlink(missing_ok=True)
+                del temporary_files[temporary]
             check_expected(path, digest(data) if data is not None else None)
     except (OSError, InstallError, KeyboardInterrupt) as failure:
         errors = []
@@ -408,12 +426,35 @@ def commit(changes: dict, expected: dict, modes: dict, work: Path) -> None:
                 check_expected(path, current)
                 if path in backups:
                     backup, mode = backups[path]
-                    atomic_write(path, backup.read_bytes(), mode, current)
+                    temporary = atomic_write(path, backup.read_bytes(), mode, current)
+                    if temporary is not None:
+                        temporary_files[temporary] = (path, expected[path])
+                        temporary.unlink(missing_ok=True)
+                        del temporary_files[temporary]
                 else:
                     path.unlink()
             except (OSError, InstallError) as error:
                 errors.append(f"{path}: {error}")
+        for temporary, (_target, checksum) in list(temporary_files.items()):
+            try:
+                if temporary.exists():
+                    check_expected(temporary, checksum)
+                temporary.unlink(missing_ok=True)
+                del temporary_files[temporary]
+            except (OSError, InstallError) as error:
+                errors.append(f"Temporary cleanup {temporary}: {error}")
         if errors:
+            for entry in recovery:
+                path = Path(entry["path"])
+                entry["published"] = path in applied and changes[path] is not None
+                entry["temporary_files"] = [
+                    str(temporary) for temporary, (target, _) in temporary_files.items()
+                    if target == path
+                ]
+            try:
+                (work / "recovery.json").write_bytes(json_bytes(recovery))
+            except OSError as error:
+                errors.append(f"Could not update recovery map: {error}")
             raise RecoveryRequired(
                 f"Installation failed: {failure}. Rollback needs recovery; backups remain in {work}. "
                 + "; ".join(errors)
