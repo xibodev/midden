@@ -1,91 +1,114 @@
-"""Build portable release archives from a clean checkout (Python 3 + Go).
-
-Usage: python scripts/build-release.py --out <absolute-directory> [--targets windows/amd64 linux/amd64]
-Archives contain the executable, license, readme and descriptor-declared content.
-No state, credentials, source transcripts or local examples are packaged.
-"""
+"""Build independent core and bundle archives from a clean, public checkout."""
 import argparse
 import hashlib
 import json
 import os
 from pathlib import Path
+import re
 import subprocess
 import tarfile
 import tempfile
 import zipfile
 
 
-def run(*args, **kwargs):
-    return subprocess.check_output(args, text=True, **kwargs).strip()
+ROOT = Path(__file__).resolve().parent.parent
+TARGETS = ("windows/amd64", "linux/amd64", "linux/arm64", "darwin/amd64", "darwin/arm64")
+
+
+def run(*args):
+    return subprocess.check_output(args, cwd=ROOT, text=True).strip()
+
+
+def version():
+    text = (ROOT / "internal/core/identity.go").read_text(encoding="utf-8")
+    match = re.search(r'\bVersion\s*=\s*"([^"]+)"', text)
+    if not match:
+        raise RuntimeError("Core version is not declared")
+    return match.group(1)
+
+
+def write_archive(path, files):
+    if any(source.is_symlink() or not source.is_file() for source, _ in files):
+        raise RuntimeError("Archive inputs must be ordinary files, not links")
+    names = [name for _, name in files]
+    if len(names) != len(set(names)) or any(
+        name.startswith("/") or ".." in Path(name).parts for name in names
+    ):
+        raise RuntimeError("Unsafe or duplicate archive entry")
+    if path.suffix == ".zip":
+        with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as archive:
+            for source, name in files:
+                archive.write(source, name)
+    else:
+        with tarfile.open(path, "w:gz") as archive:
+            for source, name in files:
+                archive.add(source, arcname=name, recursive=False)
 
 
 def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--out', type=Path, required=True)
-    parser.add_argument('--targets', nargs='+', default=['windows/amd64', 'linux/amd64', 'linux/arm64', 'darwin/amd64', 'darwin/arm64'])
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--out", type=Path, required=True)
+    parser.add_argument("--targets", nargs="+", choices=TARGETS, default=list(TARGETS))
     args = parser.parse_args()
-    root = Path(__file__).resolve().parent.parent
-    if run('git', 'status', '--porcelain', cwd=root):
-        raise SystemExit('Release builds require a clean checkout')
+    if run("git", "status", "--porcelain"):
+        raise SystemExit("Packaging requires a clean checkout")
     if not args.out.is_absolute():
-        raise SystemExit('--out must be absolute')
+        raise SystemExit("--out must be absolute")
     args.out.mkdir(parents=True, exist_ok=True)
-    commit = run('git', 'rev-parse', 'HEAD', cwd=root)
-    with tempfile.TemporaryDirectory(prefix='midden-release-') as temp:
-        temp = Path(temp)
-        native = temp / ('describe.exe' if os.name == 'nt' else 'describe')
-        subprocess.run(['go', 'build', '-trimpath', '-o', str(native), './cmd/midden'], cwd=root, check=True)
-        descriptor = json.loads(run(str(native), 'module', 'describe', '--json', cwd=temp))['result']
-        version = descriptor['version']
-        content = [(root / 'LICENSE', 'LICENSE'), (root / 'README.md', 'README.md')]
-        for entry in descriptor['agent_overlays'] + descriptor['skills']:
-            relative = Path(entry['path'])
-            if relative.is_absolute() or '..' in relative.parts:
-                raise SystemExit('Unsafe descriptor content path')
-            source = root / relative
-            digest = 'sha256:' + hashlib.sha256(source.read_bytes()).hexdigest()
-            if digest != entry['digest']:
-                raise SystemExit(f'Descriptor content mismatch: {relative}')
-            content.append((source, relative.as_posix()))
-        assets = []
-        for script in ('install.ps1', 'install.sh', 'installer/manifest.tsv'):
-            target = args.out / Path(script).name
-            target.write_bytes((root / script).read_bytes())
-            assets.append(target)
+    if any(args.out.iterdir()):
+        raise SystemExit("Output directory must be empty")
+    release = version()
+    archives = []
+    core_digests = {}
+    with tempfile.TemporaryDirectory(prefix="midden-release-") as temporary:
+        temporary = Path(temporary)
         for target in args.targets:
-            goos, goarch = target.split('/')
-            for variant in ('standalone', 'headless'):
-                name = f'midden_{version}_{goos}_{goarch}_{variant}'
-                stage = temp / name
-                stage.mkdir()
-                binary = stage / ('midden.exe' if goos == 'windows' else 'midden')
-                env = dict(os.environ, GOOS=goos, GOARCH=goarch, CGO_ENABLED='0')
-                command = ['go', 'build', '-trimpath', '-ldflags=-s -w', '-o', str(binary)]
-                if variant == 'headless':
-                    command += ['-tags=headless']
-                command += ['./cmd/midden']
-                subprocess.run(command, cwd=root, env=env, check=True)
-                binary.chmod(0o755)
-                files = [(binary, binary.name)] + content
-                if goos == 'windows':
-                    archive = args.out / (name + '.zip')
-                    with zipfile.ZipFile(archive, 'w', zipfile.ZIP_DEFLATED) as output:
-                        for source, relative in files:
-                            output.write(source, relative)
-                else:
-                    archive = args.out / (name + '.tar.gz')
-                    with tarfile.open(archive, 'w:gz') as output:
-                        for source, relative in files:
-                            output.add(source, arcname=relative, recursive=False)
-                assets.append(archive)
-                print(f'Built {archive.name}', flush=True)
-        manifest = args.out / 'build-manifest.json'
-        manifest.write_text(json.dumps({'version': version, 'commit': commit, 'go': run('go', 'version'),
-                                       'kernel': 'github.com/xibodev/facet-studio@v1.0.0',
-                                       'targets': args.targets, 'variants': ['standalone', 'headless']}, indent=2) + '\n')
-        assets.append(manifest)
-        (args.out / 'SHA256SUMS').write_text(''.join(hashlib.sha256(p.read_bytes()).hexdigest() + '  ' + p.name + '\n' for p in sorted(assets)))
+            system, arch = target.split("/")
+            binary = temporary / ("midden.exe" if system == "windows" else "midden")
+            env = dict(os.environ, GOOS=system, GOARCH=arch, CGO_ENABLED="0")
+            subprocess.run(
+                ["go", "build", "-trimpath", "-ldflags=-s -w", "-o", str(binary), "./cmd/midden"],
+                cwd=ROOT, env=env, check=True,
+            )
+            binary.chmod(0o755)
+            core_digests[target] = hashlib.sha256(binary.read_bytes()).hexdigest()
+            suffix = ".zip" if system == "windows" else ".tar.gz"
+            archive = args.out / f"midden-core_{release}_{system}_{arch}{suffix}"
+            write_archive(archive, [
+                (binary, binary.name),
+                (ROOT / "LICENSE", "LICENSE"),
+                (ROOT / "docs/CORE.md", "CORE.md"),
+            ])
+            archives.append(archive)
+        files = [(ROOT / "LICENSE", "LICENSE")]
+        for name in ("install.ps1", "install.sh"):
+            files.append((ROOT / name, name))
+        for folder in ("bundles", "installer"):
+            for path in sorted((ROOT / folder).rglob("*")):
+                if not path.is_file() or "__pycache__" in path.parts:
+                    continue
+                if path.suffix not in {".md", ".py", ".ps1", ".sh", ".json", ".yaml", ".yml", ".css", ".svg", ".png", ".lua"}:
+                    raise RuntimeError(f"Unexpected bundle file type: {path.relative_to(ROOT)}")
+                files.append((path, path.relative_to(ROOT).as_posix()))
+        bundle = args.out / f"midden-bundle_{release}.zip"
+        write_archive(bundle, files)
+        archives.append(bundle)
+    manifest = args.out / "build-manifest.json"
+    manifest.write_text(json.dumps({
+        "version": release, "commit": run("git", "rev-parse", "HEAD"),
+        "go": run("go", "version"), "targets": args.targets,
+        "products": ["core", "bundle"],
+        "core_binaries": core_digests,
+        "archives": [path.name for path in archives],
+    }, indent=2) + "\n", encoding="utf-8")
+    archives.append(manifest)
+    (args.out / "SHA256SUMS").write_text(
+        "".join(hashlib.sha256(path.read_bytes()).hexdigest() + "  " + path.name + "\n"
+                for path in sorted(archives)),
+        encoding="utf-8",
+    )
+    print(f"Built core and bundle artifacts for {', '.join(args.targets)}")
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

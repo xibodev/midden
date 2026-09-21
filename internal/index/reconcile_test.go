@@ -568,7 +568,7 @@ func TestEmptyReconcileReportUsesArraysInJSON(t *testing.T) {
 	}
 }
 
-func TestNuggetWorkspaceFiltersTreatWildcardsLiterally(t *testing.T) {
+func TestSessionWorkspaceFiltersTreatWildcardsLiterally(t *testing.T) {
 	t.Setenv("MIDDEN_HOME", t.TempDir())
 	db, err := Open()
 	if err != nil {
@@ -576,11 +576,11 @@ func TestNuggetWorkspaceFiltersTreatWildcardsLiterally(t *testing.T) {
 	}
 	defer db.Close()
 
-	if err := db.PutNuggets([]Nugget{
-		{UID: "percent-literal", Tool: "claude", SessionID: "one", Kind: "decision", Body: "one", Workspace: "project%literal"},
-		{UID: "percent-broadened", Tool: "claude", SessionID: "two", Kind: "decision", Body: "two", Workspace: "projectXliteral"},
-		{UID: "underscore-literal", Tool: "claude", SessionID: "three", Kind: "decision", Body: "three", Workspace: "team_literal"},
-		{UID: "underscore-broadened", Tool: "claude", SessionID: "four", Kind: "decision", Body: "four", Workspace: "teamXliteral"},
+	if err := db.PutSessions([]core.Session{
+		{ID: "percent-literal", Tool: core.ToolClaude, Dir: "project%literal"},
+		{ID: "percent-broadened", Tool: core.ToolClaude, Dir: "projectXliteral"},
+		{ID: "underscore-literal", Tool: core.ToolClaude, Dir: "team_literal"},
+		{ID: "underscore-broadened", Tool: core.ToolClaude, Dir: "teamXliteral"},
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -592,11 +592,11 @@ func TestNuggetWorkspaceFiltersTreatWildcardsLiterally(t *testing.T) {
 		{workspace: "project%", want: "percent-literal"},
 		{workspace: "team_", want: "underscore-literal"},
 	} {
-		got, err := db.Nuggets(NuggetQuery{Workspace: test.workspace})
+		got, err := db.Sessions(core.Scope{Workspace: test.workspace})
 		if err != nil {
 			t.Fatal(err)
 		}
-		if len(got) != 1 || got[0].UID != test.want {
+		if len(got) != 1 || got[0].ID != test.want {
 			t.Fatalf("workspace %q returned %#v, want only %q", test.workspace, got, test.want)
 		}
 	}

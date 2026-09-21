@@ -182,6 +182,7 @@ func cmdAssay(args []string) error {
 	fs := flag.NewFlagSet("assay", flag.ExitOnError)
 	sc, asJSON, _ := scopeFlags(fs)
 	live := fs.Bool("live", false, "classify now instead of reading stored manifests")
+	id := fs.String("session", "", "exact session identifier")
 	top := fs.Int("top", 10, "how many record kinds to show")
 	if err := fs.Parse(reorderArgs(fs, args)); err != nil {
 		return err
@@ -190,12 +191,21 @@ func cmdAssay(args []string) error {
 		return err
 	}
 
-	if fs.NArg() > 0 {
+	if *id != "" {
+		if fs.NArg() > 0 {
+			return fmt.Errorf("use --session or a positional identifier, not both")
+		}
+		sc.IDs = []string{*id}
+		sc.IncludeNoise = true
+	} else if fs.NArg() > 0 {
+		if fs.NArg() != 1 {
+			return fmt.Errorf("assay accepts one positional identifier")
+		}
 		sc.IDPrefix = fs.Arg(0)
 		sc.IncludeNoise = true
 	}
 
-	if *live || sc.IDPrefix != "" {
+	if *live || sc.IDPrefix != "" || len(sc.IDs) > 0 {
 		return assayLive(*sc, *asJSON, *top)
 	}
 
@@ -390,7 +400,6 @@ func printTotals(t index.Totals) {
 		fmt.Printf("  %-13s %10d  %s\n", "images", t.Images,
 			render.Dim(fmt.Sprintf("in %d clusters", t.Clusters)))
 	}
-	suggestNext(collectState())
 }
 
 var _ = strings.TrimSpace

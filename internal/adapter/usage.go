@@ -32,9 +32,9 @@ func (c *Copilot) Usage(sessionID string) (cost.Usage, error) {
 		       COALESCE(SUM(reasoning_tokens),0), COALESCE(SUM(total_nano_aiu),0),
 		       COALESCE(SUM(duration_ms),0),
 		       (SELECT model FROM assistant_usage_events
-		         WHERE session_id LIKE ? ORDER BY created_at DESC LIMIT 1)
+		         WHERE session_id = ? ORDER BY created_at DESC LIMIT 1)
 		FROM assistant_usage_events
-		WHERE session_id LIKE ?`, sessionID+"%", sessionID+"%")
+		WHERE session_id = ?`, sessionID, sessionID)
 
 	if err := row.Scan(&u.Turns, &u.InputTokens, &u.OutputTokens, &u.CacheRead,
 		&u.CacheWrite, &u.Reasoning, &nanoAIU, &u.DurationMS, &model); err != nil {
@@ -106,7 +106,7 @@ func (c *Claude) transcriptFor(sessionID string) (string, error) {
 		return "", err
 	}
 	for _, s := range sessions {
-		if strings.HasPrefix(s.ID, sessionID) {
+		if s.ID == sessionID {
 			return s.TranscriptPath, nil
 		}
 	}

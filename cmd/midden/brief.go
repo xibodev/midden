@@ -22,7 +22,9 @@ import (
 // resume cliff survivable — you cannot resume a 774 MiB session, but you can
 // carry its intent forward.
 func cmdBrief(args []string) error {
-	fs := flag.NewFlagSet("brief", flag.ExitOnError)
+	fs := flag.NewFlagSet("brief", flag.ContinueOnError)
+	tool := fs.String("tool", "", "source tool")
+	id := fs.String("session", "", "exact session identifier")
 	turns := fs.Int("turns", 10, "how many recent turns to include")
 	clipAt := fs.Int("clip", 1200, "max characters per turn")
 	asJSON := fs.Bool("json", false, "machine-readable output")
@@ -30,11 +32,7 @@ func cmdBrief(args []string) error {
 	if err := fs.Parse(reorderArgs(fs, args)); err != nil {
 		return err
 	}
-	if fs.NArg() < 1 {
-		return fmt.Errorf("usage: midden brief <id-or-prefix> [--turns n] [--handoff]")
-	}
-
-	s, err := findOne(fs.Arg(0))
+	s, err := selectSession(*tool, *id, fs.Args())
 	if err != nil {
 		return err
 	}

@@ -110,6 +110,13 @@ func (o *Opencode) ReadEvidence(s core.Session, selection assay.Selection) (*ass
 }
 
 func (o *Opencode) scanEvidence(s core.Session, sc *assay.Scanner) (*assay.Manifest, error) {
+	limit := int64(-1)
+	if view := sc.ViewBoundary(); view != nil {
+		if view.Kind != rowPrefixKind || view.Records < 0 || view.Bytes != 0 {
+			return nil, fmt.Errorf("unsupported saved database view; open a fresh view explicitly")
+		}
+		limit = view.Records
+	}
 	db, closeDB, err := openRO(o.DB)
 	if err != nil {
 		return nil, fmt.Errorf("assay opencode: %w", err)
@@ -117,50 +124,49 @@ func (o *Opencode) scanEvidence(s core.Session, sc *assay.Scanner) (*assay.Manif
 	defer closeDB()
 
 	rows, err := db.Query(`
-		SELECT p.data, p.time_created
+		SELECT p.id, p.data, p.time_created
 		FROM part p
 		WHERE p.session_id = ?
-		ORDER BY p.time_created, p.id`, s.ID)
+		ORDER BY p.time_created, p.id LIMIT ?`, s.ID, limit)
 	if err != nil {
 		return nil, fmt.Errorf("assay opencode query: %w", err)
 	}
 	defer rows.Close()
 
 	start := time.Now()
+	fingerprint := newRowFingerprint()
 
 	for rows.Next() {
-		if view := sc.ViewBoundary(); view != nil {
-			if view.Kind != "record-prefix-v1" {
-				return nil, fmt.Errorf("unsupported saved database view; prepare a new orientation")
-			}
-			if sc.ObservedRecords() >= view.Records {
-				break
-			}
-		}
-		var data string
+		var id, data string
 		var created int64
-		if rows.Scan(&data, &created) != nil {
-			continue
+		if err = rows.Scan(&id, &data, &created); err != nil {
+			return nil, fmt.Errorf("assay opencode row: %w", err)
 		}
+		raw := []byte(data)
+		fingerprint.add(id, created, raw)
 		var probe struct {
 			Type string `json:"type"`
 		}
-		json.Unmarshal([]byte(data), &probe)
+		json.Unmarshal(raw, &probe)
 		kind := probe.Type
 		if kind == "" {
 			kind = "unparsed"
 		}
-		sc.Observe(kind, "", []byte(data), fromUnixMS(created))
+		sc.Observe(kind, "", raw, fromUnixMS(created))
 	}
 
+	if err = rows.Err(); err != nil {
+		return nil, fmt.Errorf("assay opencode rows: %w", err)
+	}
 	m := sc.Manifest()
 	if view := sc.ViewBoundary(); view != nil && m.TotalRecords < view.Records {
 		return nil, fmt.Errorf("source view was truncated")
 	}
-	m.SourceView = assay.SourceView{Kind: "record-prefix-v1", Records: m.TotalRecords}
+	m.SourceDigest = fingerprint.sum()
+	m.SourceView = assay.SourceView{Kind: rowPrefixKind, Records: m.TotalRecords}
 	m.Title = s.Title
 	m.Elapsed = time.Since(start)
-	return m, rows.Err()
+	return m, nil
 }
 
 func roleFromKind(kind string) string {

@@ -2,7 +2,7 @@ name: Pages
 on:
   push:
     branches: [main]
-    paths: ['docs/index.html', 'docs/site.css', 'docs/favicon.svg', 'docs/install.*', 'scripts/test-bootstraps.py', '.github/workflows/pages.yml', '.github/workflows/bootstraps.yml']
+    paths: ['docs/index.html', 'docs/site.css', 'docs/favicon.svg', '.github/workflows/pages.yml']
   workflow_dispatch:
 
 permissions:
@@ -15,10 +15,7 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  test:
-    uses: ./.github/workflows/bootstraps.yml
   deploy:
-    needs: test
     runs-on: ubuntu-latest
     timeout-minutes: 10
     environment:
@@ -30,7 +27,7 @@ jobs:
       - name: Stage public landing page only
         run: |
           mkdir _site
-          cp docs/index.html docs/site.css docs/favicon.svg docs/install.ps1 docs/install.sh _site/
+          cp docs/index.html docs/site.css docs/favicon.svg _site/
       - uses: actions/upload-pages-artifact@v3
         with:
           path: _site

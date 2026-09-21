@@ -1,64 +1,64 @@
 # Midden Objective
 
-## What This App Must Be
+Midden has two product layers, not an embedded agent.
 
-Midden is an agent-first, local evidence-to-content bundle. Its canonical
-experience runs inside the operator's authenticated agentic CLI. It owns source
-discovery, exact session scope, assay, evidence selection, editorial projects,
-provenance, reusable seeds, reviewed outputs, and recovery-aware cleanup policy.
+## Core
 
-Standalone Studio is paused and experimental. Preserve its existing behavior;
-do not add a second agent loop or make new agent-first features depend on it.
-If resumed later, Studio must consume the same domain operations through the
-supported Facet Studio kernel, not implement parallel editorial semantics.
+The `midden` command is a deterministic session-data toolbox. It discovers and
+reads supported stores, normalizes records, provides stable bounded source views,
+searches and measures material, and collects/manipulates/exports portable data
+and available assets. It is useful to humans, scripts and AI hosts alike.
 
-The same domain capability must also ship as:
+Core must not depend on an agentic bundle, an AI runtime, model providers,
+editorial recipes or approval receipts. Source stores are read-only during
+investigation. Any retained archive/prune operation must be explicit and tested.
 
-- a Midden Recovery Bundle for a named agentic CLI, with GitHub Copilot
-  acceptable as the first supported target; and
-- an installable Midden capability module for full Facet Studio.
+SQLite is a derived index/cache. Authoritative selected material is portable and
+inspectable as files. A record reference proves where text came from, not that
+the text's claim is true. Credential filtering is not privacy clearance.
 
-## Required Order
+## Agentic bundle
 
-1. Inspect the current source and tests to establish the real recovery behavior
-   and source-safety boundaries.
-2. Keep one canonical operation, effect, requirement, artifact, and state model
-   across all delivery forms.
-3. Keep the headless agent bundle independently buildable and testable.
-4. Prove exact-session investigation, competing editorial opportunities,
-   human selection, host-authored composition, review, and local export.
-5. Extend the same project model to multi-session series, chapter plans, and
-   local production handoffs without owning renderers or model credentials.
-6. Validate feature branches against staging before release. Defer full
-   cross-host and Studio acceptance when explicitly requested; never imply
-   focused checks certify those journeys.
+Outcome-oriented guidance, templates, examples, helpers and external-tool
+requirements enable an existing AI CLI and operator to investigate and produce
+content end to end. The AI executes the method: it reads, reasons, writes files,
+runs tools, inspects outputs, revises and delivers. The operator directs and
+evaluates the work.
 
-## Start Clean
+Ship investigation, article/tutorial, presentation and incremental long-form
+workflows. Keep one canonical source for bundle materials. Ordinary working files
+hold source collections, notes, outlines, drafts and delivered artifacts; a
+database project is not a prerequisite for creating or finding a draft.
 
-1. Read only this file for intent. Do not reconstruct plans from deleted
-   documentation.
-2. Run `git status` and preserve all existing work unless the user explicitly
-   asks to replace it.
-3. Inspect adapters, assay, index, reclaim, refinery, web, module, installer,
-   provider-adapter, view, `go.mod`, and test code.
-4. Derive supported sources, operations, state paths, safety guarantees, and
-   release state from executable code and tests. Verify UI claims against the
-   backend that enforces them.
-5. Run focused baseline checks before editing. Distinguish read-only recovery
-   operations from explicit source mutations such as archive.
-6. Keep planning in the host's task tracker. Ship only product documentation
-   and purpose-built agent skills; keep executable contracts in code and tests.
+The host owns conversation, models, permissions and credentials. Bundle guidance
+does not bypass host denials or grant publication authority.
 
-## Boundaries
+## Retired boundaries
 
-- Midden owns recovery semantics; it does not own conversational providers,
-  model catalogs, routes, credentials, or fallback.
-- Do not build a second agent loop, session engine, budget engine, hook system,
-  or generic approval engine.
-- Prompt instructions are not an authorization boundary.
-- Redaction reduces risk but never proves that all sensitive content is absent.
-- Indexing, assay, evidence extraction, and MCP reads must not modify source
-  stores. Any archive action must be explicit, accurately described, and tested.
-- Standalone, bundle, and module state must not mix implicitly.
-- Studio is not a release criterion for agent-first feature branches.
-- Do not commit, tag, push, publish, or release without explicit user approval.
+Remove the active module adapter, its host descriptors/grants, and embedded
+AI/provider execution. Studio is parked outside the core build/release path.
+Extract useful deterministic logic before retiring crossed-concern packages.
+MCP, if retained, is only a thin optional core adapter, not a second lifecycle.
+
+Do not recreate a generic approval, provider, session, budget or orchestration
+engine. External rendering belongs to existing tools invoked by the host agent
+under bundle guidance.
+
+## Execution and acceptance
+
+1. Establish and test core data contracts before developing bundle outcomes.
+2. Validate core deterministically, including source preservation, scope,
+   append-only reads, truncation/edits, asset handling and portable collections.
+3. Validate bundle effectiveness through natural operator goals and actual
+   editable/rendered artifacts, not a prescribed tool-call sequence.
+4. Preserve private sessions, old test labs and existing work. Test migration on
+   copies and provide explicit read-only legacy export. Never commit private
+   source material.
+5. Run full relevant tests, clean-install checks and Windows/Linux staging CI.
+   Do not label missing credentials or interactive-only checks as passes.
+6. Keep plans in the host task tracker. Ship product documentation and reusable
+   bundle materials, not implementation diaries.
+
+Use feature branches and staging validation. Keep private evaluation transcripts,
+source identities, internal business details and local operational settings out
+of public commits. Publish only synthetic examples and reviewable product changes.

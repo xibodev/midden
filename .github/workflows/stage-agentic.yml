@@ -1,76 +1,12 @@
-name: Stage agentic bundle
-
+name: Stage core and bundles
 on:
   push:
-    branches: [staging, 'feat/agent-first-*', 'feat/agentic-*', 'feat/editorial-*']
+    branches: [staging, 'feat/core-bundle-*']
   workflow_dispatch:
-    inputs:
-      full_tests:
-        description: Run the full Go suite as well as focused agentic checks
-        type: boolean
-        default: false
 
 permissions:
   contents: read
 
-concurrency:
-  group: stage-agentic-${{ github.ref }}
-  cancel-in-progress: true
-
 jobs:
-  stage:
-    if: github.ref == 'refs/heads/staging' || startsWith(github.ref, 'refs/heads/feat/')
-    environment: staging
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, windows-latest]
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 20
-    defaults:
-      run:
-        shell: pwsh
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
-      - name: Focused agentic regression checks
-        run: |
-          go test -tags headless -short ./internal/quotation ./internal/assay ./internal/adapter ./internal/index ./internal/create ./internal/editorial ./internal/module ./internal/install ./cmd/midden -count=1
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-      - name: Full suite only when explicitly requested
-        if: inputs.full_tests
-        run: |
-          go test ./...
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-      - name: Package isolated headless bundle
-        run: |
-          $name = if ($IsWindows) { 'midden.exe' } else { 'midden' }
-          $binary = Join-Path $env:RUNNER_TEMP $name
-          go build -tags headless -trimpath -o $binary ./cmd/midden
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          $package = Join-Path $env:RUNNER_TEMP 'midden-agentic-staging'
-          & $binary module package --out $package
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          Copy-Item -LiteralPath LICENSE -Destination (Join-Path $package 'LICENSE')
-          Copy-Item -LiteralPath docs/EDITORIAL_WORKFLOW.md -Destination (Join-Path $package 'EDITORIAL_WORKFLOW.md')
-          Copy-Item -LiteralPath docs/AGENTIC_ACCEPTANCE.md -Destination (Join-Path $package 'AGENTIC_ACCEPTANCE.md')
-          Copy-Item -LiteralPath install.ps1 -Destination (Join-Path $package 'install.ps1')
-          Copy-Item -LiteralPath install.sh -Destination (Join-Path $package 'install.sh')
-          $installerMetadata = Join-Path $package 'installer'
-          New-Item -ItemType Directory -Path $installerMetadata | Out-Null
-          Copy-Item -LiteralPath installer/manifest.tsv -Destination (Join-Path $installerMetadata 'manifest.tsv')
-          & $binary agent schema editorial.analyze
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          $checksums = Get-ChildItem -LiteralPath $package -File -Recurse |
-            Where-Object Name -ne 'SHA256SUMS' |
-            Get-FileHash -Algorithm SHA256 |
-            ForEach-Object { $_.Hash.ToLower() + '  ' + [IO.Path]::GetRelativePath($package, $_.Path) }
-          $checksums | Set-Content (Join-Path $package 'SHA256SUMS') -Encoding utf8
-      - uses: actions/upload-artifact@v4
-        with:
-          name: midden-agentic-staging-${{ runner.os }}-${{ github.sha }}
-          path: ${{ runner.temp }}/midden-agentic-staging
-          if-no-files-found: error
-          retention-days: 14
+  validate:
+    uses: ./.github/workflows/validate.yml

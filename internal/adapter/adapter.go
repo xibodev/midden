@@ -18,12 +18,6 @@ import (
 // Roots names the source-store locations explicitly, so a caller can supply
 // them instead of having them resolved from the user profile.
 //
-// The module protocol requires this: a module host runs modules with an empty
-// environment and passes every path it may touch in the request, so the host
-// can enforce confinement rather than trust the module. Ambient resolution also
-// fails silently under an empty environment — os.UserHomeDir returns an error,
-// home() yields "", and every store path becomes relative and matches nothing.
-//
 // A zero value means "resolve from the user profile", which is what the
 // human-facing CLI has always done. Each field is independent: supplying one
 // root does not change how the others resolve.
@@ -88,12 +82,12 @@ func FindWithRoots(t core.Tool, r Roots) core.Adapter {
 
 // All returns every adapter, whether or not its data is present.
 func All() []core.Adapter {
-	return AllWithRoots(Roots{})
+	return AllWithRoots(EnvironmentRoots())
 }
 
 // Available returns only the adapters whose data exists on this machine.
 func Available() []core.Adapter {
-	return AvailableWithRoots(Roots{})
+	return AvailableWithRoots(EnvironmentRoots())
 }
 
 // AvailableWithRoots is Available with explicit source-store roots.
@@ -109,8 +103,7 @@ func AvailableWithRoots(r Roots) []core.Adapter {
 
 // CollectWithRoots is Collect with explicit source-store roots.
 //
-// It is the entry point the module protocol uses: the host supplies every
-// path, so nothing is resolved from the environment.
+// Explicit roots keep controlled reads separate from ambient user stores.
 func CollectWithRoots(sc core.Scope, r Roots) ([]core.Session, []error) {
 	sessions, result := collectFrom(sc, AvailableWithRoots(r))
 	return sessions, result.Errors

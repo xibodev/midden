@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"hash"
+	"path"
 	"sort"
 	"strings"
 	"time"
@@ -91,15 +92,12 @@ func NewEvidenceScanner(sessionID, tool string, selection Selection) *Scanner {
 func (s *Scanner) Observe(kind, role string, payload []byte, ts time.Time) {
 	class := Classify(kind)
 	var text string
-	if class == Signal || (class == Exhaust && s.selection.IncludeTools) {
+	if kind != "unparsed" && (class == Signal || (class == Exhaust && s.selection.IncludeTools)) {
 		text = extractText(payload)
 		if injectedInstruction(kind, payload, text) {
 			class = Bookkeeping
 			text = ""
 		}
-	}
-	if class == Artifact && s.selection.MaxChars > 0 {
-		text = assetReference(kind, payload)
 	}
 	if kind == "user" {
 		if toolText, found := toolResultText(payload); found {
@@ -109,6 +107,12 @@ func (s *Scanner) Observe(kind, role string, payload []byte, ts time.Time) {
 			if s.selection.IncludeTools {
 				text = toolText
 			}
+		}
+	}
+	if text == "" && class != Bookkeeping && s.selection.MaxChars > 0 {
+		if reference := assetReference(kind, payload); reference != "" {
+			text = reference
+			class = Artifact
 		}
 	}
 	var frame [8]byte
@@ -296,27 +300,68 @@ func injectedInstruction(kind string, payload []byte, text string) bool {
 }
 
 func assetReference(kind string, payload []byte) string {
-	if kind != "session.binary_asset" && kind != "session.workspace_file_changed" && kind != "file" {
-		return ""
+	type metadata struct {
+		Name        string          `json:"name"`
+		Filename    string          `json:"filename"`
+		Attachments json.RawMessage `json:"attachments"`
+		Content     json.RawMessage `json:"content"`
 	}
 	var record struct {
-		Data struct {
-			Name string `json:"name"`
-			Path string `json:"path"`
-			Mime string `json:"mimeType"`
-		} `json:"data"`
+		metadata
+		Data    json.RawMessage `json:"data"`
+		Message json.RawMessage `json:"message"`
 	}
 	if json.Unmarshal(payload, &record) != nil {
 		return ""
 	}
-	label := record.Data.Name
-	if label == "" {
-		label = record.Data.Path
+	var data, message metadata
+	json.Unmarshal(record.Data, &data)
+	json.Unmarshal(record.Message, &message)
+	label := data.Name
+	switch kind {
+	case "session.binary_asset", "session.workspace_file_changed":
+	case "file":
+		label = record.Filename
+	case "attachment":
+		label = record.Name
+	default:
+		kind = ""
+		for _, raw := range []json.RawMessage{record.Attachments, data.Attachments, message.Attachments} {
+			var attachments []json.RawMessage
+			if json.Unmarshal(raw, &attachments) == nil && len(attachments) > 0 {
+				kind = "attachments"
+				break
+			}
+		}
+		if kind == "" {
+			var blocks []struct {
+				Type string `json:"type"`
+			}
+			if json.Unmarshal(message.Content, &blocks) == nil {
+				for _, block := range blocks {
+					if block.Type == "image" || block.Type == "document" || block.Type == "file" {
+						kind = block.Type
+						break
+					}
+				}
+			}
+		}
+		if kind == "" {
+			return ""
+		}
+		label = ""
+	}
+	lower := strings.ToLower(label)
+	if strings.Contains(lower, "data:") || strings.Contains(lower, "base64") || strings.Contains(lower, "://") {
+		label = ""
+	}
+	if label != "" {
+		label = path.Base(strings.ReplaceAll(label, `\`, "/"))
 	}
 	if len(label) > 300 {
 		label = label[:300]
 	}
-	return "Asset reference only; content has not been inspected. " + kind + " " + label
+	return strings.TrimSpace("Asset reference only; content has not been inspected. " + kind + " " + label)
 }
 
 // extractText pulls human-readable text out of a JSON record without knowing

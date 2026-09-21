@@ -1,11 +1,9 @@
-// Command midden indexes, measures and safely disposes of AI CLI session data.
-//
-// M0 scope: see everything (ls, show), get back into it (resume), and never
-// lose a session to the resume cliff again (doctor). All read-only.
+// Command midden provides deterministic session-data tools.
 package main
 
 import (
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"os"
@@ -14,41 +12,26 @@ import (
 
 	"github.com/mekjr1/midden/internal/adapter"
 	"github.com/mekjr1/midden/internal/core"
-	"github.com/mekjr1/midden/internal/guide"
 	"github.com/mekjr1/midden/internal/index"
+	"github.com/mekjr1/midden/internal/material"
 	"github.com/mekjr1/midden/internal/render"
 )
 
 const version = core.Version
 
 func main() {
-	// Adapters that must open transcripts to describe a session reuse what
-	// the last scan derived, so an unchanged file is never opened twice.
-	// Plugin commands only inspect manifests; warming the cache would create
-	// or migrate ~/.midden/index.db during a command advertised as passive.
-	// `module` and `seed` are excluded for the same reason as `plugins`:
-	// they are deterministic, machine-driven surfaces, and warming the cache
-	// would create or migrate ~/.midden/index.db as a side effect.
-	if len(os.Args) < 2 || (os.Args[1] != "version" && os.Args[1] != "--version" && os.Args[1] != "-v" && os.Args[1] != "help" && os.Args[1] != "--help" && os.Args[1] != "-h" && os.Args[1] != "install" && os.Args[1] != "mcp" && os.Args[1] != "plugins" && os.Args[1] != "plugin" && os.Args[1] != "module" && os.Args[1] != "agent" && os.Args[1] != "seed") {
-		index.WarmPeekCache()
+	if len(os.Args) > 1 && (os.Args[1] == "ls" || os.Args[1] == "list" || os.Args[1] == "show" || os.Args[1] == "find" || os.Args[1] == "doctor") {
+		if err := index.WarmPeekCache(); err != nil {
+			fmt.Fprintln(os.Stderr, "warning: derived cache unavailable:", err)
+		}
 	}
 
-	// Narrate slow work on every interactive command. The first run on a
-	// machine has nothing cached and can take minutes; silence for that long
-	// is indistinguishable from a hang, which is exactly the failure this
-	// tool exists to notice. MCP and seed are excluded: they speak machine
-	// protocols, not to a person.
-	if len(os.Args) < 2 || (os.Args[1] != "install" && os.Args[1] != "mcp" && os.Args[1] != "module" && os.Args[1] != "agent" && os.Args[1] != "seed") {
+	if len(os.Args) > 1 && os.Args[1] != "read" && os.Args[1] != "search" && os.Args[1] != "collect" && os.Args[1] != "collection" && os.Args[1] != "assets" {
 		defer narrate()()
 	}
 
-	// A bare invocation used to print twenty commands with no ordering and no
-	// cost information. Guiding is more useful than listing.
 	if len(os.Args) < 2 {
-		if err := cmdStart(nil); err != nil {
-			fmt.Fprintln(os.Stderr, "error:", err)
-			os.Exit(1)
-		}
+		usage()
 		return
 	}
 
@@ -56,8 +39,14 @@ func main() {
 	switch os.Args[1] {
 	case "ls", "list":
 		err = cmdLs(os.Args[2:])
-	case "find", "search":
+	case "find":
 		err = cmdFind(os.Args[2:])
+	case "read", "search", "collect", "collection", "assets":
+		err = runMaterial(os.Args[1], os.Args[2:], os.Stdout)
+	case "legacy":
+		err = runLegacy(os.Args[2:], os.Stdout)
+	case "usage":
+		err = runUsage(os.Args[2:], os.Stdout)
 	case "show":
 		err = cmdShow(os.Args[2:])
 	case "resume":
@@ -68,14 +57,6 @@ func main() {
 		err = cmdBrief(os.Args[2:])
 	case "watch":
 		err = cmdWatch(os.Args[2:])
-	case "mcp":
-		err = cmdMCP(os.Args[2:])
-	case "module":
-		err = cmdModule(os.Args[2:])
-	case "agent":
-		err = runAgent(os.Args[2:], os.Stdin, os.Stdout)
-	case "install":
-		err = cmdInstall(os.Args[2:])
 	case "scan":
 		err = cmdScan(os.Args[2:])
 	case "assay":
@@ -86,32 +67,8 @@ func main() {
 		err = cmdArchive(os.Args[2:])
 	case "ops":
 		err = cmdOps(os.Args[2:])
-	case "reclaim":
-		err = cmdReclaim(os.Args[2:])
-	case "nuggets":
-		err = cmdNuggets(os.Args[2:])
-	case "catalog":
-		err = cmdCatalog(os.Args[2:])
-	case "refine":
-		err = cmdRefine(os.Args[2:])
-	case "artifacts":
-		err = cmdArtifacts(os.Args[2:])
-	case "ui":
-		err = cmdUI(os.Args[2:])
-	case "advise":
-		err = cmdAdvise(os.Args[2:])
-	case "cost":
-		err = cmdCost(os.Args[2:])
-	case "start":
-		err = cmdStart(os.Args[2:])
-	case "summarize", "summarise", "summary":
-		err = cmdSummarize(os.Args[2:])
-	case "ask":
-		err = cmdAsk(os.Args[2:])
-	case "seed":
-		err = cmdSeed(os.Args[2:])
-	case "plugins", "plugin":
-		err = cmdPlugins(os.Args[2:])
+	case "module", "agent", "ui", "reclaim", "refine", "ask", "advise", "catalog", "nuggets", "artifacts", "plugins", "plugin", "seed", "install", "summarize", "summarise", "summary", "start", "cost", "mcp":
+		err = fmt.Errorf("%q is retired from the deterministic core; use normal data commands and the separate outcome bundle", os.Args[1])
 	case "version", "--version", "-v":
 		fmt.Println("midden", version)
 	case "help", "--help", "-h":
@@ -123,76 +80,56 @@ func main() {
 	}
 
 	if err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return
+		}
 		fmt.Fprintln(os.Stderr, "error:", err)
 		os.Exit(1)
 	}
 }
 
 func usage() {
-	fmt.Print(`midden - a materials recovery facility for AI coding exhaust
-
-  New here?  Run  midden start  for a guided first run.
+	fmt.Print(`midden - deterministic tools for session material
 
 USAGE
   midden <command> [flags]
 
-`)
+DISCOVER AND MEASURE
+  ls, list       List sessions with explicit scope
+  find           Find sessions by recorded text/metadata
+  show           Inspect one session
+  brief          Read a bounded conversation brief
+  doctor         Report availability and resume-risk heuristics
+  scan           Refresh the derived core index
+  assay          Measure record kinds, bytes and duplication
+  resume         Print a resume command; does not launch an agent
+  watch          Watch session sizes
 
-	// Commands are listed in pipeline order with their cost class, because
-	// alphabetical ordering put `advise` first and `scan` near the end — the
-	// reverse of how the tool is used — and nothing said which ones spend.
-	for _, stage := range guide.Stages {
-		cmds := guide.InStage(stage.Name)
-		if len(cmds) == 0 {
-			continue
-		}
-		fmt.Printf("%s\n", strings.ToUpper(stage.Label))
-		for _, c := range cmds {
-			tag := "     "
-			if c.Cost == guide.Spends {
-				tag = "$$$  "
-			}
-			fmt.Printf("  %s%-10s %s\n", tag, c.Name, c.Blurb)
-		}
-		fmt.Println()
-	}
+WORK WITH MATERIAL
+  read           Open a stable source view or read focused context
+  search         Search a pinned view for a literal phrase
+  collect        Write selected records into a portable source collection
+  collection     Inspect, read, search, select, merge, verify or export
+  assets         List/extract recorded assets without fetching remote URLs
+  usage          Read a source session's recorded model usage
+  legacy export  Copy legacy working data without migrating its store
 
-	fmt.Printf("INTEGRATIONS\n  %-10s %s\n  %-10s %s\n\n",
-		"ui", "Set up tools and managed integrations in the desktop workbench",
-		"plugins", "Advanced manifest list, probe, and verify")
+EXPLICIT SOURCE MAINTENANCE
+  prune          Preview cleanup; source changes require explicit execution
+  archive        Explicitly archive selected source material
+  ops            Inspect the maintenance audit log
 
-	fmt.Printf("COST\n  Everything is free except %s, which call a model\n"+
-		"  through the AI CLI you are already signed in to. Both preview with\n"+
-		"  --dry-run before charging anything. Run `midden cost` for what you\n"+
-		"  have actually spent.\n\n", strings.Join(guide.Spending(), " and "))
-
-	fmt.Print(`SCOPE FLAGS (most commands)
-  --tool <copilot|claude|opencode>   Limit to one tool
-  --days <n>                         Only sessions touched in the last n days
-  --workspace <substr>               Match the session directory
-  --all                              Include automated/trivial sessions
-  --json                             Machine-readable output
-
-SPENDING LESS
-`)
-	for _, tip := range guide.Cheapest() {
-		fmt.Printf("  · %s\n", tip)
-	}
-
-	fmt.Print(`
 EXAMPLES
-  midden agent list                  Discover the agent-first workflow
-  midden start                       Guided first run
-  midden doctor                      What is wrong right now
-  midden ls --days 7 --group         Recent sessions, grouped by tool
-  midden brief ac0c39cf --handoff    Rescue a session too big to resume
-  midden scan --assay                Measure what your exhaust is made of
-  midden prune                       Preview disk recovery (dry run)
-  midden reclaim --workspace foo --dry-run    Estimate before spending
-  midden catalog                     What your evidence can support
-  midden refine tsg adr              Write both from one warm context
-  midden cost                        What you have spent
-  midden ui                          Open the desktop recovery workbench
+  midden ls --days 7 --json
+  midden read --tool copilot --session SESSION_ID --json
+  midden search "deployment" --view VIEW_ID --json
+  midden collect --view VIEW_ID --record RECORD_ID --out sources --json
+  midden collection verify sources --json
+  midden collection export sources --format markdown --out source-notes.md
+
+Use each command's --help for scope, source roots and output bounds.
+Core never invokes a model. The separate outcome bundle guides an existing AI
+CLI and operator; the host writes, renders, inspects and delivers working files.
 `)
 }
 
@@ -279,6 +216,7 @@ func resolveTool(sc *core.Scope) error {
 func cmdLs(args []string) error {
 	fs := flag.NewFlagSet("ls", flag.ExitOnError)
 	sc, asJSON, group := scopeFlags(fs)
+	offset := fs.Int("offset", 0, "page offset")
 	if err := fs.Parse(reorderArgs(fs, args)); err != nil {
 		return err
 	}
@@ -286,31 +224,27 @@ func cmdLs(args []string) error {
 		return err
 	}
 
-	// One collect answers both questions. Asking twice — once filtered, once
-	// wide, to learn how many the filter hid — doubled the cost of every
-	// listing, and describing a session is the expensive part.
-	wide := *sc
-	wide.IncludeNoise = true
-	wide.Limit = 0
-
-	all, errs := adapter.Collect(wide)
-	reportErrs(errs)
-
-	sessions := make([]core.Session, 0, len(all))
-	hidden := 0
-	for _, s := range all {
-		if s.Noise && !sc.IncludeNoise {
-			hidden++
-			continue
-		}
-		sessions = append(sessions, s)
+	inventory, err := material.List(adapter.EnvironmentRoots(), *sc, *offset, sc.Limit)
+	if err != nil {
+		return err
 	}
-	if sc.Limit > 0 && len(sessions) > sc.Limit {
-		sessions = sessions[:sc.Limit]
-	}
-
+	sessions := inventory.Sessions
 	if *asJSON {
-		return emitJSON(sessions)
+		for {
+			raw, err := json.Marshal(inventory)
+			if err != nil {
+				return err
+			}
+			if len(raw) <= 16<<10 {
+				return emitJSON(inventory)
+			}
+			if len(inventory.Sessions) <= 1 {
+				return fmt.Errorf("session metadata exceeds inline limit; inspect the exact session directly")
+			}
+			inventory.Sessions = inventory.Sessions[:len(inventory.Sessions)-1]
+			next := inventory.Offset + len(inventory.Sessions)
+			inventory.NextOffset = &next
+		}
 	}
 	if len(sessions) == 0 {
 		fmt.Println("No sessions match.")
@@ -326,7 +260,11 @@ func cmdLs(args []string) error {
 		})
 	}
 
-	printHeader(sessions, sc, hidden)
+	printHeader(sessions, sc, inventory.ExcludedNoise)
+	fmt.Printf("  Showing %d of %d matching sessions (%d before noise filtering).\n", len(sessions), inventory.Total, inventory.Matched)
+	for _, warning := range inventory.Warnings {
+		fmt.Fprintln(os.Stderr, "warning:", warning)
+	}
 
 	last := core.Tool("")
 	for i, s := range sessions {
@@ -338,6 +276,9 @@ func cmdLs(args []string) error {
 	}
 
 	fmt.Printf("\n  %s\n", render.Dim("midden show <id>  |  midden resume <id>  |  midden doctor"))
+	if inventory.NextOffset != nil {
+		fmt.Printf("  Next page: --offset %d\n", *inventory.NextOffset)
+	}
 	return nil
 }
 
@@ -397,16 +338,14 @@ func oneLiner(s core.Session, instruction string) string {
 }
 
 func cmdShow(args []string) error {
-	fs := flag.NewFlagSet("show", flag.ExitOnError)
+	fs := flag.NewFlagSet("show", flag.ContinueOnError)
 	asJSON := fs.Bool("json", false, "machine-readable output")
+	tool := fs.String("tool", "", "source tool")
+	id := fs.String("session", "", "exact session identifier")
 	if err := fs.Parse(reorderArgs(fs, args)); err != nil {
 		return err
 	}
-	if fs.NArg() < 1 {
-		return fmt.Errorf("usage: midden show <id-or-prefix>")
-	}
-
-	s, err := findOne(fs.Arg(0))
+	s, err := selectSession(*tool, *id, fs.Args())
 	if err != nil {
 		return err
 	}
@@ -593,9 +532,7 @@ func cmdDoctor(args []string) error {
 		fmt.Printf("             %s  %s\n", render.ToolColour(s.Tool), render.Dim(s.Dir))
 	}
 
-	// Alarm without instruction is a dead end. Every finding above should
-	// resolve into something the operator can actually run.
-	suggestNext(collectState())
+	fmt.Println("\nUse read/collect for selected material, or brief for a bounded recovery note.")
 	return nil
 }
 
