@@ -53,6 +53,24 @@ def snapshot(path):
     }
 
 
+def read_only_launcher():
+    script = """
+import os, runpy, sys
+def guard(event, args):
+    writes = os.O_WRONLY | os.O_RDWR | os.O_CREAT | os.O_TRUNC | os.O_APPEND
+    if (event == 'open' and args[2] & writes) or event in {
+        'os.mkdir', 'os.remove', 'os.rmdir', 'os.rename', 'os.link', 'os.symlink',
+        'os.chmod', 'os.truncate', 'subprocess.Popen', 'os.system', 'os.exec',
+        'os.posix_spawn', 'os.startfile'
+    }:
+        raise RuntimeError('Read-only plan attempted a write or execution: ' + event)
+sys.addaudithook(guard)
+sys.argv = sys.argv[1:]
+runpy.run_path(sys.argv[0], run_name='__main__')
+"""
+    return [sys.executable, "-B", "-c", script, str(BACKEND)]
+
+
 def fixture_manifest(bundle, output):
     entries = []
     for source_dir, destination_dir in LAYOUT.items():
@@ -137,7 +155,7 @@ class SyntheticProbe {
     return executable
 
 
-class InstallerUnitTests(unittest.TestCase):
+class InstallerFixture(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.probe_temporary = external_temp()
@@ -294,6 +312,8 @@ class InstallerUnitTests(unittest.TestCase):
             (skills / "midden-presentation" / "templates" / "slides.css").is_file()
         )
 
+
+class InstallerUnitTests(InstallerFixture):
     def test_project_install_verify_uninstall_preserves_unowned_files_and_state(self):
         self.state.mkdir(parents=True)
         (self.state / "retained.txt").write_text("Synthetic retained state.\n")
