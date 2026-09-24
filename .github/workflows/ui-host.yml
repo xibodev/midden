@@ -1,0 +1,62 @@
+name: Validate new bundle UI host
+on:
+  push:
+    branches: ['feat/core-bundle-ui-*']
+  pull_request:
+    paths: ['apps/midden-ui/**', 'bundles/**', '.github/workflows/ui-host.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  host:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: apps/midden-ui/go.mod
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Independent host and shared-core contracts
+        run: |
+          go test ./... -count=1
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Push-Location apps/midden-ui
+          go test ./... -count=1 -timeout=120s
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          go vet ./...
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Pop-Location
+      - name: Browser prerequisites
+        run: |
+          python -m pip install playwright==1.63.0
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python -m playwright install --with-deps chromium --only-shell
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Browser operator contracts
+        run: |
+          python -B -m unittest discover -s apps/midden-ui/webtest -q
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Build a native testing package
+        run: |
+          python -B apps/midden-ui/package.py --out (Join-Path $env:RUNNER_TEMP 'midden-ui-testing')
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          git diff --exit-code
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: midden-ui-testing-${{ runner.os }}-${{ github.sha }}
+          path: ${{ runner.temp }}/midden-ui-testing
+          if-no-files-found: error
+          retention-days: 14

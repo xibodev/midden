@@ -87,6 +87,11 @@ local operational details do not belong in this repository.
 
 ## Development
 
+The [new UI host](apps/midden-ui/README.md) is an independently built, experimental
+consumer of the same core and canonical bundle. It embeds a pinned Facet kernel
+candidate; its dependencies do not enter the core's Go module. It does not
+restore the retired UI or editorial lifecycle.
+
 ```powershell
 go test ./...
 go vet ./...
