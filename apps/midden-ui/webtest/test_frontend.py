@@ -323,6 +323,40 @@ class FrontendTests(unittest.TestCase):
         expect(self.page.locator("#sessionTitle")).to_have_text("New conversation")
         expect(self.page.get_by_label("Message", exact=True)).to_have_value("")
 
+    def test_pending_conversation_creation_blocks_composer(self):
+        self.open()
+        message = self.page.get_by_label("Message", exact=True)
+        message.fill("Keep this draft in the original conversation.")
+        requests = []
+        self.page.route("**/api/sessions", lambda route:
+                        requests.append(route) if route.request.method == "POST" else route.continue_())
+        with self.page.expect_request(lambda request:
+                                      request.method == "POST" and request.url.endswith("/api/sessions")):
+            self.page.locator("#newSession").click()
+        try:
+            expect(message).to_be_disabled()
+            expect(self.page.locator("#send")).to_be_disabled()
+        finally:
+            requests[0].continue_()
+        expect(self.page.locator("#sessionTitle")).to_have_text("New conversation")
+        expect(message).to_be_enabled()
+        expect(message).to_be_focused()
+        message.fill("A draft for the new conversation.")
+        self.page.get_by_role("button", name="Research notes", exact=False).click()
+        expect(message).to_have_value("Keep this draft in the original conversation.")
+
+    def test_failed_conversation_creation_restores_composer_and_draft(self):
+        self.host.failures["POST", "/api/sessions"] = "Conversation creation unavailable"
+        self.open()
+        message = self.page.get_by_label("Message", exact=True)
+        message.fill("Keep this unsent thought after a failed creation.")
+        self.page.locator("#newSession").click()
+        expect(self.page.locator("#notice")).to_contain_text("Conversation creation unavailable")
+        expect(message).to_be_enabled()
+        expect(message).to_have_value("Keep this unsent thought after a failed creation.")
+        expect(self.page.locator("#send")).to_be_enabled()
+        expect(self.page.locator("#newSession")).to_be_enabled()
+
     def test_full_text_events_individual_permissions_and_stop(self):
         self.open()
         self.start_turn()

@@ -61,7 +61,7 @@
   }
   function controls() {
     const item = entry();
-    $("message").disabled = !state.csrf || (!!state.current && !item.loaded);
+    $("message").disabled = !state.csrf || state.creating || (!!state.current && !item.loaded);
     $("message").readOnly = state.sending;
     $("send").disabled = $("message").disabled || !state.connected || state.sending || item.loading || !!item.error || !!state.active || !$("message").value.trim();
     $("newSession").disabled = !state.csrf || state.creating || state.sending;
@@ -69,7 +69,7 @@
     $("stop").disabled = state.canceling || !state.csrf;
     $("turnStatus").textContent = state.active ? (state.canceling ? "Stopping..." : pending(entry(state.active.sessionId)).length ? "Permission needed" :
       state.active.sessionId && state.active.sessionId !== state.current ? "Running in another conversation" : "Working...") :
-      state.sending ? "Starting turn..." : item.loading ? "Loading conversation..." : item.error ? "Conversation unavailable" : state.csrf ? "Ready" : "Host not loaded";
+      state.creating ? "Creating conversation..." : state.sending ? "Starting turn..." : item.loading ? "Loading conversation..." : item.error ? "Conversation unavailable" : state.csrf ? "Ready" : "Host not loaded";
     if (state.interrupted) $("turnStatus").textContent = state.source?.readyState === EventSource.CLOSED ? "Live updates stopped. Refresh host to reconnect." :
       `Live updates interrupted. ${state.active ? "Stop is available." : "Reconnecting..."}`;
     $("activeSession").hidden = !state.active?.sessionId || state.active.sessionId === state.current;
@@ -194,8 +194,9 @@
   }
   async function newSession() {
     state.creating = true; controls(); clearError("notice");
-    try { await choose(await createSession(), false); $("message").focus(); }
+    try { await choose(await createSession(), false); }
     finally { state.creating = false; controls(); }
+    $("message").focus();
   }
   async function send() {
     if ($("send").disabled) return;
