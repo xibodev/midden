@@ -34,7 +34,7 @@
       <p id="connection" class="connection" role="status">Connecting to host...</p>
     </aside>
     <main id="chatPane" class="chat-pane">
-      <div class="chat-heading"><div><p class="eyebrow">Conversation</p><h1 id="sessionTitle">New conversation</h1></div><div class="turn-info"><span id="turnStatus" role="status">Loading host...</span><button id="activeSession" class="compact" type="button" hidden>Open active conversation</button></div></div>
+      <div class="chat-heading"><div><p class="eyebrow">Conversation</p><h1 id="sessionTitle">New conversation</h1></div><div class="turn-info"><span id="turnStatus" role="status">Loading host...</span><button id="setupModel" class="compact" type="button" hidden>Set up model</button><button id="activeSession" class="compact" type="button" hidden>Open active conversation</button></div></div>
       <div id="chatScroll" class="chat-scroll">
         <div id="welcome" class="welcome">
           <span class="hero-mark" aria-hidden="true">m</span><p class="eyebrow">A little context. A useful outcome.</p>
@@ -43,12 +43,14 @@
           <p class="quiet">Use your own words. Work in ordinary files. Review tool permissions as you go.</p>
         </div>
         <p id="sessionLoading" class="quiet" role="status" hidden>Loading conversation...</p>
+        <p id="sessionError" class="error" role="alert" hidden></p>
         <div id="messages" role="log" aria-label="Conversation messages" aria-live="off"></div>
+        <details id="activity" class="activity" hidden><summary id="activitySummary">Tool activity</summary><div id="activityList"></div></details>
       </div>
-      <details id="activity" class="activity" hidden><summary id="activitySummary">Tool activity</summary><div id="activityList"></div></details>
       <form id="composer" class="composer">
         <label class="sr-only" for="message">Message</label>
         <textarea id="message" name="message" rows="3" placeholder="Describe what you'd like to understand or create..." aria-describedby="composerHelp" required disabled></textarea>
+        <div id="draftState" class="draft-state" hidden><small id="draftStatus" role="status"></small><button id="retryDrafts" type="button" class="compact" hidden>Retry draft save</button></div>
         <div class="composer-actions"><small id="composerHelp">Enter for a new line. Ctrl/Cmd + Enter to send.</small><button id="stop" class="danger" type="button" hidden>Stop</button><button id="send" class="primary" type="submit" disabled>Send</button></div>
       </form>
     </main>
@@ -76,7 +78,7 @@
       <select id="provider" name="provider" required autofocus><option value="openai">OpenAI</option><option value="anthropic">Anthropic</option><option value="github-copilot">GitHub Copilot</option><option value="openai-codex">OpenAI Codex</option></select>
       <label for="model">Model</label><input id="model" name="model" required placeholder="Model identifier" spellcheck="false">
       <section id="copilotSignIn" class="copilot-signin" aria-label="GitHub Copilot sign-in" hidden>
-        <p class="quiet">Choose a model, then sign in on GitHub. No tokens to copy.</p>
+        <p class="quiet">Sign in on GitHub, then discover or enter a model. No tokens to copy.</p>
         <button id="signInCopilot" type="button" class="primary" disabled>Sign in with GitHub</button>
         <div id="authProgress" hidden>
           <div id="authInstructions" hidden><p>Enter this code on GitHub:</p><code id="authUserCode"></code>
@@ -89,7 +91,14 @@
       <label for="endpoint">Endpoint <span class="quiet">(optional for native providers)</span></label><input id="endpoint" name="endpoint" type="url" placeholder="https://..." spellcheck="false">
       <label for="apiKey">API key</label><input id="apiKey" name="apiKey" type="password" autocomplete="new-password" spellcheck="false" aria-describedby="credentialHelp">
       <label for="credentialRef">Credential reference</label><input id="credentialRef" name="credentialRef" spellcheck="false" aria-describedby="credentialHelp">
-      <p id="credentialHelp" class="quiet">Leave the API key blank to keep a stored credential, or supply a reference recognized by this host. Keys are cleared from this form after submission and are never stored in browser storage.</p>
+      <p id="credentialHelp" class="quiet">Leave the API key blank to keep a stored credential, or supply a reference recognized by this host. Keys are cleared after successful requests or when this dialog closes, and are never stored with drafts. Re-enter a key for another request if needed.</p>
+      <section class="model-tools" aria-label="Model discovery and checks">
+        <div class="model-tool-actions"><button id="listModels" type="button" disabled>Find models</button><button id="checkModel" type="button" disabled>Check model</button></div>
+        <p class="quiet">Finding models does not verify inference. Checking makes a small tool-capability inference call without reading workspace files. Neither action saves settings.</p>
+        <p id="modelToolStatus" role="status" hidden></p>
+        <div id="modelCatalog" hidden><label for="modelChoice">Discovered models</label><select id="modelChoice"></select><p id="modelCatalogNote" class="quiet"></p></div>
+        <p id="modelCheckResult" role="status" hidden></p>
+      </section>
       <div class="dialog-actions"><button class="close-settings" type="button">Cancel</button><button id="saveModel" class="primary" type="submit" disabled>Save settings</button></div>
     </form>
   </dialog>

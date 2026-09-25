@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -16,9 +17,12 @@ import (
 	"time"
 
 	"github.com/xibodev/facet-studio/pkg/config"
+	copilotauth "github.com/xibodev/llm-provider-auth/copilot"
 )
 
 const kernelVersion = "v1.0.1-0.20260922143928-0b024a53c4f6"
+
+var errHistoryLimit = errors.New("conversation history limit reached; use another UI state directory before adding more history")
 
 type Options struct {
 	Workspace, State, Core, CoreVersion, Bundle string
@@ -31,10 +35,19 @@ type Message struct {
 	At      time.Time `json:"at"`
 }
 type Session struct {
-	ID       string    `json:"id"`
-	Title    string    `json:"title"`
-	Updated  time.Time `json:"updated"`
-	Messages []Message `json:"messages"`
+	ID         string        `json:"id"`
+	Title      string        `json:"title"`
+	Updated    time.Time     `json:"updated"`
+	Messages   []Message     `json:"messages"`
+	Outcomes   []TurnOutcome `json:"outcomes,omitempty"`
+	ActiveTurn string        `json:"activeTurn,omitempty"`
+}
+type TurnOutcome struct {
+	TurnID       string    `json:"turnId"`
+	Status       string    `json:"status"`
+	Error        string    `json:"error,omitempty"`
+	At           time.Time `json:"at"`
+	MessageIndex int       `json:"messageIndex"`
 }
 type Model struct {
 	Provider      string `json:"provider"`
@@ -122,6 +135,9 @@ func NewApp(opts Options) (*App, error) {
 	if err := os.Setenv(config.EnvHome, filepath.Join(opts.State, "kernel")); err != nil {
 		return nil, err
 	}
+	copilotauth.CacheDir = filepath.Join(opts.State, "kernel", "copilot")
+	copilotauth.UseGhCLI = false
+	copilotauth.TimeoutSeconds = 20
 	if err = os.MkdirAll(opts.State, 0700); err != nil {
 		return nil, err
 	}
@@ -146,6 +162,25 @@ func NewApp(opts Options) (*App, error) {
 	}
 	if app.sessions == nil {
 		app.sessions = map[string]*Session{}
+	}
+	recovered := false
+	for _, s := range app.sessions {
+		if s == nil {
+			return nil, fmt.Errorf("conversation history contains a null session")
+		}
+		for i := range s.Outcomes {
+			if s.Outcomes[i].Status == "running" {
+				s.Outcomes[i].Status = "interrupted"
+				s.Outcomes[i].Error = "The host stopped before this turn finished. Files already written were not undone; review them before retrying."
+				s.Outcomes[i].At = time.Now().UTC()
+				recovered = true
+			}
+		}
+	}
+	if recovered {
+		if err := app.saveSessionsLocked(); err != nil {
+			return nil, fmt.Errorf("save interrupted turn outcomes: %w", err)
+		}
 	}
 	return app, nil
 }
@@ -172,7 +207,8 @@ func (a *App) Status() map[string]any {
 	if a.active != nil {
 		active = a.active.ID
 	}
-	return map[string]any{"workspace": a.opts.Workspace, "coreVersion": a.opts.CoreVersion, "kernelVersion": kernelVersion,
+	identity := sha256.Sum256([]byte(a.opts.Workspace + "\x00" + a.opts.State))
+	return map[string]any{"workspace": a.opts.Workspace, "workspaceId": hex.EncodeToString(identity[:]), "coreVersion": a.opts.CoreVersion, "kernelVersion": kernelVersion,
 		"bundles": a.bundles, "model": a.modelStatusLocked(), "activeTurn": active, "csrfToken": a.csrf,
 		"notice": "Kernel candidate build. Approved shell commands run with your account; this is not an OS sandbox."}
 }
@@ -209,6 +245,7 @@ func (a *App) Sessions() []Session {
 	for _, s := range a.sessions {
 		copy := *s
 		copy.Messages = nil
+		copy.Outcomes = nil
 		out = append(out, copy)
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Updated.After(out[j].Updated) })
@@ -223,6 +260,10 @@ func (a *App) Session(id string) (Session, error) {
 	}
 	copy := *s
 	copy.Messages = append([]Message{}, s.Messages...)
+	copy.Outcomes = append([]TurnOutcome{}, s.Outcomes...)
+	if a.active != nil && a.active.SessionID == id {
+		copy.ActiveTurn = a.active.ID
+	}
 	return copy, nil
 }
 func (a *App) saveSessionsLocked() error {
@@ -230,8 +271,20 @@ func (a *App) saveSessionsLocked() error {
 	if err != nil {
 		return err
 	}
-	if len(raw)+1 > 8<<20 {
-		return fmt.Errorf("conversation history limit reached; use another UI state directory before adding more history")
+	remaining := (8 << 20) - len(raw) - 1
+	for _, session := range a.sessions {
+		for _, outcome := range session.Outcomes {
+			if outcome.Status == "running" {
+				// A 2,000-character terminal error can exceed 12 KiB after JSON escaping.
+				remaining -= 16 << 10
+				if remaining < 0 {
+					return errHistoryLimit
+				}
+			}
+		}
+	}
+	if remaining < 0 {
+		return errHistoryLimit
 	}
 	return writeJSON(filepath.Join(a.opts.State, "sessions.json"), a.sessions)
 }
@@ -265,6 +318,9 @@ func (a *App) StartTurn(id, text string) (string, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 	turn := &activeTurn{ID: randomID(), SessionID: id, cancel: cancel}
 	a.active = turn
+	oldTitle, oldUpdated := s.Title, s.Updated
+	outcomeIndex := len(s.Outcomes)
+	s.Outcomes = append(s.Outcomes, TurnOutcome{TurnID: turn.ID, Status: "running", At: time.Now().UTC(), MessageIndex: len(s.Messages)})
 	s.Messages = append(s.Messages, Message{Role: "user", Content: text, At: time.Now().UTC()})
 	s.Updated = time.Now().UTC()
 	if s.Title == "New conversation" {
@@ -274,6 +330,8 @@ func (a *App) StartTurn(id, text string) (string, error) {
 		a.active = nil
 		cancel()
 		s.Messages = s.Messages[:len(s.Messages)-1]
+		s.Outcomes = s.Outcomes[:outcomeIndex]
+		s.Title, s.Updated = oldTitle, oldUpdated
 		a.mu.Unlock()
 		return "", err
 	}
@@ -285,22 +343,34 @@ func (a *App) StartTurn(id, text string) (string, error) {
 		defer cancel()
 		result, err := runtime.Process(ctx, text, id)
 		a.mu.Lock()
+		outcome := &s.Outcomes[outcomeIndex]
+		outcome.At = time.Now().UTC()
+		s.Updated = outcome.At
 		if err == nil {
 			s.Messages = append(s.Messages, Message{Role: "assistant", Content: result, At: time.Now().UTC()})
-			s.Updated = time.Now().UTC()
+			outcome.Status = "completed"
 			err = a.saveSessionsLocked()
 			if err != nil {
 				s.Messages = s.Messages[:len(s.Messages)-1]
 			}
 		}
+		if err != nil {
+			outcome.Status = "failed"
+			outcome.Error = clip(modelSetupError(err, a.model.Provider).Error(), 2000)
+			if errors.Is(err, context.Canceled) {
+				outcome.Status = "cancelled"
+				outcome.Error = "Turn cancelled. Files already written were not undone."
+			}
+			if saveErr := a.saveSessionsLocked(); saveErr != nil {
+				err = errors.Join(err, fmt.Errorf("could not persist turn outcome: %w", saveErr))
+				outcome.Error = clip(err.Error(), 2000)
+			}
+		}
+		failure := outcome.Error
 		a.active = nil
 		a.mu.Unlock()
 		if err != nil {
-			message := err.Error()
-			if errors.Is(err, context.Canceled) {
-				message = "Turn cancelled. Files already written were not undone."
-			}
-			a.emit(Event{Type: "error", SessionID: id, TurnID: turn.ID, Error: message})
+			a.emit(Event{Type: "error", SessionID: id, TurnID: turn.ID, Error: failure})
 		} else {
 			a.emit(Event{Type: "message", SessionID: id, TurnID: turn.ID, Text: result})
 		}

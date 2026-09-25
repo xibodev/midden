@@ -76,6 +76,14 @@ fetch("https://preview-network.invalid/probe", {mode: "no-cors"})
 
 class MockHost:
     def __init__(self):
+        self.workspace_id = "workspace-a"
+        self.workspace_name = "Synthetic workspace"
+        self.csrf = "synthetic-csrf"
+        self.tokens = {self.csrf}
+        self.replay = []
+        self.catalog = {"models": [{"id": "synthetic/available", "name": "Available model"},
+                                   {"id": "synthetic/other"}], "note": "Synthetic provider catalog."}
+        self.model_check = {"ok": True, "message": "Synthetic tool-capability probe succeeded."}
         self.model = dict(provider="openai", model="synthetic-model", endpoint="",
                           credentialRef="", configured=True, credentialConfigured=False,
                           authStatus="Credentials are checked by the provider when used.")
@@ -105,7 +113,12 @@ class MockHost:
             self.sessions[event["sessionId"]]["messages"].append(
                 dict(role="assistant", content=event["text"], at="2026-01-01T12:01:00Z"))
         if kind in ("turn_done", "error"):
-            self.active = None
+            if self.active and self.active["turnId"] == event["turnId"]:
+                self.active = None
+            for outcome in self.sessions.get(event["sessionId"], {}).get("outcomes", []):
+                if outcome["turnId"] == event["turnId"]:
+                    outcome.update(status="failed" if kind == "error" else event.get("status", "completed"),
+                                   at="2026-01-01T12:01:00Z", error=event.get("error", ""))
         for client in self.clients.copy():
             client.put(f"id: {self.seq}\nevent: message\ndata: {json.dumps(event)}\n\n")
 
@@ -132,6 +145,10 @@ class MockHost:
                 if path == "/api/events":
                     client = queue.Queue()
                     host.clients.append(client)
+                    for index, record in enumerate(host.replay, 1):
+                        event = dict(seq=index, **record)
+                        client.put(f"id: {index}\nevent: message\ndata: {json.dumps(event)}\n\n")
+                        host.seq = max(host.seq, index)
                     self.send_response(200)
                     self.send_header("Content-Type", "text/event-stream")
                     self.send_header("Cache-Control", "no-cache")
@@ -161,16 +178,18 @@ class MockHost:
                     mime = {".html": "text/html", ".js": "text/javascript", ".css": "text/css"}[asset.suffix]
                     return self.reply(asset.read_bytes() if asset.exists() else b"UI not implemented", mime=mime)
                 if path == "/api/status":
-                    return self.reply(dict(workspace="Synthetic workspace", coreVersion="test-core",
+                    host.tokens.add(host.csrf)
+                    return self.reply(dict(workspace=host.workspace_name, workspaceId=host.workspace_id, coreVersion="test-core",
                         kernelVersion="test-candidate", model=host.model, activeTurn=host.active,
                         notice="Kernel candidate build. Approved shell commands run with your account; this is not an OS sandbox.",
-                        csrfToken="synthetic-csrf", bundles=[
+                        csrfToken=host.csrf, bundles=[
                             dict(name="Investigation", description="Understand source material and its limits."),
                             dict(name="Presentation", description="Create an editable, inspectable presentation.")]))
                 if path == "/api/model":
                     return self.reply(host.model)
                 if path == "/api/sessions":
-                    return self.reply({"sessions": list(host.sessions.values())})
+                    return self.reply({"sessions": [{key: session[key] for key in ("id", "title", "updated")}
+                                                   for session in host.sessions.values()]})
                 if path.startswith("/api/sessions/"):
                     data = dict(host.sessions[path.rsplit("/", 1)[1]])
                     if host.active and host.active["sessionId"] == data["id"]:
@@ -192,7 +211,7 @@ class MockHost:
                 body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
                 token = self.headers.get("X-Midden-CSRF")
                 host.calls.append((self.command, path, body, token))
-                if token != "synthetic-csrf":
+                if token != host.csrf:
                     return self.reply({"error": "Missing CSRF token"}, 403)
                 if (self.command, path) in host.failures:
                     return self.reply({"error": host.failures[self.command, path]}, 409)
@@ -201,6 +220,10 @@ class MockHost:
                     host.model["configured"] = bool(body.get("model"))
                     host.model["credentialConfigured"] = bool(body.get("apiKey") or body.get("credentialRef"))
                     return self.reply(host.model)
+                if path == "/api/models":
+                    return self.reply(host.catalog)
+                if path == "/api/model/check":
+                    return self.reply(host.model_check)
                 if path == "/api/auth/copilot/start":
                     host.login_model = body["model"]
                     return self.reply(host.login)
@@ -210,18 +233,21 @@ class MockHost:
                     result = host.login_results.pop(0) if len(host.login_results) > 1 else host.login_results[0]
                     if result["status"] == "success":
                         host.model.update(provider="github-copilot", model=host.login_model,
-                                          configured=True, credentialConfigured=True)
+                                          configured=bool(host.login_model), credentialConfigured=True)
                     return self.reply(result)
                 if path == "/api/sessions":
                     sid = f"s{len(host.sessions) + 1}"
-                    host.sessions[sid] = dict(id=sid, title="New conversation", messages=[], updated="2026-01-01T12:00:00Z")
+                    host.sessions[sid] = dict(id=sid, title="New conversation", messages=[], outcomes=[], updated="2026-01-01T12:00:00Z")
                     return self.reply(dict(id=sid, title="New conversation"))
                 if path.endswith("/turn"):
                     sid = path.split("/")[3]
                     host.turns += 1
                     host.active = dict(turnId=f"t{host.turns}", sessionId=sid)
+                    index = len(host.sessions[sid]["messages"])
                     host.sessions[sid]["messages"].append(dict(role="user", content=body["message"], at="2026-01-01T12:00:00Z"))
                     tid = host.active["turnId"]
+                    host.sessions[sid].setdefault("outcomes", []).append(dict(
+                        turnId=tid, status="running", messageIndex=index, at="2026-01-01T12:00:00Z"))
                     if host.fast_finish:
                         host.emit("message", sessionId=sid, turnId=tid, text="A fast response.")
                         host.emit("turn_done", sessionId=sid, turnId=tid)
@@ -236,7 +262,7 @@ class MockHost:
         return Handler
 
 
-class FrontendTests(unittest.TestCase):
+class BrowserCase(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.playwright = sync_playwright().start()
@@ -282,7 +308,7 @@ class FrontendTests(unittest.TestCase):
         self.assertEqual(self.host.contents, self.original_files)
         for method, _, _, token in self.host.calls:
             if method != "GET":
-                self.assertEqual(token, "synthetic-csrf")
+                self.assertIn(token, self.host.tokens)
 
     def open(self):
         self.page.goto(self.url)
@@ -300,6 +326,20 @@ class FrontendTests(unittest.TestCase):
         self.page.get_by_label("Message", exact=True).press("Control+Enter")
         expect(self.page.get_by_role("button", name="Stop", exact=True)).to_be_enabled()
 
+    def copilot_settings(self):
+        self.page.clock.install(time=datetime(2030, 1, 1, tzinfo=timezone.utc))
+        self.page.clock.pause_at(datetime(2030, 1, 1, 0, 0, 1, tzinfo=timezone.utc))
+        self.open()
+        self.page.get_by_role("button", name="Settings", exact=True).click()
+        self.page.get_by_label("Provider", exact=True).select_option("github-copilot")
+        self.page.get_by_label("Model", exact=True).fill("synthetic-exact-model")
+        expect(self.page.get_by_role("button", name="Sign in with GitHub")).to_be_visible()
+
+    def login_polls(self):
+        return [call for call in self.host.calls if call[1] == "/api/auth/copilot/poll"]
+
+
+class FrontendTests(BrowserCase):
     def test_boot_history_new_conversation_and_draft_preservation(self):
         self.open()
         expect(self.page.locator("#workspace")).to_have_text("Synthetic workspace")
@@ -423,7 +463,7 @@ class FrontendTests(unittest.TestCase):
         self.page.get_by_role("button", name="Save settings").click()
         expect(self.page.locator("#modelError")).to_contain_text("Rejected")
         expect(self.page.locator("#modelError")).not_to_contain_text("synthetic-key-only")
-        expect(self.page.get_by_label("API key", exact=True)).to_have_value("")
+        expect(self.page.get_by_label("API key", exact=True)).to_have_value("synthetic-key-only")
         self.page.keyboard.press("Escape")
         expect(self.page.get_by_role("button", name="Settings", exact=True)).to_be_focused()
 
@@ -455,18 +495,6 @@ class FrontendTests(unittest.TestCase):
         self.host.model["authStatus"] = "verified"
         self.host.emit("status")
         expect(self.page.locator("#modelCredential")).to_have_text("Model selected / authentication verified")
-
-    def copilot_settings(self):
-        self.page.clock.install(time=datetime(2030, 1, 1, tzinfo=timezone.utc))
-        self.page.clock.pause_at(datetime(2030, 1, 1, 0, 0, 1, tzinfo=timezone.utc))
-        self.open()
-        self.page.get_by_role("button", name="Settings", exact=True).click()
-        self.page.get_by_label("Provider", exact=True).select_option("github-copilot")
-        self.page.get_by_label("Model", exact=True).fill("synthetic-exact-model")
-        expect(self.page.get_by_role("button", name="Sign in with GitHub")).to_be_visible()
-
-    def login_polls(self):
-        return [call for call in self.host.calls if call[1] == "/api/auth/copilot/poll"]
 
     def test_copilot_sign_in_obeys_server_intervals_and_keeps_the_exact_model(self):
         self.copilot_settings()
@@ -759,7 +787,7 @@ class FrontendTests(unittest.TestCase):
         expect(self.page.locator(".permission")).to_contain_text("Decision could not be recorded")
         expect(self.page.locator(".permission").get_by_role("button", name="Allow", exact=True)).to_be_enabled()
         self.host.emit("error", error="Synthetic kernel failure")
-        expect(self.page.locator("#notice")).to_contain_text("Synthetic kernel failure")
+        expect(self.page.locator("#messages .turn-outcome")).to_contain_text("Synthetic kernel failure")
         expect(self.page.locator(".permission")).to_contain_text("No longer pending")
         expect(self.page.locator("#turnStatus")).to_contain_text("Ready")
 

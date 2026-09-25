@@ -29,14 +29,20 @@ core's normal source discovery applies. Investigation does not mutate sources.
 
 ## Operator flow
 
-1. Configure an exact model in the UI. Use an OpenAI-compatible endpoint/API
-   credential, Anthropic credential, or the kernel's native GitHub Copilot
-   connection. Choosing native Copilot explicitly permits its existing sign-in
-   discovery. No model is selected or contacted merely by opening the page.
-   If existing sign-in cannot exchange a session token, use **Sign in with
-   GitHub** in Settings. The host uses the existing provider-auth library's device
-   flow; only a user code/link reach the browser. Account entitlement and
-   organization policies are still enforced by the provider.
+1. Open Settings and choose a provider. For GitHub Copilot, use **Sign in with
+   GitHub** before choosing a model if needed. The public provider-auth library
+   handles device authorization; only a user code/link reach the browser.
+   A GitHub CLI login is not treated as Copilot authorization. OAuth/session
+   caches are isolated beneath host state, and account/organization access is
+   still enforced by the provider.
+   **Discover models** queries the selected account/endpoint without saving the
+   supplied key or selecting a model. Exact manual identifiers remain supported.
+   **Test connection** makes one small model request for an inert tool call; it
+   may incur provider usage, but reads no workspace data and executes no tool.
+   A catalog response or text-only answer is not verified bundle execution.
+   Save the selected model when ready. Nothing contacts a provider merely by
+   opening the page. Native Codex requires an explicit credential reference and
+   manual model identifier.
 2. Create a conversation and describe an outcome in normal language.
 3. Review write and command permission requests. Allow or deny one operation;
    denials are not editorial approval records in Midden core.
@@ -44,13 +50,27 @@ core's normal source discovery applies. Investigation does not mutate sources.
    revisions in the same conversation.
 5. Stop a turn when needed. Cancellation does not undo already completed file
    writes. Refresh/reopen the host to continue stored conversation history.
+   New turns retain completed, failed, cancelled or interrupted outcomes beside
+   their request; a host restart marks unfinished attempts interrupted rather
+   than silently showing them as completed. Old histories without outcome
+   records cannot retrospectively reconstruct earlier failures.
+
+Unsent drafts are saved in this browser, scoped to the workspace and host-state
+identity as well as the conversation. They survive page reloads and are cleared
+only when the matching message is accepted. This is a local convenience cache,
+not encrypted backup or cross-device synchronization; clear site data when
+using a shared browser. Storage failures are reported rather than silently
+claiming that a draft was saved. Model credentials never enter this draft cache.
+Changing providers or endpoints does not silently reuse another service's key.
 
 One UI process owns one workspace and isolated kernel state root. Model
 credentials are written only to that kernel auth store and are not returned by
 the settings API. Generic read tools cannot inspect host state. The loopback API
 rejects foreign hosts/origins and requires a process CSRF token for mutations.
-Kernel bookkeeping and history stay in host state, not in the authored-file
-workspace. A superseded pending sign-in cannot replace a newer model choice.
+Kernel bookkeeping, memory and history stay in host state, not in the
+authored-file workspace. The public prompt-contributor API supplies the actual
+artifact tool binding; agents inspect workspace instructions through scoped
+file tools. A superseded pending sign-in cannot replace a newer model choice.
 
 Approved shell commands run as the operator's account. This is **not an OS
 sandbox**. Do not approve a command you would not run yourself. The normal core

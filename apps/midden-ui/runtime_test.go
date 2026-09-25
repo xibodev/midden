@@ -40,6 +40,15 @@ func kernelApp(t *testing.T) (*App, *httptest.Server, *atomic.Int32) {
 			t.Error(err)
 			return
 		}
+		boundWorkspace := false
+		for _, message := range body.Messages {
+			if message.Role == "system" && strings.Contains(message.Content, opts.Workspace) {
+				boundWorkspace = true
+			}
+		}
+		if !boundWorkspace {
+			t.Error("actual kernel request lost the artifact workspace binding")
+		}
 		calls.Add(1)
 		hasResult := false
 		for _, m := range body.Messages {

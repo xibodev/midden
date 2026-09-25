@@ -35,8 +35,8 @@ type LoginResult struct {
 
 func (a *App) StartLogin(model string) (LoginStatus, error) {
 	model = strings.TrimSpace(model)
-	if model == "" || len(model) > 200 {
-		return LoginStatus{}, fmt.Errorf("choose a model before signing in")
+	if len(model) > 200 {
+		return LoginStatus{}, fmt.Errorf("model id is too long")
 	}
 	a.mu.Lock()
 	if a.active != nil {

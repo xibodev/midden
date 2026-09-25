@@ -44,6 +44,7 @@ func newKernel(app *App) (engine, error) {
 	if err != nil {
 		return nil, err
 	}
+	provider = protectedProvider{LLMProvider: provider, secret: model.APIKey()}
 	cfg := config.DefaultConfig()
 	cfg.ModelList = []*config.ModelConfig{model}
 	kernelWorkspace := filepath.Join(app.opts.State, "kernel-workspace")
@@ -85,11 +86,34 @@ func newKernel(app *App) (engine, error) {
 		return nil, err
 	}
 	instance := host.loop.GetRegistry().GetDefaultAgent()
-	instance.ContextBuilder = agent.NewContextBuilder(app.opts.Workspace)
+	if err = instance.ContextBuilder.RegisterPromptContributor(workspaceBinding{workspace: app.opts.Workspace}); err != nil {
+		host.loop.Close()
+		return nil, fmt.Errorf("bind artifact workspace: %w", err)
+	}
 	instance.Tools.SetAllowlist([]string{"read_file", "write_file", "edit_file", "append_file", "list_dir", "load_image", "exec", "midden"})
 	instance.Sessions = session.NewSessionManager(filepath.Join(app.opts.State, "kernel-history"))
 	return host, nil
 }
+
+type workspaceBinding struct {
+	workspace string
+}
+
+func (b workspaceBinding) PromptSource() agent.PromptSourceDescriptor {
+	return agent.PromptSourceDescriptor{
+		ID: "midden.workspace", Owner: "midden-ui", Description: "Artifact tool bindings",
+		Allowed: []agent.PromptPlacement{{Layer: agent.PromptLayerInstruction, Slot: agent.PromptSlotWorkspace}},
+	}
+}
+
+func (b workspaceBinding) ContributePrompt(context.Context, agent.PromptBuildRequest) ([]agent.PromptPart, error) {
+	return []agent.PromptPart{{
+		ID: "midden.workspace", Layer: agent.PromptLayerInstruction, Slot: agent.PromptSlotWorkspace,
+		Source: agent.PromptSource{ID: "midden.workspace"}, Title: "Midden artifact workspace",
+		Content: fmt.Sprintf("The kernel workspace is private runtime state, not an artifact directory. Do not read or update its memory, history or credentials. All file and shell tools are bound to the artifact workspace %s; relative paths resolve there. Inspect applicable workspace instructions with the read_file tool before editing files. Use the installed Midden skills for outcome guidance and the midden tool for session evidence. Do not write outside the artifact workspace.", b.workspace),
+	}}, nil
+}
+
 func (h *kernelHost) Process(ctx context.Context, text, id string) (string, error) {
 	return h.loop.ProcessDirectWithChannel(ctx, text, session.BuildOpaqueSessionKey("midden-ui:"+id), "midden-ui", id)
 }

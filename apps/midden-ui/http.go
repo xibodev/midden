@@ -150,6 +150,27 @@ func (a *App) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		respond(w, data)
 	case r.URL.Path == "/api/providers" && r.Method == "GET":
 		respond(w, map[string]any{"providers": providerRoster()})
+	case r.URL.Path == "/api/models" && r.Method == "POST":
+		var input ModelInput
+		if !decode(w, r, &input) {
+			return
+		}
+		catalog, err := a.DiscoverModels(r.Context(), input)
+		if err != nil {
+			apiError(w, 400, err.Error())
+			return
+		}
+		respond(w, catalog)
+	case r.URL.Path == "/api/model/check" && r.Method == "POST":
+		var input ModelInput
+		if !decode(w, r, &input) {
+			return
+		}
+		if err := a.CheckModel(r.Context(), input); err != nil {
+			apiError(w, 400, err.Error())
+			return
+		}
+		respond(w, map[string]any{"ok": true, "message": "The selected model returned the required tool call. No workspace files were read or changed."})
 	case r.URL.Path == "/api/model" && r.Method == "PUT":
 		var input ModelInput
 		if !decode(w, r, &input) {

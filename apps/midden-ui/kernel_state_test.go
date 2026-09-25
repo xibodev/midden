@@ -20,7 +20,7 @@ func TestKernelBookkeepingDoesNotOccupyTheArtifactWorkspace(t *testing.T) {
 	p := awaitPermission(t, app)
 	app.Decide(p.ID, true)
 	awaitIdle(t, app)
-	for _, name := range []string{"state", "sessions"} {
+	for _, name := range []string{"state", "sessions", "memory"} {
 		if _, err := os.Stat(filepath.Join(app.opts.Workspace, name)); !os.IsNotExist(err) {
 			t.Fatalf("kernel bookkeeping appeared in user artifact directory: %s", name)
 		}
