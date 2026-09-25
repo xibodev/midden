@@ -35,9 +35,6 @@ func (c *Claude) Available() bool {
 // Footprint covers the whole Claude data directory, not just transcripts.
 func (c *Claude) Footprint() int64 { return dirSize(c.Root) }
 
-// minTranscriptBytes filters out abandoned sessions with no real exchange.
-const minTranscriptBytes = 2 << 10
-
 func (c *Claude) Sessions(sc core.Scope) ([]core.Session, error) {
 	live := c.liveMap()
 	cutoff := sc.Since()
@@ -107,7 +104,7 @@ func (c *Claude) Sessions(sc core.Scope) ([]core.Session, error) {
 			problems++
 			return nil
 		}
-		if fi.Size() < minTranscriptBytes {
+		if fi.Size() == 0 {
 			return nil
 		}
 

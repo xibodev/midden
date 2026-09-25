@@ -14,6 +14,11 @@ Use exact source tool/session identifiers for investigation. Missing sources and
 partial inventories are reported; a skipped session is not automatically related
 to the selected one.
 
+Claude discovery does not use transcript size as a usefulness threshold. Short,
+identifiable sessions are included under the same scope/noise rules as larger
+ones; `--all` includes sessions marked as noise. Empty files are ignored, while
+nonempty transcripts that cannot be identified make the inventory partial.
+
 ## Pinned reading
 
 ```text
