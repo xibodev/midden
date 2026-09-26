@@ -179,7 +179,11 @@ func TestCopilotAuthIsScopedAndDoesNotAssumeGitHubCLIIsCopilot(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer app.Close()
-	if copilotauth.UseGhCLI || copilotauth.CacheDir != filepath.Join(opts.State, "kernel", "copilot") {
+	state, err := resolvedDestination(opts.State)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if copilotauth.UseGhCLI || copilotauth.CacheDir != filepath.Join(state, "kernel", "copilot") {
 		t.Fatal("Copilot auth would use unrelated GitHub CLI login or an unscoped cache")
 	}
 }
@@ -213,5 +217,20 @@ func TestRuntimeFailureDoesNotPersistProviderEchoedCredential(t *testing.T) {
 	}
 	if strings.Contains(string(raw), "synthetic-runtime-secret") {
 		t.Fatal("provider-echoed credential leaked into durable conversation history")
+	}
+}
+
+func TestMissingCopilotAuthGuidanceUsesThisHostsActions(t *testing.T) {
+	err := modelSetupError(&copilotauth.AuthError{
+		Msg: "no GitHub Copilot OAuth token available. Sign in via the /admin panel, or use gh auth refresh -s copilot.",
+	}, "github-copilot")
+	message := err.Error()
+	if !strings.Contains(message, "Sign in with GitHub") || !strings.Contains(message, "Check model") {
+		t.Fatal("guidance did not name the actual UI recovery controls")
+	}
+	for _, obsolete := range []string{"/admin", "gh auth refresh", "Test connection"} {
+		if strings.Contains(message, obsolete) {
+			t.Fatalf("guidance offered an unavailable recovery action: %s", obsolete)
+		}
 	}
 }

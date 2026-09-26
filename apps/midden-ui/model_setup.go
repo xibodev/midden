@@ -64,7 +64,7 @@ func (a *App) DiscoverModels(ctx context.Context, input ModelInput) (modelCatalo
 			"Copilot-Integration-Id": "vscode-chat",
 		}
 	case "openai-codex":
-		return modelCatalog{}, fmt.Errorf("native Codex does not expose a catalog through this host; enter an exact model id and use Test connection")
+		return modelCatalog{}, fmt.Errorf("native Codex does not expose a catalog through this host; enter an exact model id and use Check model")
 	}
 	ctx, cancel := context.WithTimeout(ctx, 25*time.Second)
 	defer cancel()
@@ -72,7 +72,7 @@ func (a *App) DiscoverModels(ctx context.Context, input ModelInput) (modelCatalo
 	if err != nil {
 		return modelCatalog{}, modelSetupError(err, model.Provider, secret, catalogInput.Secret)
 	}
-	result := modelCatalog{Models: []availableModel{}, Note: "Catalog discovery does not verify inference or tool support. Select a model and use Test connection."}
+	result := modelCatalog{Models: []availableModel{}, Note: "Catalog discovery does not verify inference or tool support. Select a model and use Check model."}
 	for _, model := range models {
 		if id := strings.TrimSpace(model.ID); id != "" {
 			result.Models = append(result.Models, availableModel{ID: id})
@@ -146,7 +146,11 @@ func modelSetupError(err error, provider string, secrets ...string) error {
 	if provider == "github-copilot" {
 		var authErr *copilotauth.AuthError
 		if errors.As(err, &authErr) || strings.Contains(strings.ToLower(message), "copilot") {
-			return fmt.Errorf("GitHub Copilot connection unavailable. Use Settings > Sign in with GitHub, then select a model and Test connection. A GitHub CLI login is not a Copilot authorization; if sign-in is still rejected, check the account and organization access. Details: %s", message)
+			reason := message
+			if strings.Contains(strings.ToLower(message), "no github copilot oauth token") {
+				reason = "No Copilot account connection is available in this host."
+			}
+			return fmt.Errorf("GitHub Copilot connection unavailable. Use Settings > Sign in with GitHub, then Find models and Check model. A GitHub CLI login is not a Copilot authorization; if sign-in is still rejected, check the account and organization access. Details: %s", reason)
 		}
 	}
 	return errors.New(message)

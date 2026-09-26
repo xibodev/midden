@@ -35,9 +35,9 @@ core's normal source discovery applies. Investigation does not mutate sources.
    A GitHub CLI login is not treated as Copilot authorization. OAuth/session
    caches are isolated beneath host state, and account/organization access is
    still enforced by the provider.
-   **Discover models** queries the selected account/endpoint without saving the
+   **Find models** queries the selected account/endpoint without saving the
    supplied key or selecting a model. Exact manual identifiers remain supported.
-   **Test connection** makes one small model request for an inert tool call; it
+   **Check model** makes one small model request for an inert tool call; it
    may incur provider usage, but reads no workspace data and executes no tool.
    A catalog response or text-only answer is not verified bundle execution.
    Save the selected model when ready. Nothing contacts a provider merely by

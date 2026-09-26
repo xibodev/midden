@@ -8,6 +8,8 @@ Session GET is authoritative for outcomes; list responses deliberately omit them
 Catalog/check calls are explicit POSTs using ModelInput, without configuration
 writes. Edits/close invalidate their results; keys remain on request failure and
 clear on success or dialog close. Mocked results do not certify a live provider.
+Mobile permission checks measure both button rectangles before test scrolling,
+focus or clicks; replay may arrive before the conversation-history response.
 """
 
 from playwright.sync_api import expect
@@ -310,6 +312,61 @@ class AssessmentTests(BrowserCase):
         expect(self.page.locator("#modelCheckResult")).to_contain_text("Synthetic probe")
         expect(self.page.locator("#modelCheckResult")).not_to_contain_text("synthetic-key-only")
 
+    def test_provider_or_endpoint_changes_clear_credentials_before_find_check_and_save(self):
+        self.open()
+        for changed_field in ("provider", "endpoint"):
+            with self.subTest(changed_field=changed_field):
+                if self.page.locator("#settings").is_visible():
+                    self.page.keyboard.press("Escape")
+                self.host.model.update(provider="openai", endpoint="https://original.invalid/v1",
+                                       credentialRef="original-service-reference", credentialConfigured=True)
+                self.open_model()
+                expect(self.page.get_by_label("Credential reference", exact=True)).to_have_value("original-service-reference")
+                self.page.get_by_label("API key", exact=True).fill("synthetic-key-only")
+                if changed_field == "provider":
+                    self.page.get_by_label("Provider", exact=True).select_option("anthropic")
+                else:
+                    self.page.get_by_label("Endpoint", exact=False).fill("https://replacement.invalid/v1")
+                expect(self.page.get_by_label("Credential reference", exact=True)).to_have_value("")
+                expect(self.page.get_by_label("API key", exact=True)).to_have_value("")
+                expect(self.page.locator("#credentialStatus")).to_contain_text("Credential fields cleared")
+                self.page.get_by_role("button", name="Find models", exact=True).click()
+                expect(self.page.locator("#modelCatalog")).to_be_visible()
+                self.page.get_by_role("button", name="Check model", exact=True).click()
+                expect(self.page.locator("#modelCheckResult")).to_contain_text("succeeded")
+                self.page.get_by_role("button", name="Save settings").click()
+                expect(self.page.locator("#settings")).not_to_be_visible()
+                for method, path in (("POST", "/api/models"), ("POST", "/api/model/check"), ("PUT", "/api/model")):
+                    body = [call[2] for call in self.calls_to(path) if call[0] == method][-1]
+                    self.assertEqual(body["credentialRef"], "")
+                    self.assertNotIn("apiKey", body)
+
+    def test_explicit_credentials_after_service_change_survive_model_only_edits(self):
+        self.host.model.update(endpoint="https://original.invalid/v1",
+                               credentialRef="original-service-reference", credentialConfigured=True)
+        self.open()
+        self.open_model()
+        self.page.get_by_label("Endpoint", exact=False).fill("https://replacement.invalid/v1")
+        self.page.get_by_label("Credential reference", exact=True).fill("operator-selected-reference")
+        self.page.get_by_label("API key", exact=True).fill("synthetic-key-only")
+        self.page.get_by_label("Model", exact=True).fill("another/exact-model")
+        self.page.get_by_label("Provider", exact=True).select_option("openai")
+        self.page.get_by_label("Endpoint", exact=False).fill("https://replacement.invalid/v1")
+        expect(self.page.get_by_label("Credential reference", exact=True)).to_have_value("operator-selected-reference")
+        expect(self.page.get_by_label("API key", exact=True)).to_have_value("synthetic-key-only")
+        self.page.get_by_role("button", name="Check model", exact=True).click()
+        expect(self.page.locator("#modelCheckResult")).to_contain_text("succeeded")
+        body = self.calls_to("/api/model/check")[-1][2]
+        self.assertEqual(body["credentialRef"], "operator-selected-reference")
+        self.assertEqual(body["apiKey"], "synthetic-key-only")
+        self.assertEqual(body["model"], "another/exact-model")
+        self.assertEqual(body["endpoint"], "https://replacement.invalid/v1")
+        self.page.get_by_role("button", name="Save settings").click()
+        expect(self.page.locator("#settings")).not_to_be_visible()
+        saved = [call[2] for call in self.calls_to("/api/model") if call[0] == "PUT"][-1]
+        self.assertEqual(saved["credentialRef"], "operator-selected-reference")
+        self.assertNotIn("apiKey", saved)
+
     def test_check_result_is_invalidated_by_edits_and_errors_preserve_credentials(self):
         self.open()
         self.open_model()
@@ -389,5 +446,108 @@ class AssessmentTests(BrowserCase):
         expect(first.locator("pre")).to_be_visible()
         expect(first.locator("pre")).to_contain_text("synthetic-draft.txt")
         first.get_by_role("button", name="Allow", exact=True).click()
-        self.page.locator(".permission").nth(1).get_by_role("button", name="Deny", exact=True).click()
-        expect(self.page.locator(".permission").nth(1)).to_contain_text("Denied")
+        self.page.locator('[data-permission-id="mobile-two"]').get_by_role("button", name="Deny", exact=True).click()
+        expect(self.page.locator('[data-permission-id="mobile-two"]')).to_contain_text("Denied")
+
+    def assert_permission_buttons_inside_chat(self, card):
+        self.page.evaluate("() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))")
+        bounds = card.evaluate("""card => {
+            const chat = document.getElementById("chatScroll").getBoundingClientRect();
+            const composer = document.getElementById("composer").getBoundingClientRect();
+            return {top: chat.top, bottom: Math.min(chat.bottom, composer.top),
+                left: chat.left, right: chat.right,
+                buttons: [...card.querySelectorAll(".permission-actions button")].map(button => {
+                    const rect = button.getBoundingClientRect();
+                    return {name: button.textContent, top: rect.top, bottom: rect.bottom,
+                        left: rect.left, right: rect.right, height: rect.height};
+                })};
+        }""")
+        self.assertEqual([button["name"] for button in bounds["buttons"]], ["Allow", "Deny"])
+        for button in bounds["buttons"]:
+            with self.subTest(button=button["name"], bounds=bounds):
+                self.assertGreaterEqual(button["top"], bounds["top"])
+                self.assertLessEqual(button["bottom"], bounds["bottom"])
+                self.assertGreaterEqual(button["left"], bounds["left"])
+                self.assertLessEqual(button["right"], bounds["right"])
+                self.assertGreaterEqual(button["height"], 44)
+
+    def test_mobile_allowed_history_does_not_hide_pending_write_after_replay(self):
+        self.page.set_viewport_size({"width": 390, "height": 844})
+        self.host.model["model"] = "synthetic-long-model-identifier-for-preview"
+        self.host.sessions["s1"].update(
+            title="Synthetic request with a read followed by a write",
+            messages=[{"role": "user", "content": "Inspect synthetic material before writing a draft.\n" * 8}],
+            outcomes=[dict(turnId="approval-turn", status="running", messageIndex=0, at="2026-01-01T12:00:00Z")])
+        self.host.active = dict(turnId="approval-turn", sessionId="s1")
+        sequence = [
+            dict(type="tool", tool="midden", status="pending", arguments={"command": "ls"}),
+            dict(type="permission", permissionId="allowed-read", tool="midden", arguments={"command": "ls"}),
+            dict(type="permission_result", permissionId="allowed-read", allow=True),
+            dict(type="tool", tool="midden", status="completed", arguments={"command": "ls"}),
+            dict(type="tool", tool="write_file", status="pending", arguments={"path": "synthetic-draft.txt"}),
+            dict(type="permission", permissionId="pending-write", tool="write_file",
+                 arguments={"path": "synthetic-draft.txt", "content": "Synthetic draft.\n" * 20}),
+        ]
+        self.host.replay = [dict(sessionId="s1", turnId="approval-turn", **event) for event in sequence]
+        write = self.page.get_by_role("region", name="Permission for write_file", exact=True)
+        read = self.page.locator(".permission").filter(has_text="midden requests permission")
+        self.open()
+        expect(self.editor()).to_be_enabled()
+        expect(write.get_by_role("button", name="Deny", exact=True)).to_be_enabled()
+        requests = []
+        self.page.route("**/api/sessions/s1", lambda route: requests.append(route))
+        with self.page.expect_request("**/api/sessions/s1"):
+            self.page.reload()
+        try:
+            expect(write.get_by_role("button", name="Deny", exact=True)).to_be_enabled()
+            self.page.evaluate("() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))")
+        finally:
+            for request in requests:
+                request.continue_()
+            self.page.unroute("**/api/sessions/s1")
+        expect(self.editor()).to_be_enabled()
+        expect(write.get_by_role("button", name="Deny", exact=True)).to_be_enabled()
+        expect(read).to_contain_text("Allowed")
+        expect(self.page.locator("#activityList .tool")).to_have_count(3)
+        self.assert_permission_buttons_inside_chat(write)
+        self.screenshot("mobile-pending-write-replay.png")
+        expect(self.page.get_by_role("button", name="Stop", exact=True)).to_be_in_viewport(ratio=1)
+        expect(read.get_by_role("button", name="Allow", exact=True)).not_to_be_visible()
+        self.page.get_by_text("Previous activity (4)", exact=True).click()
+        expect(read.get_by_role("button", name="Allow", exact=True)).to_be_disabled()
+        expect(read).to_contain_text("Allowed")
+        read.get_by_text("Inspect arguments", exact=True).click()
+        expect(read.locator("pre")).to_contain_text('"command": "ls"')
+
+    def test_mobile_live_permissions_retain_keyboard_focus_and_individual_decisions(self):
+        self.page.set_viewport_size({"width": 390, "height": 844})
+        self.open()
+        self.start_turn()
+        self.host.emit("permission", permissionId="read-first", tool="midden", arguments={"command": "ls"})
+        read = self.page.get_by_role("region", name="Permission for midden", exact=True, include_hidden=True)
+        read.get_by_role("button", name="Allow", exact=True).click()
+        expect(read).to_contain_text("Allowed")
+        self.host.emit("tool", tool="midden", status="completed", arguments={"command": "ls"})
+        self.host.emit("permission", permissionId="write-next", tool="write_file", arguments={"path": "synthetic-draft.txt"})
+        write = self.page.get_by_role("region", name="Permission for write_file", exact=True)
+        deny = write.get_by_role("button", name="Deny", exact=True)
+        expect(deny).to_be_enabled()
+        self.assert_permission_buttons_inside_chat(write)
+        deny.focus()
+        self.host.emit("permission", permissionId="read-next", tool="read_file", arguments={"path": "synthetic-notes.txt"})
+        extra = self.page.get_by_role("region", name="Permission for read_file", exact=True)
+        expect(extra.get_by_role("button", name="Allow", exact=True)).to_be_enabled()
+        expect(deny).to_be_focused()
+        self.assert_permission_buttons_inside_chat(write)
+        self.page.keyboard.press("Enter")
+        expect(self.page.locator('[data-permission-id="write-next"]')).to_contain_text("Denied")
+        expect(extra.get_by_role("button", name="Allow", exact=True)).to_be_focused()
+        self.assert_permission_buttons_inside_chat(extra)
+        self.page.keyboard.press("Enter")
+        expect(self.page.locator('[data-permission-id="read-next"]')).to_contain_text("Allowed")
+        decisions = [(call[1], call[2]) for call in self.host.calls if call[1].startswith("/api/permissions/")]
+        self.assertEqual(decisions, [
+            ("/api/permissions/read-first", {"allow": True}),
+            ("/api/permissions/write-next", {"allow": False}),
+            ("/api/permissions/read-next", {"allow": True}),
+        ])

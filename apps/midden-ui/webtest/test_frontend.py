@@ -407,10 +407,10 @@ class FrontendTests(BrowserCase):
         for pid in ("p1", "p2"):
             self.host.emit("permission", permissionId=pid, tool="write_file", arguments={"path": f"{pid}.txt"})
         expect(self.page.locator(".permission")).to_have_count(2)
-        self.page.locator(".permission").nth(0).get_by_role("button", name="Allow", exact=True).click()
-        self.page.locator(".permission").nth(1).get_by_role("button", name="Deny", exact=True).click()
-        expect(self.page.locator(".permission").nth(0)).to_contain_text("Allowed")
-        expect(self.page.locator(".permission").nth(1)).to_contain_text("Denied")
+        self.page.locator('[data-permission-id="p1"]').get_by_role("button", name="Allow", exact=True).click()
+        self.page.locator('[data-permission-id="p2"]').get_by_role("button", name="Deny", exact=True).click()
+        expect(self.page.locator('[data-permission-id="p1"]')).to_contain_text("Allowed")
+        expect(self.page.locator('[data-permission-id="p2"]')).to_contain_text("Denied")
         decisions = [call[2] for call in self.host.calls if call[1].startswith("/api/permissions/")]
         self.assertEqual(decisions, [{"allow": True}, {"allow": False}])
         self.page.get_by_role("button", name="Stop", exact=True).click()

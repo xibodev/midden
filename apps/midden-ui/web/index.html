@@ -91,7 +91,7 @@
       <label for="endpoint">Endpoint <span class="quiet">(optional for native providers)</span></label><input id="endpoint" name="endpoint" type="url" placeholder="https://..." spellcheck="false">
       <label for="apiKey">API key</label><input id="apiKey" name="apiKey" type="password" autocomplete="new-password" spellcheck="false" aria-describedby="credentialHelp">
       <label for="credentialRef">Credential reference</label><input id="credentialRef" name="credentialRef" spellcheck="false" aria-describedby="credentialHelp">
-      <p id="credentialHelp" class="quiet">Leave the API key blank to keep a stored credential, or supply a reference recognized by this host. Keys are cleared after successful requests or when this dialog closes, and are never stored with drafts. Re-enter a key for another request if needed.</p>
+      <p id="credentialHelp" class="quiet">Blank credentials reuse a stored connection only for the same provider and endpoint. Changing either clears both credential fields; explicitly enter a reference afterward to reuse it. Keys are cleared after successful requests or when this dialog closes, and are never stored with drafts. Re-enter a key for another request if needed.</p>
       <section class="model-tools" aria-label="Model discovery and checks">
         <div class="model-tool-actions"><button id="listModels" type="button" disabled>Find models</button><button id="checkModel" type="button" disabled>Check model</button></div>
         <p class="quiet">Finding models does not verify inference. Checking makes a small tool-capability inference call without reading workspace files. Neither action saves settings.</p>

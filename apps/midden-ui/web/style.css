@@ -84,6 +84,8 @@ summary { cursor: pointer; font-size: .8rem; font-weight: 600; min-height: 32px;
 .permission-arguments summary { min-height: 44px; }
 .permission-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .permission-actions p { font-size: .8rem; }
+.activity-history { border-top: 1px solid var(--line); margin-top: 10px; }
+.activity-history > summary { min-height: 44px; }
 .composer { padding: 16px 24px 18px; border-top: 1px solid var(--line); flex-shrink: 0; }
 .draft-state { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
 .draft-state small { flex: 1; font-size: .72rem; }

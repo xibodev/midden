@@ -5,9 +5,10 @@
     completed: new Set(), seq: 0, revision: 0, connected: false, sending: false, creating: false,
     canceling: false, interrupted: false, source: null, selectedFile: null, fileRequest: 0, filesRequest: 0, statusRequest: 0, modelRequest: 0, auth: null,
     workspaceId: "", scope: 0, booting: true, selectionMade: false, modelConfigured: false, drafts: new Map(), visiblePermission: null,
-    formBusy: false, modelEdit: 0, modelOperation: null };
+    formBusy: false, modelEdit: 0, modelOperation: null, modelService: "" };
   const modelFields = ["provider", "model", "endpoint", "credentialRef"];
   const canonicalProvider = value => value === "github_copilot" ? "github-copilot" : value;
+  const modelService = () => JSON.stringify([canonicalProvider($("provider").value), $("endpoint").value.trim()]);
   const entry = (id = state.current) => {
     if (!state.cache.has(id)) state.cache.set(id, { messages: [], outcomes: [], activity: [], live: null, loaded: false, loading: false, request: 0 });
     return state.cache.get(id);
@@ -284,7 +285,9 @@
       throw reason;
     } finally {
       if (version === item.request) item.loading = false;
-      if (scope === state.scope && id === state.current) { renderChat(); renderActivity(); }
+      if (scope === state.scope && id === state.current) {
+        state.visiblePermission = null; renderChat(); renderActivity();
+      }
     }
   }
   async function choose(id, load = true) {
@@ -341,29 +344,39 @@
   }
   function renderActivity() {
     const item = entry(), outstanding = pending(item);
+    const focused = document.activeElement?.dataset.activityFocus;
+    const urgent = node("div", "pending-permissions"), previous = node("details", "activity-history");
+    const historySummary = node("summary", "", `Previous activity (${item.activity.length - outstanding.length})`);
+    historySummary.dataset.activityFocus = "history";
+    previous.open = !!item.historyOpen;
+    previous.addEventListener("toggle", () => { if (previous.isConnected) item.historyOpen = previous.open; });
+    previous.append(historySummary);
     $("activity").hidden = !item.activity.length;
     if (outstanding.length) $("activity").open = true;
     $("activitySummary").textContent = `Tool activity (${item.activity.length})${pending(item).length ? " - permission needed" : ""}`;
-    $("activityList").replaceChildren(...item.activity.map(event => {
-      if (event.type === "error") return node("p", "error", event.error || event.text || "Turn failed.");
+    for (const event of item.activity) {
+      if (event.type === "error") { previous.append(node("p", "error", event.error || event.text || "Turn failed.")); continue; }
       if (event.type !== "permission") {
-        const details = node("details", "tool");
+        const details = node("details", "tool"), summary = node("summary", "", `${event.tool || "Tool"} - ${event.status || event.phase || "activity"}`);
+        summary.dataset.activityFocus = JSON.stringify(["tool", event.seq]);
         details.open = !!event.open;
-        details.addEventListener("toggle", () => { event.open = details.open; });
-        details.append(node("summary", "", `${event.tool || "Tool"} - ${event.status || event.phase || "activity"}`),
-          node("pre", "", args(event.arguments)));
+        details.addEventListener("toggle", () => { if (details.isConnected) event.open = details.open; });
+        details.append(summary, node("pre", "", args(event.arguments)));
         if (event.text) details.append(node("pre", "", event.text));
-        return details;
+        previous.append(details); continue;
       }
       const card = node("section", "permission"), actions = node("div", "permission-actions");
+      card.dataset.permissionId = event.permissionId;
       card.setAttribute("aria-label", `Permission for ${event.tool}`);
-      const inspect = node("details", "permission-arguments");
+      const inspect = node("details", "permission-arguments"), inspectSummary = node("summary", "", "Inspect arguments");
+      inspectSummary.dataset.activityFocus = JSON.stringify([event.permissionId, "arguments"]);
       inspect.open = !!event.argumentsOpen;
-      inspect.append(node("summary", "", "Inspect arguments"), node("pre", "", args(event.arguments)));
-      inspect.addEventListener("toggle", () => { event.argumentsOpen = inspect.open; });
+      inspect.append(inspectSummary, node("pre", "", args(event.arguments)));
+      inspect.addEventListener("toggle", () => { if (inspect.isConnected) event.argumentsOpen = inspect.open; });
       card.append(node("strong", "", `${event.tool} requests permission`), inspect);
       for (const allow of [true, false]) {
         const button = node("button", allow ? "primary" : "", allow ? "Allow" : "Deny");
+        button.dataset.activityFocus = JSON.stringify([event.permissionId, allow]);
         button.type = "button"; button.disabled = !!event.result || !!event.busy;
         button.addEventListener("click", () => run(() => decide(event, allow)));
         actions.append(button);
@@ -371,14 +384,26 @@
       const status = node("p", "", event.result || (event.busy ? "Sending decision..." : "Only this action will be authorized."));
       status.setAttribute("role", "status"); actions.append(status); card.append(actions);
       if (event.error) card.append(node("p", "error", event.error));
-      return card;
-    }));
-    controls();
-    const first = outstanding[0]?.permissionId;
-    if (first && state.visiblePermission !== first) {
-      state.visiblePermission = first;
-      requestAnimationFrame(() => $("activityList").querySelector(".permission button:not(:disabled)")?.scrollIntoView({ block: "nearest" }));
+      (event.result ? previous : urgent).append(card);
     }
+    previous.hidden = previous.children.length === 1;
+    $("activityList").replaceChildren(urgent, previous);
+    if (focused) {
+      const restored = [...$("activityList").querySelectorAll("[data-activity-focus]")].find(element => element.dataset.activityFocus === focused);
+      if (restored && !restored.disabled) restored.focus({ preventScroll: true });
+    }
+    controls();
+    const first = outstanding[0]?.permissionId, sessionId = state.current;
+    if (!first) { state.visiblePermission = null; return; }
+    requestAnimationFrame(() => {
+      if (state.current !== sessionId || !item.loaded || item.loading || !$("chatScroll").clientHeight || !urgent.isConnected) return;
+      const focusedCard = document.activeElement?.closest(".pending-permissions .permission");
+      if (previous.contains(document.activeElement) || (state.visiblePermission === first && !focusedCard)) return;
+      const card = focusedCard || urgent.firstElementChild;
+      const target = card.offsetHeight <= $("chatScroll").clientHeight ? card : card.querySelector(".permission-actions");
+      target.scrollIntoView({ block: "nearest" });
+      state.visiblePermission = first;
+    });
   }
   async function decide(event, allow) {
     if (event.busy || event.result) return;
@@ -565,6 +590,7 @@
       if (version !== state.modelRequest) return;
       if (!model || typeof model.configured !== "boolean") throw new Error("Host returned an invalid model configuration.");
       for (const key of modelFields) $(key).value = key === "provider" ? canonicalProvider(model.provider) || "openai" : model[key] || "";
+      state.modelService = modelService();
       if (!$("provider").value) error("This host reports an unsupported provider. Choose a listed provider before saving.", "modelError");
       $("credentialStatus").textContent = modelStatus(model) + (model.credentialConfigured === true ? ". Stored credential available." : "");
       renderModel(model); modelBusy(false); controls();
@@ -602,6 +628,15 @@
     $("modelCheckResult").hidden = true; $("modelCheckResult").textContent = "";
     $("modelToolStatus").hidden = true; $("modelToolStatus").textContent = "";
     clearError("modelError"); authControls();
+  }
+  function modelEdited() {
+    const service = modelService();
+    if (service !== state.modelService) {
+      state.modelService = service;
+      $("apiKey").value = ""; $("credentialRef").value = "";
+      $("credentialStatus").textContent = "Provider or endpoint changed. Credential fields cleared; enter credentials for this service if needed.";
+    }
+    invalidateModelTools();
   }
   function modelInput(requireModel) {
     const body = Object.fromEntries(modelFields.map(name => [name, $(name).value.trim()]));
@@ -783,7 +818,7 @@
   $("dismissNotice").addEventListener("click", () => clearError("notice"));
   $("openSettings").addEventListener("click", () => run(openSettings, "modelError"));
   $("setupModel").addEventListener("click", () => run(openSettings, "modelError"));
-  [...modelFields, "apiKey"].forEach(name => $(name).addEventListener(name === "provider" ? "change" : "input", () => invalidateModelTools()));
+  [...modelFields, "apiKey"].forEach(name => $(name).addEventListener(name === "provider" ? "change" : "input", modelEdited));
   $("listModels").addEventListener("click", () => run(() => modelOperation("catalog"), "modelError"));
   $("checkModel").addEventListener("click", () => run(() => modelOperation("check"), "modelError"));
   $("modelChoice").addEventListener("change", () => {

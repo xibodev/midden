@@ -18,6 +18,10 @@ import (
 func kernelApp(t *testing.T) (*App, *httptest.Server, *atomic.Int32) {
 	t.Helper()
 	opts := testOptions(t)
+	workspace, err := filepath.EvalSymlinks(opts.Workspace)
+	if err != nil {
+		t.Fatal(err)
+	}
 	t.Setenv(config.EnvHome, filepath.Join(opts.State, "kernel"))
 	bundle, err := filepath.Abs(filepath.Join("..", "..", "bundles"))
 	if err != nil {
@@ -42,7 +46,7 @@ func kernelApp(t *testing.T) (*App, *httptest.Server, *atomic.Int32) {
 		}
 		boundWorkspace := false
 		for _, message := range body.Messages {
-			if message.Role == "system" && strings.Contains(message.Content, opts.Workspace) {
+			if message.Role == "system" && strings.Contains(message.Content, workspace) {
 				boundWorkspace = true
 			}
 		}
