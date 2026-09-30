@@ -1,0 +1,7 @@
+from: markdown
+to: epub3
+standalone: true
+table-of-contents: true
+toc-depth: 2
+number-sections: true
+fail-if-warnings: true

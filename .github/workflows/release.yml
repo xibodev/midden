@@ -1,0 +1,124 @@
+name: Release
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Version to build without a v prefix
+        required: true
+        default: '0.3.1-rc.1'
+        type: string
+      publish:
+        description: Publish only if the matching tag already names this commit
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}-${{ inputs.version }}
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    uses: ./.github/workflows/validate.yml
+  ui:
+    uses: ./.github/workflows/ui-host.yml
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    outputs:
+      version: ${{ steps.identity.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: apps/midden-ui/go.mod
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Resolve release identity
+        id: identity
+        env:
+          REQUESTED_VERSION: ${{ inputs.version }}
+        run: |
+          if [ "$GITHUB_EVENT_NAME" = push ]; then
+            VERSION="${GITHUB_REF_NAME#v}"
+          else
+            VERSION="$REQUESTED_VERSION"
+          fi
+          export VERSION
+          python -B -c 'import os,sys; sys.path.insert(0,"scripts"); from release_contract import release_version; v=release_version(os.environ["VERSION"]); open(os.environ["GITHUB_OUTPUT"],"a").write("version="+v+"\n")'
+      - name: Build all three release products
+        env:
+          VERSION: ${{ steps.identity.outputs.version }}
+        run: |
+          python -B scripts/build-release.py --out "$RUNNER_TEMP/release" --version "$VERSION"
+          python -B scripts/verify-release.py --directory "$RUNNER_TEMP/release" \
+            --tag "v$VERSION" --commit "$GITHUB_SHA"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-assets
+          path: ${{ runner.temp }}/release/*
+          if-no-files-found: error
+          retention-days: 7
+  smoke:
+    needs: build
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest, ubuntu-24.04-arm, macos-15-intel, macos-15]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-assets
+          path: ${{ runner.temp }}/release
+      - name: Verify and run native release products
+        env:
+          VERSION: ${{ needs.build.outputs.version }}
+        run: python -B scripts/verify-release.py --directory "${{ runner.temp }}/release" --tag "v${{ needs.build.outputs.version }}" --commit "${{ github.sha }}" --smoke
+      - name: Consumer bootstrap lifecycle
+        run: python -B scripts/smoke-bootstrap.py --directory "${{ runner.temp }}/release"
+  publish:
+    if: github.event_name == 'push' || inputs.publish
+    needs: [validate, ui, build, smoke]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      actions: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-assets
+          path: ${{ runner.temp }}/release
+      - name: Publish verified immutable assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.build.outputs.version }}
+          ASSETS: ${{ runner.temp }}/release
+        run: |
+          TAG="v$VERSION"
+          test "$(git rev-parse "$TAG^{commit}")" = "$GITHUB_SHA"
+          git merge-base --is-ancestor "$GITHUB_SHA" origin/main
+          flags=(--latest)
+          if [[ "$VERSION" == *-* ]]; then flags=(--prerelease); fi
+          gh release create "$TAG" "$ASSETS"/* --verify-tag "${flags[@]}" \
+            --title "Midden $TAG" --notes-file docs/RELEASE_NOTES.md
+          if [[ "$VERSION" != *-* ]] && [ "${{ github.event.repository.private }}" = false ]; then
+            gh workflow run pages.yml --repo "$GITHUB_REPOSITORY" --ref main -f tag="$TAG"
+          fi

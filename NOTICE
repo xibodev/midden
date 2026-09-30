@@ -1,0 +1,18 @@
+Midden
+
+The Midden core and canonical outcome bundles are distributed under the
+license in LICENSE.
+
+The independently built Midden UI embeds Compa v1.0.0
+(https://github.com/xibodev/compa), an MIT-licensed runtime. Compa's license
+and upstream attribution notices are included in the UI artifact's
+THIRD_PARTY_NOTICES.txt along with the licenses of its compiled dependencies.
+
+Core artifacts contain their own THIRD_PARTY_NOTICES.txt and do not embed
+Compa or model-provider runtimes. Dependency notices are generated from the
+module graph used for the corresponding artifact, not from user data.
+
+The generated Kagi API client's pinned module declares Apache-2.0 in its
+shipped api/openapi.yaml rather than in a standalone license file. Release
+notices identify that declaration and include the standard license text from
+licenses/Apache-2.0.txt.

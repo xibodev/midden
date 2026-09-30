@@ -1,0 +1,301 @@
+package adapter
+
+import (
+	"bufio"
+	"encoding/json"
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+	"time"
+
+	"github.com/xibodev/midden/internal/core"
+)
+
+// Claude reads Claude Code sessions.
+//
+// Claude stores one JSONL transcript per session under a directory named after
+// the encoded working directory. Resume is therefore cwd-scoped: the command
+// only works from the session's original directory.
+type Claude struct {
+	Root string
+}
+
+func NewClaude() *Claude { return &Claude{Root: homeJoin(".claude")} }
+
+func (c *Claude) Tool() core.Tool { return core.ToolClaude }
+
+func (c *Claude) projectsDir() string { return filepath.Join(c.Root, "projects") }
+
+func (c *Claude) Available() bool {
+	fi, err := os.Stat(c.projectsDir())
+	return err == nil && fi.IsDir()
+}
+
+// Footprint covers the whole Claude data directory, not just transcripts.
+func (c *Claude) Footprint() int64 { return dirSize(c.Root) }
+
+func (c *Claude) Sessions(sc core.Scope) ([]core.Session, error) {
+	live := c.liveMap()
+	cutoff := sc.Since()
+	projects := c.projectsDir()
+	if fi, err := os.Lstat(projects); err != nil {
+		return nil, fmt.Errorf("claude projects: %w", err)
+	} else if fi.Mode()&(os.ModeSymlink|os.ModeIrregular) != 0 {
+		// WalkDir does not follow a symlink root. Resolve it explicitly:
+		// Available() follows os.Stat, so otherwise a linked projects root
+		// looks available but yields an empty, falsely complete scan.
+		resolved, err := filepath.EvalSymlinks(projects)
+		if err != nil {
+			return nil, fmt.Errorf("claude projects link: %w", err)
+		}
+		if filepath.Clean(resolved) == filepath.Clean(projects) {
+			return nil, fmt.Errorf("claude projects link could not be safely resolved")
+		}
+		projects = resolved
+	}
+	if fi, err := os.Stat(projects); err != nil || !fi.IsDir() {
+		if err != nil {
+			return nil, fmt.Errorf("claude projects: %w", err)
+		}
+		return nil, fmt.Errorf("claude projects is not a directory")
+	}
+
+	// Only transcripts that have to be opened are counted, because those are
+	// the only ones that take real time. A cache hit is instant and reporting
+	// it would just make the counter lie about progress.
+	read := 0
+	problems := 0
+
+	var out []core.Session
+	err := filepath.WalkDir(projects, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			// Keep scanning what we can, but make the result explicitly
+			// partial. Index reconciliation must never treat an unreadable
+			// subtree as evidence that all of its sessions were deleted.
+			problems++
+			return nil // unreadable subtree: skip, don't abort the scan
+		}
+		if d.IsDir() {
+			// Sub-agent transcripts are not independently resumable.
+			if d.Name() == "subagents" {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if d.Type()&(os.ModeSymlink|os.ModeIrregular) != 0 {
+			// A linked project subtree is intentionally not walked. Mark the
+			// result partial so index reconciliation preserves its existing
+			// sessions rather than deleting work WalkDir never enumerated.
+			problems++
+			return nil
+		}
+		if filepath.Ext(path) != ".jsonl" {
+			return nil
+		}
+
+		id := strings.TrimSuffix(d.Name(), ".jsonl")
+		if strings.HasPrefix(id, "agent-") || id == "journal" || !sc.WantsID(id) {
+			return nil
+		}
+
+		fi, ferr := d.Info()
+		if ferr != nil {
+			problems++
+			return nil
+		}
+		if fi.Size() == 0 {
+			return nil
+		}
+
+		updated := fi.ModTime()
+		if !cutoff.IsZero() && updated.Before(cutoff) {
+			return nil // cheap reject before parsing the file
+		}
+
+		cwd, title, created := "", "", time.Time{}
+		noise := false
+
+		// Reuse what an earlier scan derived from this exact file revision.
+		// Opening the transcript is by far the most expensive thing this
+		// adapter does, and its answer only changes when the file does.
+		if e, hit := cachedPeek(path, fi.Size(), updated); hit {
+			cwd, title, created, noise = e.Cwd, e.Title, e.Created, e.Noise
+		} else {
+			read++
+			reportProgress(fmt.Sprintf("reading claude transcript %d (%s)", read, byteCount(fi.Size())))
+			cwd, title, created = c.peek(path)
+			noise = core.IsNoise(title, filepath.Clean(cwd), 2)
+		}
+		if cwd == "" {
+			// A missing cwd means this transcript could not be identified as
+			// a resumable session. Preserve existing index rows rather than
+			// deleting them on the strength of an ambiguous parse.
+			problems++
+			return nil
+		}
+
+		s := core.Session{
+			Tool:           core.ToolClaude,
+			ID:             id,
+			Dir:            filepath.Clean(cwd),
+			Title:          core.CleanTitle(title),
+			Created:        created,
+			Updated:        updated,
+			Bytes:          fi.Size(),
+			TranscriptPath: path,
+		}
+		if s.Created.IsZero() {
+			s.Created = updated
+		}
+		if l, ok := live[id]; ok {
+			s.Live = l
+		}
+		s.Noise = noise
+
+		if sc.Match(s) {
+			out = append(out, s)
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("claude: %w", err)
+	}
+	if problems > 0 {
+		return out, fmt.Errorf("claude: skipped %d unreadable or unidentifiable transcript(s); result is partial", problems)
+	}
+	return out, nil
+}
+
+func (c *Claude) ResumeCmd(s core.Session, instruction string) string {
+	if instruction != "" {
+		return fmt.Sprintf("claude --resume %s %s", s.ID, shellQuote(instruction))
+	}
+	return "claude --resume " + s.ID
+}
+
+// peekLines caps how much of a transcript is read to describe it. Transcripts
+// reach tens of MB; the identifying records are at the top.
+const peekLines = 60
+
+// peek extracts cwd, a display title and the first timestamp without reading
+// the whole transcript. A `summary` record wins over the first user message.
+func (c *Claude) peek(path string) (cwd, title string, created time.Time) {
+	f, err := os.Open(path)
+	if err != nil {
+		return "", "", time.Time{}
+	}
+	defer f.Close()
+
+	sc := bufio.NewScanner(f)
+	sc.Buffer(make([]byte, 0, 1<<20), 16<<20) // transcripts contain very long lines
+
+	var summary, firstUser string
+	for i := 0; i < peekLines && sc.Scan(); i++ {
+		var rec claudeRecord
+		if json.Unmarshal(sc.Bytes(), &rec) != nil {
+			continue
+		}
+		if cwd == "" && rec.Cwd != "" {
+			cwd = rec.Cwd
+		}
+		if created.IsZero() && rec.Timestamp != "" {
+			created = parseISO(rec.Timestamp)
+		}
+		if summary == "" && rec.Type == "summary" && rec.Summary != "" {
+			summary = rec.Summary
+		}
+		if firstUser == "" && rec.Type == "user" {
+			firstUser = rec.Message.text()
+		}
+		if cwd != "" && summary != "" && !created.IsZero() {
+			break
+		}
+	}
+
+	if summary != "" {
+		return cwd, summary, created
+	}
+	return cwd, firstUser, created
+}
+
+// liveMap reports sessions that are open right now.
+//
+// Claude writes ~/.claude/sessions/<pid>.json for each interactive session.
+// The PID is verified because these files outlive the process that wrote them.
+func (c *Claude) liveMap() map[string]*core.Live {
+	out := map[string]*core.Live{}
+
+	entries, err := os.ReadDir(filepath.Join(c.Root, "sessions"))
+	if err != nil {
+		return out
+	}
+	for _, e := range entries {
+		if e.IsDir() || filepath.Ext(e.Name()) != ".json" {
+			continue
+		}
+		marker := filepath.Join(c.Root, "sessions", e.Name())
+		b, err := os.ReadFile(marker)
+		if err != nil {
+			continue
+		}
+		var m struct {
+			PID       int    `json:"pid"`
+			SessionID string `json:"sessionId"`
+			Status    string `json:"status"`
+			Name      string `json:"name"`
+		}
+		if json.Unmarshal(b, &m) != nil || m.SessionID == "" || m.PID == 0 {
+			continue
+		}
+		// Date the process against the marker that claims it. A process that
+		// started after the file was written cannot be the one that wrote it,
+		// which is how a recycled PID resurrects a session that has ended.
+		var written time.Time
+		if fi, err := e.Info(); err == nil {
+			written = fi.ModTime()
+		}
+		if !processAliveSince(m.PID, written) {
+			continue
+		}
+		out[m.SessionID] = &core.Live{PID: m.PID, Status: m.Status, Name: m.Name}
+	}
+	return out
+}
+
+// claudeRecord is the subset of a transcript record Midden needs.
+type claudeRecord struct {
+	Type      string        `json:"type"`
+	Cwd       string        `json:"cwd"`
+	Summary   string        `json:"summary"`
+	Timestamp string        `json:"timestamp"`
+	Message   claudeMessage `json:"message"`
+}
+
+// claudeMessage handles content that is either a plain string or an array of
+// typed blocks.
+type claudeMessage struct {
+	Content json.RawMessage `json:"content"`
+}
+
+func (m claudeMessage) text() string {
+	if len(m.Content) == 0 {
+		return ""
+	}
+	var s string
+	if json.Unmarshal(m.Content, &s) == nil {
+		return s
+	}
+	var blocks []struct {
+		Type string `json:"type"`
+		Text string `json:"text"`
+	}
+	if json.Unmarshal(m.Content, &blocks) == nil {
+		for _, b := range blocks {
+			if b.Type == "text" && strings.TrimSpace(b.Text) != "" {
+				return b.Text
+			}
+		}
+	}
+	return ""
+}

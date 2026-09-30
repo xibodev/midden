@@ -1,0 +1,10 @@
+from: markdown
+to: dzslides
+standalone: true
+embed-resources: true
+slide-level: 1
+fail-if-warnings: true
+filters:
+  - ${.}/explicit-slides.lua
+css:
+  - ${.}/slides.css

@@ -1,0 +1,70 @@
+{
+  "schema": "midden.bundle-files/v1",
+  "files": [
+    {
+      "source": "investigation/SKILL.md",
+      "destination": "midden-investigation/SKILL.md",
+      "sha256": "c7ff51bda52754db5f2d47fead074bf6ee58f5a534d46ccffca01a60606451b3"
+    },
+    {
+      "source": "article/SKILL.md",
+      "destination": "midden-article/SKILL.md",
+      "sha256": "1f1636240e9be7442cd44f71bb6df810e73be62ba6bd6c81d6bf8786a8b99d37"
+    },
+    {
+      "source": "presentation/SKILL.md",
+      "destination": "midden-presentation/SKILL.md",
+      "sha256": "f5865c0f9f0b03f2badfe18b635792b8aca92d007d7828daae5a919ff152d99b"
+    },
+    {
+      "source": "presentation/templates/explicit-slides.lua",
+      "destination": "midden-presentation/templates/explicit-slides.lua",
+      "sha256": "5f6f3496024443b62f8f4d3f97504be06a8c4b5da51849320a49811e64c73ef1"
+    },
+    {
+      "source": "presentation/templates/html.yaml",
+      "destination": "midden-presentation/templates/html.yaml",
+      "sha256": "477d2a3047b9ce2c5a5fbda59cc16541d6992d20f7a993721e3d2c8c8a779868"
+    },
+    {
+      "source": "presentation/templates/slides.css",
+      "destination": "midden-presentation/templates/slides.css",
+      "sha256": "be1dbbe7fa56b1c647c81d5f0d912d2568f4d12857f7c3a0ff1a6ed42da240b9"
+    },
+    {
+      "source": "long-form/SKILL.md",
+      "destination": "midden-long-form/SKILL.md",
+      "sha256": "6c492484671c1823c4b5577a24d750162bcebeb6ac2634153c0623614a718d5b"
+    },
+    {
+      "source": "long-form/templates/epub.yaml",
+      "destination": "midden-long-form/templates/epub.yaml",
+      "sha256": "afae22ed3e904799953f8a8c465e7c25c0061a952a12284b6ca502f439cf7146"
+    },
+    {
+      "source": "long-form/templates/html.yaml",
+      "destination": "midden-long-form/templates/html.yaml",
+      "sha256": "9d086b5aed40c93e7806b72b308059e2594a59a6a474b9ec6430c6ada6a8695c"
+    },
+    {
+      "source": "midden-shared/html-inspection.md",
+      "destination": "midden-shared/html-inspection.md",
+      "sha256": "c780d2aa1021df235db07908801bbf48c8afadb0798a33924156689a1f03a259"
+    },
+    {
+      "source": "midden-shared/inspect_html.py",
+      "destination": "midden-shared/inspect_html.py",
+      "sha256": "1bdcbff7186fdc834bc141e589c4be930a90914fb1719793e86beaa15b5bd181"
+    },
+    {
+      "source": "midden-shared/sources.md",
+      "destination": "midden-shared/sources.md",
+      "sha256": "022cc3e8df983c6ccce58d158ac66ea0ee401dc2d8d51a4e68c318ad69febc1b"
+    },
+    {
+      "source": "midden-shared/tools.md",
+      "destination": "midden-shared/tools.md",
+      "sha256": "73ff08e9a3c498d7a5508129700696cb10b33b60de6bbb3067c043afccd1701d"
+    }
+  ]
+}

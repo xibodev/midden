@@ -1,0 +1,63 @@
+name: Pages
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Published stable release tag (empty selects latest)
+        required: false
+        type: string
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: github.event_name == 'workflow_dispatch' || (!github.event.release.prerelease && !github.event.release.draft)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Resolve the published stable release
+        id: release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REQUESTED_TAG: ${{ inputs.tag || github.event.release.tag_name }}
+        run: |
+          if [ -n "$REQUESTED_TAG" ]; then
+            gh api "repos/$GITHUB_REPOSITORY/releases/tags/$REQUESTED_TAG" > "$RUNNER_TEMP/site-release.json"
+          else
+            gh api "repos/$GITHUB_REPOSITORY/releases/latest" > "$RUNNER_TEMP/site-release.json"
+          fi
+          python -c 'import json,os,re; r=json.load(open(os.environ["RUNNER_TEMP"]+"/site-release.json")); assert not r["draft"] and not r["prerelease"]; assert re.fullmatch(r"v[0-9]+\.[0-9]+\.[0-9]+",r["tag_name"]); open(os.environ["GITHUB_OUTPUT"],"a").write("tag="+r["tag_name"]+"\n")'
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.release.outputs.tag }}
+      - uses: actions/configure-pages@v5
+      - name: Download and verify matching public installer assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.release.outputs.tag }}
+        run: |
+          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" \
+            --pattern install.ps1 --pattern install.sh --pattern SHA256SUMS --pattern build-manifest.json \
+            --dir "$RUNNER_TEMP/site-release"
+          python -B scripts/stage-site.py --release-dir "$RUNNER_TEMP/site-release" \
+            --out "$RUNNER_TEMP/public-site" --tag "$TAG"
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: ${{ runner.temp }}/public-site
+      - uses: actions/deploy-pages@v4
+        id: deployment

@@ -1,0 +1,9 @@
+from: markdown
+to: html5
+standalone: true
+embed-resources: true
+table-of-contents: true
+toc-depth: 2
+number-sections: true
+section-divs: true
+fail-if-warnings: true
