@@ -115,7 +115,7 @@ func (c *Copilot) Sessions(sc core.Scope) ([]core.Session, error) {
 	// The index reconciler can delete rows absent from a complete scan. This
 	// query intentionally excludes sessions without a working directory
 	// because they are not resumable, but their source ids still exist. Make
-	// that omission explicit so reconciliation preserves any legacy index rows
+	// that omission explicit so reconciliation preserves any existing index rows
 	// rather than tombstoning source data it never enumerated.
 	var skipped int
 	if err := db.QueryRow(`

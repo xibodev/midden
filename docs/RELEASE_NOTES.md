@@ -3,21 +3,8 @@
 **Two entrances: use the Midden app, or use Midden in your existing AI CLI.**
 Both use the deterministic core and the same canonical outcome bundle.
 
-[Installation](INSTALL.md) | [Migration](MIGRATION.md) |
+[Installation](INSTALL.md) |
 [Release assets](https://github.com/xibodev/midden/releases/tag/v0.3.1)
-
-## Windows PATH preservation
-
-This corrected launch preserves the exact raw user PATH: whether it existed,
-its registry value type, text and expandable environment references. Committed
-updates and successful restores notify Windows; notification failures are
-reported without undoing committed files or overwriting concurrent edits.
-
-The withdrawn v0.3.0 bootstrap's string-only receipts cannot recover the original
-raw state. Upgrading or removing those installations requires explicit
-`-NoPath`, leaving PATH unchanged with a warning. See
-[migration guidance](MIGRATION.md#from-the-withdrawn-windows-v030-bootstrap).
-Working data and model configuration are unaffected.
 
 ## App-first installation
 
@@ -29,16 +16,23 @@ Working data and model configuration are unaffected.
   Ctrl+C stops the host.
 - `--no-open` suppresses browser opening while the host remains in the foreground;
   `--version` reports the app version without reading or writing application state.
-- An explicit `--workspace` without `--state` retains the existing
-  workspace-local `.midden-ui` state binding.
+- An explicit `--workspace` requires `--state`; `--state` alone selects a
+  separate host state with the default workspace.
 - Core-only and AI CLI installation remain explicit modes. CLI mode retains the
   existing Python 3.9+ project-scoped, receipt-based installer.
 
-## Existing Midden UI, released Compa kernel
+## Windows PATH preservation
 
-The Midden app embeds **Compa v1.0.0**, without transplanting Compa's web UI or
-restoring a module adapter. Provider connections, catalogs and resolution use
-that runtime; the core's module stays independent of it.
+The Windows bootstrap preserves the exact raw user PATH: whether it existed,
+its registry value type, text and expandable environment references. Committed
+updates and successful restores notify Windows; notification failures are
+reported without undoing committed files or overwriting concurrent edits.
+
+## Midden app, released Compa kernel
+
+The Midden app embeds **Compa v1.0.0**, without transplanting Compa's web UI.
+Provider connections, catalogs and resolution use that runtime; the core's
+module stays independent of it.
 
 The UI retains conversations, reload-safe workspace-scoped drafts, explicit
 per-operation permissions, Stop, durable host turn outcomes, and inspectable
@@ -49,11 +43,8 @@ injected into the app page.
 Supported connections are OpenAI-compatible, including local servers, and
 Anthropic-compatible. **Find models** does not verify inference. **Check model**
 is a small, explicit tool-capability inference call with provider usage and no
-workspace reads. Exact manual model IDs remain supported.
-
-Direct native Copilot/Codex sign-in is **not included**. Existing native settings
-are preserved but require explicit reconnection. A model selection is not proof
-of valid authentication. No separately configured extension provider is bundled.
+workspace reads. Exact manual model IDs remain supported. A model selection is
+not proof of valid authentication.
 
 ## Core and outcome bundles
 
@@ -71,16 +62,7 @@ Public Go module paths use `github.com/xibodev/midden`; the UI remains a separat
 module beneath that namespace. Release archives include generated
 `THIRD_PARTY_NOTICES.txt` for compiled dependencies, retaining Compa attribution.
 
-## Compatibility and preservation
-
-v0.2 module, Studio, workflow and editorial project/recipe/approval interfaces
-are retired. `midden legacy export` is an explicit read-only recovery path;
-`index.db` is not implicitly converted into `core-index.db`.
-
-Earlier app kernel history is validated and migrated from `kernel-history` JSON
-to `compa-history` JSONL, preserving the legacy files and refusing conflicting
-history. Back up the workspace and complete host state before upgrading.
-See [Migration](MIGRATION.md) before reusing an old installation.
+## Preservation
 
 Upgrade/uninstall checks apply to owned installation files. They do not grant
 permission to discard modified files, source stores, workspaces or host state.

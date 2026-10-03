@@ -15,8 +15,6 @@ import (
 	"github.com/xibodev/compa/pkg/providers"
 )
 
-const retiredNativeProviderMessage = "This connection uses a retired native provider. Reconnect using an API-key or local compatible provider. Copilot/Codex requires a separately verified extension provider, which this host does not include."
-
 type ModelInput struct {
 	Provider      string `json:"provider"`
 	Model         string `json:"model"`
@@ -29,8 +27,6 @@ func modelProviderError(provider string) error {
 	switch strings.ReplaceAll(strings.TrimSpace(provider), "_", "-") {
 	case "openai", "anthropic":
 		return nil
-	case "github-copilot", "openai-codex":
-		return errors.New(retiredNativeProviderMessage)
 	default:
 		return fmt.Errorf("choose an OpenAI-compatible or Anthropic-compatible provider")
 	}
@@ -149,7 +145,7 @@ func resolveModelCredential(model Model, override string) (string, error) {
 	if credential == nil || strings.TrimSpace(credential.AccessToken) == "" {
 		return "", fmt.Errorf("selected credential is unavailable; reconnect this provider")
 	}
-	if credential.Provider != model.Provider || (credential.AuthMethod != "token" && credential.AuthMethod != modelservice.APIKeyAuthMethod) {
+	if credential.Provider != model.Provider || credential.AuthMethod != modelservice.APIKeyAuthMethod {
 		return "", fmt.Errorf("selected credential is not an API key for this provider; reconnect it")
 	}
 	if credential.IsExpired() {

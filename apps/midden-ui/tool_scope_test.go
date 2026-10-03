@@ -11,7 +11,7 @@ import (
 
 func TestToolReadsCannotExposeKernelCredentials(t *testing.T) {
 	opts := testOptions(t)
-	opts.State = filepath.Join(opts.Workspace, ".midden-ui")
+	opts.State = filepath.Join(opts.Workspace, "host-state")
 	app, err := NewApp(opts)
 	if err != nil {
 		t.Fatal(err)

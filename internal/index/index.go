@@ -85,8 +85,9 @@ func openReadOnlyFile(path string, immutable bool) (*DB, error) {
 // OpenAt opens the index under an EXPLICIT directory rather than resolving one
 // from the environment.
 //
-// The core cache is separate from legacy editorial state. Opening it never
-// migrates or deletes an existing index.db or its associated working files.
+// The index is the core-index.db file in that directory. Opening it creates the
+// directory if needed and writes only that database and its SQLite companion
+// files.
 func OpenAt(dir string) (*DB, error) {
 	if strings.TrimSpace(dir) == "" {
 		return nil, fmt.Errorf("index directory is empty")

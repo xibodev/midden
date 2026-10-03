@@ -27,7 +27,6 @@ block. Continue only through an approved deployment path after review.
 | Symptom | Check |
 |---|---|
 | Send is disabled / Set up model | Configure a supported connection and exact model ID in Settings, then save. Drafting and file access remain available. |
-| Reconnect required | A saved native Copilot/Codex adapter is unavailable in the Compa-backed app. Explicitly choose an API-key or compatible local connection; see Migration. |
 | Authentication or authorization error | Read the provider's actual error. Check endpoint, credentials, model availability and account access; a selected model is not verified authentication. Do not infer a single cause from an HTTP status alone. |
 | Find models fails or omits an ID | Catalog discovery is not inference verification. Check service support and enter the exact ID manually if appropriate. |
 | Check model fails | The explicit tool-capability probe could not complete. Inspect its error and the connection; do not treat a catalog listing as a substitute. |
@@ -37,10 +36,6 @@ block. Continue only through an approved deployment path after review.
 | Host status says Interrupted | The host stopped before the turn reached a durable finish. Inspect existing files and decide whether to resume; the status is not assistant-authored output. |
 | Draft storage unavailable | Keep the tab open, copy important text and use Retry draft save. Private browsing, disabled storage or quota can prevent persistence. |
 | Preview differs from opening a file directly | HTML previews allow inline runtime scripts but block network, parent-page access and privileged navigation. Inspect the artifact's offline dependencies. |
-
-Native Copilot/Codex sign-in and a separately configured extension provider are
-not bundled. An independently authenticated AI CLI remains a separate supported
-entrance; it does not change the app's provider capabilities.
 
 ## Sources, state and artifacts
 
@@ -55,8 +50,6 @@ entrance; it does not change the app's provider capabilities.
 | Existing output path | Choose a new destination. Core collection/export does not silently overwrite work. |
 | Draft not found | Check the intended workspace and its files. An empty index or different app state is not proof that no draft exists. |
 | Rendering unavailable | Provision only the selected bundle's required renderer/inspection tools. Installation does not download them for you. |
-| Kernel-history migration conflict | Preserve the complete state, old `kernel-history`, new `compa-history` and any retained staging. Do not remove receipts/backups to force a merge. |
-| Old module/Studio command rejected | That interface is retired, not an alias for the new app. Use the current core/bundle entrances and explicit legacy export where needed. |
 
-See [Installation](INSTALL.md), [Configuration](CONFIGURATION.md),
-[Migration](MIGRATION.md) and [Core commands](CORE.md).
+See [Installation](INSTALL.md), [Configuration](CONFIGURATION.md) and
+[Core commands](CORE.md).

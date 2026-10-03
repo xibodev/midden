@@ -360,7 +360,7 @@ func (a *App) StartTurn(id, text string) (string, error) {
 		}
 		if err != nil {
 			outcome.Status = "failed"
-			outcome.Error = clip(modelSetupError(err, a.model.Provider).Error(), 2000)
+			outcome.Error = clip(err.Error(), 2000)
 			if errors.Is(err, context.Canceled) {
 				outcome.Status = "cancelled"
 				outcome.Error = "Turn cancelled. Files already written were not undone."

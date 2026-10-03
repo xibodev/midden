@@ -128,16 +128,12 @@ sh midden-install.sh --mode cli --project . --host copilot</code></pre>
             <p>Start a fresh conversation in that project and describe an outcome.
               No internal API choreography, mandatory MCP configuration or global
               permission grant is needed.</p>
-            <p class="note">CLI mode uses the AI host's own authentication. It does not
-              add native Copilot/Codex sign-in to the Midden app.</p>
+            <p class="note">CLI mode uses the AI host's own authentication.</p>
           </article>
         </div>
         <div class="install-note">
           <p><strong>Only need session data?</strong> Select <code>-Mode core</code> /
             <code>--mode core</code>. The <code>midden</code> core never calls a model.</p>
-          <p><strong>Updating an older installation?</strong> Stop the app, back up
-            workspace/state, and read the <a href="https://github.com/xibodev/midden/blob/main/docs/MIGRATION.md">migration guide</a>
-            before reusing data.</p>
           <a href="https://github.com/xibodev/midden/blob/main/docs/INSTALL.md">All install options, pinned versions and removal</a>
         </div>
       </section>
@@ -159,8 +155,6 @@ sh midden-install.sh --mode cli --project . --host copilot</code></pre>
           <p>Source investigation is read-only. File creation and other tool actions
             use the host's permission controls. <strong>Approved shell commands run
             with your account; the app is not an OS sandbox.</strong></p>
-          <p>Native Copilot/Codex sign-in and a separately configured extension provider
-            are not bundled in the app. Old native settings require explicit reconnection.</p>
           <p>References prove origin, not truth. Credential filtering is not privacy
             clearance. Remote model calls send material through your chosen provider.</p>
           <p class="note">Compiled/runtime checks, local protocol fixtures and browser
@@ -206,7 +200,6 @@ sh midden-install.sh --mode cli --project . --host copilot</code></pre>
         <a href="https://github.com/xibodev/midden/blob/main/docs/GETTING_STARTED.md">Getting started</a>
         <a href="https://github.com/xibodev/midden/blob/main/docs/CONFIGURATION.md">Configuration</a>
         <a href="https://github.com/xibodev/midden/blob/main/docs/TROUBLESHOOTING.md">Troubleshooting</a>
-        <a href="https://github.com/xibodev/midden/blob/main/docs/MIGRATION.md">Migration</a>
         <a href="https://github.com/xibodev/midden/blob/main/LICENSE">MIT license</a>
       </div>
       <p>Keep sources, interpretations and authored work distinguishable.

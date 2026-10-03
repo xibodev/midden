@@ -36,7 +36,6 @@ does not sandbox shell tools: **approved shell commands run with your account**.
 | Asset extraction | Copy available selected assets under bounded confinement |
 | Collection verification | Check structural/reference/hash correspondence |
 | Explicit quote check | Check supplied words against a source window, not narrative truth |
-| Legacy export | Read old working state and copy recoverable data/files without rewriting it |
 | Prune/archive | Separate explicit source-maintenance actions, not content-production steps |
 
 Core does not perform AI interpretation or require an editorial lifecycle.
@@ -67,5 +66,5 @@ Owned-file checks are not permission to remove modified or unrelated files.
 Uninstallation preserves workspace, host state and source data. Do not delete
 receipts or data to bypass a reported conflict.
 
-See [Installation](INSTALL.md#verify-update-and-remove),
-[Migration](MIGRATION.md) and [Troubleshooting](TROUBLESHOOTING.md).
+See [Installation](INSTALL.md#verify-update-and-remove) and
+[Troubleshooting](TROUBLESHOOTING.md).

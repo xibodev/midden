@@ -146,7 +146,7 @@
     $("stop").disabled = state.canceling || !state.csrf;
     $("turnStatus").textContent = state.active ? (state.canceling ? "Stopping..." : pending(entry(state.active.sessionId)).length ? "Permission needed" :
       state.active.sessionId && state.active.sessionId !== state.current ? "Running in another conversation" : "Working...") :
-      state.booting ? "Loading workspace..." : state.creating ? "Creating conversation..." : state.sending ? "Starting turn..." : item.loading ? "Loading conversation..." : item.error ? "Conversation unavailable" : state.modelSetupError ? "Reconnect required" : !state.modelConfigured ? "Set up model to send" : state.csrf ? "Ready" : "Host not loaded";
+      state.booting ? "Loading workspace..." : state.creating ? "Creating conversation..." : state.sending ? "Starting turn..." : item.loading ? "Loading conversation..." : item.error ? "Conversation unavailable" : state.modelSetupError ? "Model setup needed" : !state.modelConfigured ? "Set up model to send" : state.csrf ? "Ready" : "Host not loaded";
     if (state.interrupted) $("turnStatus").textContent = state.source?.readyState === EventSource.CLOSED ? "Live updates stopped. Refresh host to reconnect." :
       `Live updates interrupted. ${state.active ? "Stop is available." : "Reconnecting..."}`;
     $("activeSession").hidden = !state.active?.sessionId || state.active.sessionId === state.current;
@@ -166,9 +166,9 @@
   function connectionIssue(model) {
     if (typeof model.setupError === "string" && model.setupError.trim()) return model.setupError;
     return model.provider && !supportedProvider(model.provider) ?
-      "This saved provider is unavailable. Reconnect using an OpenAI-compatible or Anthropic-compatible API-key or local server. Native sign-in and extension providers are not included in this host." : "";
+      "This saved provider is not supported. Choose an OpenAI-compatible or Anthropic-compatible connection." : "";
   }
-  const modelStatus = model => connectionIssue(model) ? "Reconnect required / connection unavailable" :
+  const modelStatus = model => connectionIssue(model) ? "Model setup needed / connection unavailable" :
     `${model.configured ? "Model selected" : "Model not selected"} / ${model.authStatus === "verified" ? "authentication verified" : "authentication checked on use"}`;
   async function loadStatus() {
     const version = ++state.statusRequest, revision = state.revision;
@@ -601,7 +601,7 @@
       const provider = model.provider || "openai";
       $("provider").querySelectorAll("[data-unavailable]").forEach(option => option.remove());
       if (!supportedProvider(provider)) {
-        const option = node("option", "", `${provider} (unavailable - reconnect required)`);
+        const option = node("option", "", `${provider} (unsupported)`);
         option.value = provider; option.disabled = true; option.dataset.unavailable = "true";
         $("provider").append(option);
       }
@@ -654,7 +654,7 @@
   }
   function modelInput(requireModel) {
     const body = Object.fromEntries(modelFields.map(name => [name, $(name).value.trim()]));
-    if (!supportedProvider(body.provider)) throw new Error("Choose a supported compatible provider to reconnect.");
+    if (!supportedProvider(body.provider)) throw new Error("Choose a supported compatible provider.");
     if (requireModel && !body.model) throw new Error("Enter a model identifier.");
     if (body.endpoint) {
       let url;

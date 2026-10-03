@@ -45,10 +45,24 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           go vet ./...
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          $dependencies = go list -deps ./cmd/midden
+          $modules = go list -deps -f '{{if not .Standard}}{{.Module.Path}}{{with .Module.Replace}} => {{.Path}}{{end}}{{end}}' ./cmd/midden
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          if ($dependencies -match 'github.com/xibodev/(compa|llmgw-core|llm-provider-auth)|facet-studio|anthropic-sdk|openai-go|copilot-sdk|midden/internal/(module|editorial|create|exec|web)') {
-            throw 'Core depends on a retired runtime/editorial layer'
+          $approved = @(
+            'github.com/xibodev/midden'
+            'github.com/dustin/go-humanize'
+            'github.com/gomarkdown/markdown'
+            'github.com/google/uuid'
+            'github.com/mattn/go-isatty'
+            'github.com/ncruces/go-strftime'
+            'github.com/remyoudompheng/bigfft'
+            'golang.org/x/sys'
+            'modernc.org/libc'
+            'modernc.org/mathutil'
+            'modernc.org/memory'
+            'modernc.org/sqlite'
+          )
+          if (@($modules | Where-Object { $_ -and $_ -cnotin $approved }).Count -ne 0) {
+            throw 'Core depends on a module outside its approved dependency set'
           }
       - name: Installer and archive behavior
         run: |

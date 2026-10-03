@@ -19,14 +19,11 @@ records, scoped discovery, stable source views, measurements, bounded reads,
 asset handling, collection transforms and export. It never invokes an AI model.
 
 `internal/material` owns source views and portable collections. It depends on
-the source adapters, data types and explicit filesystem operations, not module
-envelopes or an editorial lifecycle. `internal/index` is a derived cache;
-`core-index.db` is separate from old working data. `internal/legacy` provides
-explicit read-only recovery of old tables and files.
+the source adapters, data types and explicit filesystem operations, not an
+editorial lifecycle. `internal/index` is a derived cache (`core-index.db`).
 
 The ordinary CLI is the reference interface. A transport adapter, if added later,
 must invoke these operations without introducing a second lifecycle or store.
-The prior module/runtime/Studio interfaces are not active compatibility layers.
 
 ## Bundle
 

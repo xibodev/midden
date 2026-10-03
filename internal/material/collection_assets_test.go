@@ -479,39 +479,35 @@ func TestCollectionAssetsRejectOversizedManifestRecordsAndViewCache(t *testing.T
 	}
 }
 
-func TestCollectionAssetsPreserveLegacyMetadataAndRejectAmbiguousProvenance(t *testing.T) {
-	_, _, collection, image := collectAssetFixture(t, false)
-	manifest, err := Manifest(collection.Path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for i := range manifest.Assets {
-		manifest.Assets[i].SourceDigest = ""
-	}
-	writeCollectionTestManifest(t, collection.Path, manifest)
-	out := filepath.Join(t.TempDir(), "normalized")
-	if err = Export(collection.Path, out, "directory"); err != nil {
-		t.Fatal(err)
-	}
-	normalized := assertCollectionAssets(t, out, 2, image)
-	for _, asset := range normalized.Assets {
-		if asset.SourceDigest == "" {
-			t.Fatal("unambiguous legacy asset provenance was not normalized")
-		}
-	}
+func TestCollectionAssetsRejectMissingProvenance(t *testing.T) {
+	_, _, single, _ := collectAssetFixture(t, false)
 	_, _, other, _ := collectAssetFixture(t, false)
-	merged := filepath.Join(t.TempDir(), "merged")
-	if _, err = Merge([]string{collection.Path, other.Path}, merged); err != nil {
+	versions := filepath.Join(t.TempDir(), "versions")
+	if _, err := Merge([]string{single.Path, other.Path}, versions); err != nil {
 		t.Fatal(err)
 	}
-	manifest, err = Manifest(merged)
-	if err != nil {
-		t.Fatal(err)
-	}
-	manifest.Assets[0].SourceDigest = ""
-	writeCollectionTestManifest(t, merged, manifest)
-	if report, err := Verify(merged); err == nil && report.Valid {
-		t.Fatal("an asset was guessed to belong to one of two source versions")
+	for _, tc := range []struct{ name, path string }{
+		{"one source version", single.Path},
+		{"two source versions", versions},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			manifest, err := Manifest(tc.path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			manifest.Assets[0].SourceDigest = ""
+			writeCollectionTestManifest(t, tc.path, manifest)
+			if report, err := Verify(tc.path); err == nil && report.Valid {
+				t.Fatal("an asset without source provenance verified successfully")
+			}
+			out := filepath.Join(t.TempDir(), "rejected")
+			if err = Export(tc.path, out, "directory"); err == nil {
+				t.Fatal("export assigned missing asset provenance instead of rejecting it")
+			}
+			if _, err = os.Stat(out); !os.IsNotExist(err) {
+				t.Fatal("rejected collection created output")
+			}
+		})
 	}
 }
 

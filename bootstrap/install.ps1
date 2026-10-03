@@ -11,9 +11,7 @@ to the verified bundle's offline installer.
 The default directory is LOCALAPPDATA\Programs\Midden. Unless -NoPath is set,
 UI/core installation adds it to the user's PATH, never the machine PATH.
 PATH receipts retain the raw registry value, kind and presence without expanding
-tokens. Legacy receipts cannot recover that information: upgrade/removal requires
--NoPath, preserves the current PATH, and does not claim to repair lost metadata.
-Committed PATH changes and restored states notify desktop processes with
+tokens. Committed PATH changes and restored states notify desktop processes with
 WM_SETTINGCHANGE(Environment), using a five-second per-receiver timeout.
 Notification failure warns without undoing committed files or raw registry state.
 No execution-policy change, elevation, credentials or model configuration occurs.
@@ -508,26 +506,17 @@ public static class MiddenEnvironmentNotification {
             $files[$name] = Assert-Hash $files[$name]
             Check-Expected (Join-Path $installRoot $name) $files[$name]
         }
-        $pathMode = 'none'
         if ($null -ne $receipt.path_change) {
             $change = Get-PropertyMap $receipt.path_change
-            if (-not $change.ContainsKey('schema')) {
-                Assert-Keys @($change.Keys) @('before', 'after') 'Legacy PATH ownership'
-                if (($null -ne $change['before'] -and $change['before'] -isnot [string]) -or
-                    $change['after'] -isnot [string]) { throw 'Invalid legacy PATH receipt' }
-                $pathMode = 'legacy'
-            } else {
-                Assert-Keys @($change.Keys) @('schema', 'before', 'after') 'PATH ownership'
-                if ($change['schema'] -cne $pathSchema) { throw 'Unsupported user PATH receipt schema' }
-                Assert-UserPathState $change['before']
-                Assert-UserPathState $change['after']
-                if (-not (Test-UserPathState $change['after'] (New-UserPathChange $change['before']).after)) {
-                    throw 'User PATH receipt does not describe adding this installation'
-                }
-                $pathMode = 'raw'
+            Assert-Keys @($change.Keys) @('schema', 'before', 'after') 'PATH ownership'
+            if ($change['schema'] -cne $pathSchema) { throw 'Unsupported user PATH receipt schema' }
+            Assert-UserPathState $change['before']
+            Assert-UserPathState $change['after']
+            if (-not (Test-UserPathState $change['after'] (New-UserPathChange $change['before']).after)) {
+                throw 'User PATH receipt does not describe adding this installation'
             }
         }
-        return @{ Record = $receipt; Files = $files; Hash = (Get-Digest $bytes); PathMode = $pathMode }
+        return @{ Record = $receipt; Files = $files; Hash = (Get-Digest $bytes) }
     }
 
     function Check-Expected([string]$Path, $Expected) {
@@ -852,12 +841,7 @@ public static class MiddenEnvironmentNotification {
         $pathChange = $null
         $pathNotice = $null
         $recordedPath = if ($owned) { $owned.Record.path_change } else { $null }
-        if ($owned -and $owned.PathMode -eq 'legacy') {
-            if (-not $Options.NoPath -and -not $Options.Verify) {
-                throw 'Legacy PATH receipt cannot recover the original raw value/kind; use -NoPath for upgrade/removal and review PATH manually'
-            }
-            $pathNotice = 'Legacy PATH ownership is not recoverable; PATH is unchanged and only owned files are managed'
-        } elseif (-not $Options.NoPath -and -not $Options.Verify -and $Options.Mode -ne 'cli') {
+        if (-not $Options.NoPath -and -not $Options.Verify -and $Options.Mode -ne 'cli') {
             $currentPath = Get-UserPathState
             if ($Options.Uninstall) {
                 if ($recordedPath -and (Test-UserPathState $currentPath $recordedPath.after)) {

@@ -51,7 +51,7 @@ func resolveLaunchPaths(opts Options, executable, dataRoot string) (Options, boo
 			opts.State = filepath.Join(dataRoot, "host-state")
 		}
 	} else if opts.State == "" {
-		opts.State = filepath.Join(opts.Workspace, ".midden-ui")
+		return opts, false, fmt.Errorf("--workspace must be used together with --state")
 	}
 	if opts.Core == "" {
 		name := "midden"

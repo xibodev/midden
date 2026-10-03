@@ -8,8 +8,8 @@ tests do not certify live AI content quality or all model providers.
 
 Run the standard build, full Go suite and vet. Exercise exact source selection,
 malformed inputs, partial inventories, bounded reading, append-only growth,
-earlier changes/truncation, collection integrity, asset confinement, portable
-export and legacy-store preservation.
+earlier changes/truncation, collection integrity, asset confinement and portable
+export.
 
 Use synthetic stores for public tests. Compare source hashes before/after read
 operations and inspect actual files, not only successful JSON responses.
@@ -36,8 +36,8 @@ attribution.
 
 ## App mechanics
 
-Verify no-argument per-user defaults, sibling core/bundle resolution,
-`--workspace`-only compatibility with workspace-local `.midden-ui` state,
+Verify no-argument per-user defaults, sibling core/bundle resolution, rejection
+of `--workspace` without `--state`, `--state` alone with the default workspace,
 foreground shutdown and `--no-open`. The `--version` path must report its
 version without state IO.
 
@@ -50,10 +50,8 @@ replayed events, Stop, independent permission decisions, mobile visibility and
 keyboard focus, host turn outcomes after restart, downloads and isolated
 artifact runtimes.
 
-Verify that retired native connections remain visible and require explicit
-reconnection, and that history conversion retains legacy bytes and refuses
-conflicts. Synthetic HTTP/SSE and local provider fixtures test these contracts
-without proving a real account's authorization.
+Synthetic HTTP/SSE and local provider fixtures test these contracts without
+proving a real account's authorization.
 
 ## Bundle outcomes
 

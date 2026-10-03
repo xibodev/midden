@@ -497,7 +497,7 @@ def read_receipt(path: Path) -> Optional[dict]:
         or set(value) != {"schema", "binding", "version", "files"}
         or value["schema"] != RECEIPT_SCHEMA
     ):
-        raise InstallError("Unsupported installation receipt; legacy receipts are not migrated")
+        raise InstallError("Unsupported installation receipt")
     return value
 
 
