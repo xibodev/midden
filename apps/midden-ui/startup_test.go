@@ -55,16 +55,20 @@ func TestDefaultLaunchUsesSiblingComponentsAndSeparateUserData(t *testing.T) {
 	}
 }
 
-func TestExplicitWorkspaceRetainsItsExistingImplicitStateBinding(t *testing.T) {
+func TestExplicitWorkspaceRequiresExplicitState(t *testing.T) {
 	root := t.TempDir()
 	binary := filepath.Join(root, "midden-ui")
 	if err := os.WriteFile(binary, []byte("synthetic"), 0600); err != nil {
 		t.Fatal(err)
 	}
 	workspace := filepath.Join(root, "project")
-	opts, create, err := resolveLaunchPaths(Options{Workspace: workspace}, binary, filepath.Join(root, "default-data"))
-	if err != nil || create || opts.State != filepath.Join(workspace, ".midden-ui") {
-		t.Fatal("an existing explicit-workspace launch silently moved its state", err)
+	if _, _, err := resolveLaunchPaths(Options{Workspace: workspace}, binary, filepath.Join(root, "default-data")); err == nil {
+		t.Fatal("an explicit workspace was accepted without an explicit state directory")
+	}
+	state := filepath.Join(root, "state")
+	opts, create, err := resolveLaunchPaths(Options{Workspace: workspace, State: state}, binary, filepath.Join(root, "default-data"))
+	if err != nil || create || opts.Workspace != workspace || opts.State != state {
+		t.Fatal("explicit workspace and state were not used as given", err)
 	}
 }
 

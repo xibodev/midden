@@ -344,8 +344,8 @@ func readCollectionSnapshot(name string) (collectionSnapshot, Verification, erro
 	report.AssetCount = len(m.Assets)
 	var total int64
 	for _, metadata := range m.Assets {
-		asset := collectionAsset{}
-		asset.metadata, err = validateAssetMetadata(metadata, owners)
+		asset := collectionAsset{metadata: metadata}
+		err = validateAssetMetadata(metadata, owners)
 		if err == nil && metadata.Status == "copied" {
 			if !portableRelative(metadata.Path) || !strings.HasPrefix(metadata.Path, "assets/") {
 				err = fmt.Errorf("copied asset path is outside assets/")

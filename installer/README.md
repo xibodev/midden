@@ -215,8 +215,7 @@ Collisions are refused even when bytes match. Upgrade requires an unchanged,
 supported receipt; changed or missing owned files block verification, upgrade,
 and uninstall rather than discarding edits. Uninstall removes only unchanged
 receipt-owned files and its receipt. State, unrelated files, and possibly empty
-directories remain. Old module-era receipts/configuration are not migrated or
-removed; use a fresh scoped location or the matching old uninstaller.
+directories remain.
 
 Operations use an exclusive installation lock and rollback on file-operation
 failure. Interrupted operations leave explicit checksum/lock diagnostics.

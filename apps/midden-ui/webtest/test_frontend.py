@@ -11,7 +11,7 @@ SSE uses real EventSource, including id/seq replay detection. activeTurn accepts
 a turn ID (in a session response) or {turnId, sessionId} (in host status).
 Blank API keys are omitted from PUT /api/model to preserve stored credentials.
 Compa exposes openai/anthropic compatible connections. Unsupported saved provider
-values are preserved for explicit reconnection, not silently normalized or saved.
+values are reported and never silently normalized or saved.
 Host notices remain visible separately from dismissible request errors.
 configured means a model was selected, not that credentials were verified.
 Only an explicit authStatus of "verified" is treated as verified authentication.

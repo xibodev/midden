@@ -30,7 +30,7 @@ func (a *App) DiscoverModels(ctx context.Context, input ModelInput) (modelCatalo
 	}
 	a.mu.Unlock()
 	if err != nil {
-		return modelCatalog{}, modelSetupError(err, input.Provider, input.APIKey)
+		return modelCatalog{}, modelSetupError(err, input.APIKey)
 	}
 	catalogInput := modelservice.CatalogSyncInputFromInstance(modelInstance(model))
 	catalogInput.Secret = secret
@@ -38,7 +38,7 @@ func (a *App) DiscoverModels(ctx context.Context, input ModelInput) (modelCatalo
 	defer cancel()
 	models, err := modelservice.SyncCatalog(ctx, catalogInput)
 	if err != nil {
-		return modelCatalog{}, modelSetupError(err, model.Provider, secret, catalogInput.Secret)
+		return modelCatalog{}, modelSetupError(err, secret, catalogInput.Secret)
 	}
 	result := modelCatalog{Models: []availableModel{}, Note: "Catalog discovery does not verify inference or tool support. Select a model and use Check model."}
 	for _, model := range models {
@@ -68,7 +68,7 @@ func (a *App) CheckModel(ctx context.Context, input ModelInput) error {
 	}
 	a.mu.Unlock()
 	if err != nil {
-		return modelSetupError(err, input.Provider, input.APIKey)
+		return modelSetupError(err, input.APIKey)
 	}
 	if closer, ok := provider.(providers.StatefulProvider); ok {
 		defer closer.Close()
@@ -82,7 +82,7 @@ func (a *App) CheckModel(ctx context.Context, input ModelInput) error {
 			Parameters: map[string]any{"type": "object", "properties": map[string]any{"ok": map[string]any{"type": "boolean"}}, "required": []string{"ok"}, "additionalProperties": false},
 		}}}, model.Model, map[string]any{"max_tokens": 128})
 	if err != nil {
-		return modelSetupError(err, model.Provider, input.APIKey, secret)
+		return modelSetupError(err, input.APIKey, secret)
 	}
 	if response != nil {
 		for _, call := range response.ToolCalls {
@@ -103,15 +103,12 @@ func (a *App) CheckModel(ctx context.Context, input ModelInput) error {
 	return fmt.Errorf("the service responded but did not return the required tool call; this model/connection is not verified for Midden bundle execution")
 }
 
-func modelSetupError(err error, provider string, secrets ...string) error {
+func modelSetupError(err error, secrets ...string) error {
 	message := err.Error()
 	for _, secret := range secrets {
 		if secret != "" {
 			message = strings.ReplaceAll(message, secret, "[redacted]")
 		}
-	}
-	if provider == "github-copilot" || provider == "openai-codex" {
-		return errors.New(retiredNativeProviderMessage)
 	}
 	return errors.New(message)
 }

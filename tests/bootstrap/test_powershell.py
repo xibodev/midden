@@ -1130,7 +1130,7 @@ class PowerShellBootstrapTests(unittest.TestCase):
                     self.assertEqual(actual["receipt"]["mode"], "core")
                     self.assertFalse((install / RECEIPT).exists())
 
-    def test_raw_path_dry_run_is_write_free_and_legacy_plan_stays_json(self):
+    def test_raw_path_dry_run_is_write_free(self):
         for shell in SHELLS:
             with self.subTest(shell=shell):
                 root, install, project, env = self.context(shell)
@@ -1150,42 +1150,23 @@ class PowerShellBootstrapTests(unittest.TestCase):
                 self.assertFalse(install.exists())
                 self.assertFalse(Path(env["MIDDEN_BOOTSTRAP_TEST_LOG"]).exists())
                 self.assertEqual(list(Path(env["TEMP"]).iterdir()), [])
-                self.run_bootstrap(shell, install, project, env)
-                receipt_path = install / RECEIPT
-                receipt = json.loads(receipt_path.read_text())
-                receipt["path_change"] = {"before": "old expanded PATH", "after": "old expanded PATH;" + str(install)}
-                receipt_path.write_text(json.dumps(receipt), encoding="utf-8")
-                result = self.run_bootstrap(shell, install, project, env, "-Upgrade", "-DryRun")
-                plan = json.loads(result.stdout)
-                self.assertIn("legacy", json.dumps(plan).lower())
 
-    def test_legacy_path_receipt_requires_explicit_no_path_for_upgrade_and_uninstall(self):
+    def test_path_receipt_without_schema_blocks_verify_upgrade_uninstall(self):
         for shell in SHELLS:
             with self.subTest(shell=shell):
-                root, install, project, env = self.context(shell)
+                _, install, project, env = self.context(shell)
                 self.run_bootstrap(shell, install, project, env)
                 receipt_path = install / RECEIPT
                 receipt = json.loads(receipt_path.read_text())
-                legacy = {"before": r"C:\expanded-old-profile\tools", "after": r"C:\expanded-old-profile\tools;" + str(install)}
-                receipt["path_change"] = legacy
+                receipt["path_change"] = {"before": r"C:\synthetic\tools", "after": r"C:\synthetic\tools;" + str(install)}
                 receipt_path.write_text(json.dumps(receipt), encoding="utf-8")
                 before = snapshot(install)
                 Path(env["MIDDEN_BOOTSTRAP_TEST_LOG"]).unlink()
-                for flag in ("-Upgrade", "-Uninstall"):
-                    result = self.registry_driver(
-                        shell, install, project, env,
-                        "& $bootstrap -DistributionDir $release -InstallDir $install -ProjectDir $project -NoLaunch " + flag,
-                        success=False,
-                    )
-                    self.assertIn("legacy", result.stderr.lower())
-                    self.assertIn("NoPath", result.stderr)
+                for operation in ("-Verify", "-Upgrade", "-Uninstall"):
+                    result = self.run_bootstrap(shell, install, project, env, operation, success=False)
+                    self.assertIn("path ownership inventory mismatch", (result.stdout + result.stderr).lower())
                     self.assertEqual(snapshot(install), before)
-                    self.assertFalse(Path(env["MIDDEN_BOOTSTRAP_TEST_LOG"]).exists())
-                result = self.run_bootstrap(shell, install, project, env, "-Upgrade")
-                self.assertIn("legacy", result.stdout.lower())
-                self.assertEqual(json.loads(receipt_path.read_text())["path_change"], legacy)
-                self.run_bootstrap(shell, install, project, env, "-Uninstall", local=False)
-                self.assertFalse(receipt_path.exists())
+                self.assertFalse(Path(env["MIDDEN_BOOTSTRAP_TEST_LOG"]).exists())
 
     def test_native_version_mismatch_leaves_no_installation_or_probe_scratch(self):
         for shell in SHELLS:

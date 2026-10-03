@@ -34,10 +34,9 @@ database project is not a prerequisite for creating or finding a draft.
 The host owns conversation, models, permissions and credentials. Bundle guidance
 does not bypass host denials or grant publication authority.
 
-## Retired boundaries
+## Boundaries
 
-The old module adapter, host descriptors/grants and editorial database remain
-retired. AI/provider execution does not belong in the core. The separate
+AI/provider execution does not belong in the core. The separate
 `apps/midden-ui` Go module embeds Compa to execute the same canonical bundle;
 it is a host, not a second implementation of core or bundle behavior.
 MCP, if retained, is only a thin optional core adapter, not a second lifecycle.
@@ -53,9 +52,8 @@ under bundle guidance.
    append-only reads, truncation/edits, asset handling and portable collections.
 3. Validate bundle effectiveness through natural operator goals and actual
    editable/rendered artifacts, not a prescribed tool-call sequence.
-4. Preserve private sessions, old test labs and existing work. Test migration on
-   copies and provide explicit read-only legacy export. Never commit private
-   source material.
+4. Preserve private sessions, old test labs and existing work. Never commit
+   private source material.
 5. Run full relevant tests, clean-install checks and Windows/Linux staging CI.
    Do not label missing credentials or interactive-only checks as passes.
 6. Keep plans in the host task tracker. Ship product documentation and reusable

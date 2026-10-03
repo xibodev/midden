@@ -47,16 +47,6 @@ func TestCustomStateDirectoryCannotBeReadOrOverwrittenAsAnArtifact(t *testing.T)
 		t.Fatal("generic tool allowed overwriting model state")
 	}
 }
-func TestNativeCodexRejectsAnIgnoredCustomEndpoint(t *testing.T) {
-	app, err := NewApp(testOptions(t))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer app.Close()
-	if app.SetModel(ModelInput{Provider: "openai-codex", Model: "fixture", Endpoint: "http://127.0.0.1:12345", CredentialRef: "synthetic"}) == nil {
-		t.Fatal("native provider accepted an endpoint it ignores")
-	}
-}
 func TestSessionSaveDoesNotWriteAnUnreadableAggregate(t *testing.T) {
 	opts := testOptions(t)
 	app, err := NewApp(opts)

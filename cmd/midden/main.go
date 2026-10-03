@@ -43,8 +43,6 @@ func main() {
 		err = cmdFind(os.Args[2:])
 	case "read", "search", "collect", "collection", "assets":
 		err = runMaterial(os.Args[1], os.Args[2:], os.Stdout)
-	case "legacy":
-		err = runLegacy(os.Args[2:], os.Stdout)
 	case "usage":
 		err = runUsage(os.Args[2:], os.Stdout)
 	case "show":
@@ -67,8 +65,6 @@ func main() {
 		err = cmdArchive(os.Args[2:])
 	case "ops":
 		err = cmdOps(os.Args[2:])
-	case "module", "agent", "ui", "reclaim", "refine", "ask", "advise", "catalog", "nuggets", "artifacts", "plugins", "plugin", "seed", "install", "summarize", "summarise", "summary", "start", "cost", "mcp":
-		err = fmt.Errorf("%q is retired from the deterministic core; use normal data commands and the separate outcome bundle", os.Args[1])
 	case "version", "--version", "-v":
 		fmt.Println("midden", version)
 	case "help", "--help", "-h":
@@ -112,7 +108,6 @@ WORK WITH MATERIAL
   collection     Inspect, read, search, select, merge, verify or export
   assets         List/extract recorded assets without fetching remote URLs
   usage          Read a source session's recorded model usage
-  legacy export  Copy legacy working data without migrating its store
 
 EXPLICIT SOURCE MAINTENANCE
   prune          Preview cleanup; source changes require explicit execution

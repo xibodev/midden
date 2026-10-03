@@ -29,8 +29,7 @@ The conversation list, drafts and file previews remain usable before model
 setup. Sending is gated until a model is selected. Selection does not guarantee
 authentication, entitlement or useful output.
 
-The app embeds Compa v1.0.0. Native Copilot/Codex sign-in is not bundled.
-For **Reconnect required**, follow [Migration](MIGRATION.md#reconnect-unsupported-model-settings).
+The app embeds Compa v1.0.0.
 
 Use **Stop** to cancel an active turn; inspect any files already written.
 Ctrl+C in the terminal stops the host. Later, run `midden-ui` again. Use

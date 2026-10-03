@@ -40,7 +40,7 @@ func (a *App) path(name string) (string, error) {
 		return "", fmt.Errorf("file escapes workspace")
 	}
 	for _, part := range strings.Split(rel, string(filepath.Separator)) {
-		if part == ".git" || part == ".midden" || part == ".midden-ui" || part == "sessions" {
+		if part == ".git" || part == ".midden" || part == "sessions" {
 			return "", fmt.Errorf("host state is not an artifact")
 		}
 	}

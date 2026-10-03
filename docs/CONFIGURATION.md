@@ -14,11 +14,9 @@ no-argument launch keeps workspace and host state outside the installation:
 | macOS | `~/Library/Application Support/Midden` |
 | Linux | `$XDG_DATA_HOME/midden`, otherwise `~/.local/share/midden` |
 
-Use `--workspace PATH` and `--state PATH` to reopen a deliberate alternative.
-Supplying `--workspace` alone preserves the legacy workspace-local binding:
-`WORKSPACE\.midden-ui` on Windows, or `WORKSPACE/.midden-ui` on Unix. This does
-not move existing history to the per-user data root. Supply both flags to keep
-state separate from the workspace.
+Use `--workspace PATH` and `--state PATH` together to reopen a deliberate
+alternative; `--workspace` without `--state` is an error. `--state PATH` alone
+selects a separate host state with the default workspace.
 
 Keep the installation separate from working data. Workspace files are your
 ordinary drafts, notes, source collections and output. Host state contains
@@ -66,10 +64,6 @@ the provider remain explicit. API keys are write-only: they are not returned
 to the form and are cleared after successful requests or when the dialog closes.
 You may need to enter a key again for a later request that has not been saved.
 
-Direct native Copilot/Codex sign-in is not included. An old native setting stays
-visible as unavailable until you explicitly save a supported replacement.
-The app does not include a separately configured extension provider.
-
 ## Core cache and source scope
 
 `MIDDEN_HOME` selects the deterministic core's cache directory. Without it, the
@@ -79,9 +73,8 @@ core uses `.midden` under the resolved user home.
   records.
 - `views` contains bounded, pinned source views for continued investigation.
 
-The core stores no model credentials. Legacy `index.db` remains separate.
-Collections and authored work belong in explicit working directories rather
-than only in a cache.
+The core stores no model credentials. Collections and authored work belong in
+explicit working directories rather than only in a cache.
 
 | Source tool | Default recorded source |
 |---|---|

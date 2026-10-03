@@ -1,12 +1,12 @@
 # Midden UI host
 
-This is a new host for the canonical Midden bundle, not a restored version of
-the old Studio UI. It embeds Compa's public kernel in its own Go module.
-The deterministic core and canonical bundle remain independent.
+This is a host for the canonical Midden bundle. It embeds Compa's public kernel
+in its own Go module. The deterministic core and canonical bundle remain
+independent.
 
 The kernel is pinned to the published `github.com/xibodev/compa v1.0.0`
 release (commit `3fd39ad7f5cb3d63115535c4b433b714ab6a2812`). No separate
-Compa application, web UI, module adapter or kernel process is required.
+Compa application, web UI or kernel process is required.
 
 ## Run
 
@@ -24,9 +24,8 @@ Default writable data stays outside the installation:
 | macOS | `~/Library/Application Support/Midden` |
 | Linux | `$XDG_DATA_HOME/midden`, or `~/.local/share/midden` |
 
-The default creates `workspace` and `host-state` beneath that parent. Existing
-explicit `--workspace` launches still use `WORKSPACE\.midden-ui` when `--state`
-is omitted; supply both paths to preserve a custom installation's bindings.
+The default creates `workspace` and `host-state` beneath that parent. An explicit
+`--workspace` requires `--state`; `--state` alone uses the default workspace.
 The `--core`, `--bundle` and `--listen` overrides remain available.
 
 Building from source requires Go 1.26.6 for this host. Build the normal core from
@@ -69,10 +68,9 @@ core's normal source discovery applies. Investigation does not mutate sources.
    revisions in the same conversation.
 5. Stop a turn when needed. Cancellation does not undo already completed file
    writes. Refresh/reopen the host to continue stored conversation history.
-   New turns retain completed, failed, cancelled or interrupted outcomes beside
+   Turns retain completed, failed, cancelled or interrupted outcomes beside
    their request; a host restart marks unfinished attempts interrupted rather
-   than silently showing them as completed. Old histories without outcome
-   records cannot retrospectively reconstruct earlier failures.
+   than silently showing them as completed.
 
 Unsent drafts are saved in this browser, scoped to the workspace and host-state
 identity as well as the conversation. They survive page reloads and are cleared
@@ -82,7 +80,9 @@ using a shared browser. Storage failures are reported rather than silently
 claiming that a draft was saved. Model credentials never enter this draft cache.
 Changing providers or endpoints does not silently reuse another service's key.
 
-One UI process owns one workspace and isolated kernel state root. Model
+One UI process owns one workspace and isolated kernel state root. The host binds
+`COMPA_HOME` to `STATE\kernel` and never reads a global `~/.compa` configuration
+or key store. Model
 credentials are written only to that kernel auth store and are not returned by
 the settings API. Generic read tools cannot inspect host state. The loopback API
 rejects foreign hosts/origins and requires a process CSRF token for mutations.
@@ -91,30 +91,6 @@ authored-file workspace. The public prompt-contributor API supplies the actual
 artifact tool binding; agents inspect workspace instructions through scoped
 file tools. An explicit runtime tool policy is applied before registration;
 the model sees only the scoped Midden and workspace tools.
-
-## Upgrading from the Facet-backed host
-
-Keep the same `--workspace` and `--state` values. The host binds `COMPA_HOME`
-to the existing private `STATE\kernel` directory and never adopts a global
-`~/.compa` configuration or key store. Existing API-key references in that
-private store remain usable. UI conversations, durable outcomes and the stable
-browser-draft identity remain unchanged.
-
-Direct native Copilot/Codex sign-in is not part of this Compa-backed host.
-Existing native-provider settings remain on disk and are shown as requiring
-reconnection; they are not silently deleted or treated as an API key. Choose a
-supported connection to continue. Those providers would require a separately
-selected and verified extension integration, which is not bundled here.
-
-Kernel conversation persistence now uses JSONL. Before starting its first turn,
-the host converts legacy `STATE\kernel-history` JSON into `STATE\compa-history`,
-including full tool-call messages, tool results and summaries. It keeps the old
-directory unchanged as a backup, verifies source digests, and prevents repeat
-imports from overwriting newer conversation data. Corrupt or conflicting
-history is an explicit error rather than a silently empty conversation.
-Do not run the old and new hosts concurrently against the same state directory.
-Retain the original state backup when upgrading; continuing with the old binary
-will not see turns recorded only in the new JSONL store.
 
 Approved shell commands run as the operator's account. This is **not an OS
 sandbox**. Do not approve a command you would not run yourself. The normal core

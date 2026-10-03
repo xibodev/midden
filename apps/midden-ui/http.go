@@ -43,8 +43,6 @@ func (a *App) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case r.URL.Path == "/api/status" && r.Method == "GET":
 		respond(w, a.Status())
-	case strings.HasPrefix(r.URL.Path, "/api/auth/copilot/") && r.Method == "POST":
-		apiError(w, http.StatusGone, retiredNativeProviderMessage)
 	case r.URL.Path == "/api/sessions" && r.Method == "GET":
 		respond(w, map[string]any{"sessions": a.Sessions()})
 	case r.URL.Path == "/api/sessions" && r.Method == "POST":

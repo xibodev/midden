@@ -106,6 +106,3 @@ does not sanitize image pixels.
 Read operations never mutate source stores. `prune` and `archive`, if invoked,
 are explicit maintenance commands with separate preview/execution behavior.
 They are not steps in an article or presentation workflow.
-
-The derived `core-index.db` does not migrate old editorial state. See
-[Migration](MIGRATION.md) for explicit legacy recovery.

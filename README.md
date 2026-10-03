@@ -13,7 +13,6 @@ canonical outcome bundle.
 [Website](https://xibodev.github.io/midden/) |
 [Downloads](https://github.com/xibodev/midden/releases/tag/v0.3.1) |
 [Installation](docs/INSTALL.md) |
-[Migration](docs/MIGRATION.md) |
 [Release notes](docs/RELEASE_NOTES.md)
 
 ## Use the Midden app
@@ -51,9 +50,7 @@ official provider; a compatible local server may not need an API key.
   usage but reads no workspace files.
 - You can enter an exact model ID manually, then **Save settings**.
 
-Direct native GitHub Copilot/Codex sign-in is not bundled in this Compa-backed
-app. An old native connection requires explicit reconnection; its credentials
-are not silently converted. See [Configuration](docs/CONFIGURATION.md).
+See [Configuration](docs/CONFIGURATION.md).
 
 ## Use Midden in your AI CLI
 
@@ -117,9 +114,8 @@ Copy the exact IDs returned by the preceding command. Read
 ## Your files, your decisions
 
 With no path overrides, the app's workspace and host state live in per-user data
-directories, separate from the installation. An explicit `--workspace` without
-`--state` preserves the legacy `.midden-ui` state directory inside that workspace;
-specify both flags to choose a separate state location.
+directories, separate from the installation. An explicit `--workspace` requires
+`--state` as well; `--state` alone keeps the default workspace.
 [Installation](docs/INSTALL.md#locations-and-launching) lists the platform
 defaults and lifecycle commands. `midden-ui --version` reports the version
 without reading or writing application state.
@@ -134,7 +130,7 @@ References establish origin, not factual truth. Credential filtering is not
 privacy clearance. Review prose, code, images and intended disclosures before
 sharing them.
 
-## Updating, trust and migration
+## Updating and trust
 
 Stop a running app before upgrading. Use the installer's **Upgrade**, **Verify**
 and **Uninstall** operations for the same installation. Removal is limited to
@@ -144,10 +140,6 @@ files need attention rather than being silently overwritten.
 Use matching artifacts and [SHA256SUMS](https://github.com/xibodev/midden/releases/download/v0.3.1/SHA256SUMS).
 Checksums establish integrity against that manifest, **not publisher
 authenticity**. The v0.3.1 release binaries are unsigned.
-
-Coming from v0.2 or an earlier development build? Read
-[Migration](docs/MIGRATION.md) before reusing any state directory. Retired
-module/Studio/editorial interfaces are not restored by the new app.
 
 ## Documentation and development
 

@@ -14,8 +14,7 @@ execution. The bootstrap downloads Midden release payloads, not language
 runtimes, AI hosts or optional rendering dependencies. It requires no
 administrator access and does not change execution policy.
 
-For an existing installation, read [Migration](MIGRATION.md) first. Stop a
-running app before an upgrade.
+Stop a running app before an upgrade.
 
 ## App quick install
 
@@ -44,10 +43,6 @@ Local servers may not require a key. **Find models** is a catalog lookup;
 **Check model** is an explicit, small tool-capability inference call that uses
 provider usage without reading workspace files. You can enter the exact model
 ID yourself. **Save settings** enables sending when a model has been selected.
-
-Native Copilot/Codex account sign-in is not included in this app. Using Copilot
-CLI or another authenticated AI CLI is a separate entrance below, not an app
-authentication workaround.
 
 ## Reviewable and pinned installation
 
@@ -125,12 +120,11 @@ midden-ui --workspace .\example-work --state .\example-state --no-open
 midden-ui --workspace ./example-work --state ./example-state --no-open
 ```
 
-For compatibility, an explicit `--workspace WORKSPACE` **without `--state`**
-retains host state at `WORKSPACE\.midden-ui` (`WORKSPACE/.midden-ui` on Unix).
-It does not relocate that existing state to the new per-user default.
+An explicit `--workspace` **requires `--state`**; the app reports an error when
+`--state` is missing. `--state` alone selects a separate host state with the
+default workspace.
 
-Keep the installation separate from working data. Set both path flags if you
-want workspace and state in separate directories. If you opted out of
+Keep the installation separate from working data. If you opted out of
 command-path setup with `-NoPath` / `--no-path`, invoke the executable by its
 installed path instead.
 
@@ -258,12 +252,9 @@ and unowned collisions require explicit attention; do not remove ownership
 receipts merely to force an upgrade. Uninstall is not a workspace/state wipe.
 Back up your work separately and inspect the plan before removal.
 
-On Windows, new receipts preserve the user PATH's raw registry text, value type
+On Windows, receipts preserve the user PATH's raw registry text, value type
 and missing/empty state. Removal restores that state only if the value still
-matches the installer's owned update; unrelated changes are preserved. An old
-v0.3.0 string-only receipt requires explicit `-NoPath` for upgrade or removal,
-because the original raw state cannot be reconstructed. See
-[the Windows bootstrap migration note](MIGRATION.md#from-the-withdrawn-windows-v030-bootstrap).
+matches the installer's owned update; unrelated changes are preserved.
 
 ## Archives, checksums and trust
 
@@ -294,5 +285,5 @@ seek administrator or publisher review with the release version, checksum and
 reviewed diagnostics. Do not disable Defender/ASR or other security controls,
 bypass execution policy, or switch launchers to evade the block.
 
-See [Getting started](GETTING_STARTED.md), [Troubleshooting](TROUBLESHOOTING.md)
-and [Migration](MIGRATION.md).
+See [Getting started](GETTING_STARTED.md) and
+[Troubleshooting](TROUBLESHOOTING.md).
