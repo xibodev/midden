@@ -5,9 +5,9 @@ Only composer text is persisted. Storage failures retain memory drafts and
 activate an unload guard; migration saves the destination before removing its
 source, and accepted messages clear only matching draft values.
 Session GET is authoritative for outcomes; list responses deliberately omit them.
-Catalog/check calls are explicit POSTs using ModelInput, without configuration
-writes. Edits/close invalidate their results; keys remain on request failure and
-clear on success or dialog close. Mocked results do not certify a live provider.
+Model setup happens in the Models view; the unsent first request survives the trip
+and no conversation is created until the person sends. Mocked results do not
+certify a live provider.
 Mobile permission checks measure both button rectangles before test scrolling,
 focus or clicks; replay may arrive before the conversation-history response.
 """
@@ -20,11 +20,6 @@ from test_frontend import BrowserCase
 class AssessmentTests(BrowserCase):
     def editor(self):
         return self.page.get_by_label("Message", exact=True)
-
-    def open_model(self):
-        self.open_settings()
-        expect(self.page.get_by_label("Model", exact=True)).to_be_enabled()
-        expect(self.page.get_by_role("button", name="Find models", exact=True)).to_be_visible()
 
     def calls_to(self, path):
         return [call for call in self.host.calls if call[1] == path]
@@ -152,9 +147,9 @@ class AssessmentTests(BrowserCase):
         expect(self.editor()).to_have_value("Do not overwrite this during hydration.")
         self.editor().fill("A freshly edited draft.")
         expect(self.page.locator("#connection")).to_have_text("Live updates connected")
-        self.host.model["model"] = "synthetic-updated-model"
+        self.host.model["summary"] = "synthetic-updated-model"
         self.host.emit("status")
-        expect(self.page.locator("#modelSummary")).to_contain_text("synthetic-updated-model")
+        expect(self.page.locator("#modelChip")).to_have_text("synthetic-updated-model")
         expect(self.editor()).to_have_value("A freshly edited draft.")
 
     def test_workspace_reuse_never_restores_another_workspaces_draft(self):
@@ -280,172 +275,32 @@ class AssessmentTests(BrowserCase):
 
     def test_first_run_allows_drafts_but_no_blank_chat_until_model_setup(self):
         self.host.sessions.clear()
-        self.host.model.update(provider="", model="", configured=False)
+        self.host.model.update(configured=False, defaultModel="", summary="")
         self.open()
         self.editor().fill("My first natural request, kept while I configure a model.")
         expect(self.page.get_by_role("button", name="Set up model", exact=True)).to_be_visible()
         expect(self.page.locator("#turnStatus")).to_contain_text("Set up model")
+        expect(self.page.locator("#modelChip")).to_have_text("No model connected")
         expect(self.page.locator("#send")).to_be_disabled()
         expect(self.page.locator("#newSession")).to_be_disabled()
         self.editor().press("Control+Enter")
         self.assert_no_api_calls("POST")
         self.page.get_by_role("button", name="Set up model", exact=True).click()
-        self.page.get_by_label("Model", exact=True).fill("manual/exact-model")
-        with self.api_response("PUT", "/api/model"):
-            self.page.get_by_role("button", name="Save settings").click()
-        expect(self.page.locator("#settings")).not_to_be_visible()
+        expect(self.nav("Models")).to_have_attribute("aria-current", "page")
+        self.page.get_by_label("Default model", exact=True).select_option("synthetic/other-model")
+        default = self.page.locator(".card").filter(has=self.page.get_by_role("heading", name="Default model"))
+        with self.api_response("PUT", "/api/models/default"):
+            default.get_by_role("button", name="Use as default", exact=True).click()
+        expect(self.page.locator("#modelChip")).to_have_text("synthetic/other-model")
+        self.assertEqual(self.calls_to("/api/models/default")[-1][2], {"selection": "synthetic/other-model"})
+        self.nav("Assistant").click()
         expect(self.page.locator("#send")).to_be_enabled()
         expect(self.editor()).to_have_value("My first natural request, kept while I configure a model.")
         self.assert_no_api_calls("POST")
 
-    def test_catalog_and_check_are_explicit_and_do_not_change_configuration(self):
-        self.open()
-        self.open_model()
-        self.page.get_by_label("Model", exact=True).fill("manual/exact-model")
-        self.page.get_by_label("API key", exact=True).fill("synthetic-key-only")
-        self.assert_no_api_calls("POST", "/api/models")
-        self.assert_no_api_calls("POST", "/api/model/check")
-        with self.api_response("POST", "/api/models"):
-            self.page.get_by_role("button", name="Find models", exact=True).click()
-        expect(self.page.locator("#modelCatalog")).to_contain_text("Available model")
-        expect(self.page.locator("#modelCatalogNote")).to_contain_text("not verified inference")
-        expect(self.page.get_by_label("Model", exact=True)).to_have_value("manual/exact-model")
-        expect(self.page.get_by_label("API key", exact=True)).to_have_value("")
-        self.assertEqual(self.host.model["model"], "synthetic-model")
-        self.assert_no_api_calls("PUT", "/api/model")
-        self.page.get_by_label("Discovered models", exact=True).select_option("synthetic/available")
-        expect(self.page.get_by_label("Model", exact=True)).to_have_value("synthetic/available")
-        with self.api_response("POST", "/api/model/check"):
-            self.page.get_by_role("button", name="Check model", exact=True).click()
-        expect(self.page.locator("#modelCheckResult")).to_contain_text("Synthetic tool-capability probe succeeded")
-        self.assertEqual(self.host.model["model"], "synthetic-model")
-        self.assert_no_api_calls("PUT", "/api/model")
-        self.assertEqual(self.calls_to("/api/models")[0][2]["model"], "manual/exact-model")
-        self.assertEqual(self.calls_to("/api/model/check")[0][2]["model"], "synthetic/available")
-        self.assertNotIn("synthetic-key-only", self.page.evaluate("JSON.stringify(localStorage)"))
-
-    def test_stale_catalog_response_cannot_replace_a_manual_model_or_clear_a_new_key(self):
-        self.open()
-        self.open_model()
-        requests = []
-        self.page.route("**/api/models", lambda route: requests.append(route))
-        with self.page.expect_request("**/api/models"):
-            self.page.get_by_role("button", name="Find models", exact=True).click()
-        try:
-            self.page.get_by_label("Model", exact=True).fill("new/manual-model")
-            self.page.get_by_label("API key", exact=True).fill("synthetic-key-only")
-        finally:
-            requests[0].fulfill(json=self.host.catalog)
-        expect(self.page.locator("#modelCatalog")).not_to_be_visible()
-        expect(self.page.get_by_label("Model", exact=True)).to_have_value("new/manual-model")
-        expect(self.page.get_by_label("API key", exact=True)).to_have_value("synthetic-key-only")
-
-    def test_successful_model_notes_do_not_echo_a_supplied_key(self):
-        self.open()
-        self.open_model()
-        self.host.catalog["note"] = "Synthetic note echoed synthetic-key-only."
-        self.page.get_by_label("API key", exact=True).fill("synthetic-key-only")
-        with self.api_response("POST", "/api/models"):
-            self.page.get_by_role("button", name="Find models", exact=True).click()
-        expect(self.page.locator("#modelCatalogNote")).to_contain_text("Synthetic note")
-        expect(self.page.locator("#modelCatalogNote")).not_to_contain_text("synthetic-key-only")
-        self.host.model_check["message"] = "Synthetic probe echoed synthetic-key-only."
-        self.page.get_by_label("API key", exact=True).fill("synthetic-key-only")
-        with self.api_response("POST", "/api/model/check"):
-            self.page.get_by_role("button", name="Check model", exact=True).click()
-        expect(self.page.locator("#modelCheckResult")).to_contain_text("Synthetic probe")
-        expect(self.page.locator("#modelCheckResult")).not_to_contain_text("synthetic-key-only")
-
-    def test_provider_or_endpoint_changes_clear_credentials_before_find_check_and_save(self):
-        self.open()
-        for changed_field in ("provider", "endpoint"):
-            with self.subTest(changed_field=changed_field):
-                if self.page.locator("#settings").is_visible():
-                    self.page.keyboard.press("Escape")
-                self.host.model.update(provider="openai", endpoint="https://original.invalid/v1",
-                                       credentialRef="original-service-reference", credentialConfigured=True)
-                self.open_model()
-                expect(self.page.get_by_label("Credential reference", exact=True)).to_have_value("original-service-reference")
-                self.page.get_by_label("API key", exact=True).fill("synthetic-key-only")
-                if changed_field == "provider":
-                    self.page.get_by_label("Provider", exact=True).select_option("anthropic")
-                else:
-                    self.page.get_by_label("Endpoint", exact=False).fill("https://replacement.invalid/v1")
-                expect(self.page.get_by_label("Credential reference", exact=True)).to_have_value("")
-                expect(self.page.get_by_label("API key", exact=True)).to_have_value("")
-                expect(self.page.locator("#credentialStatus")).to_contain_text("Credential fields cleared")
-                with self.api_response("POST", "/api/models"):
-                    self.page.get_by_role("button", name="Find models", exact=True).click()
-                expect(self.page.locator("#modelCatalog")).to_be_visible()
-                with self.api_response("POST", "/api/model/check"):
-                    self.page.get_by_role("button", name="Check model", exact=True).click()
-                expect(self.page.locator("#modelCheckResult")).to_contain_text("succeeded")
-                with self.api_response("PUT", "/api/model"):
-                    self.page.get_by_role("button", name="Save settings").click()
-                expect(self.page.locator("#settings")).not_to_be_visible()
-                for method, path in (("POST", "/api/models"), ("POST", "/api/model/check"), ("PUT", "/api/model")):
-                    body = [call[2] for call in self.calls_to(path) if call[0] == method][-1]
-                    self.assertEqual(body["credentialRef"], "")
-                    self.assertNotIn("apiKey", body)
-
-    def test_explicit_credentials_after_service_change_survive_model_only_edits(self):
-        self.host.model.update(endpoint="https://original.invalid/v1",
-                               credentialRef="original-service-reference", credentialConfigured=True)
-        self.open()
-        self.open_model()
-        self.page.get_by_label("Endpoint", exact=False).fill("https://replacement.invalid/v1")
-        self.page.get_by_label("Credential reference", exact=True).fill("operator-selected-reference")
-        self.page.get_by_label("API key", exact=True).fill("synthetic-key-only")
-        self.page.get_by_label("Model", exact=True).fill("another/exact-model")
-        self.page.get_by_label("Provider", exact=True).select_option("openai")
-        self.page.get_by_label("Endpoint", exact=False).fill("https://replacement.invalid/v1")
-        expect(self.page.get_by_label("Credential reference", exact=True)).to_have_value("operator-selected-reference")
-        expect(self.page.get_by_label("API key", exact=True)).to_have_value("synthetic-key-only")
-        with self.api_response("POST", "/api/model/check"):
-            self.page.get_by_role("button", name="Check model", exact=True).click()
-        expect(self.page.locator("#modelCheckResult")).to_contain_text("succeeded")
-        body = self.calls_to("/api/model/check")[-1][2]
-        self.assertEqual(body["credentialRef"], "operator-selected-reference")
-        self.assertEqual(body["apiKey"], "synthetic-key-only")
-        self.assertEqual(body["model"], "another/exact-model")
-        self.assertEqual(body["endpoint"], "https://replacement.invalid/v1")
-        with self.api_response("PUT", "/api/model"):
-            self.page.get_by_role("button", name="Save settings").click()
-        expect(self.page.locator("#settings")).not_to_be_visible()
-        saved = [call[2] for call in self.calls_to("/api/model") if call[0] == "PUT"][-1]
-        self.assertEqual(saved["credentialRef"], "operator-selected-reference")
-        self.assertNotIn("apiKey", saved)
-
-    def test_check_result_is_invalidated_by_edits_and_errors_preserve_credentials(self):
-        self.open()
-        self.open_model()
-        self.host.failures["POST", "/api/model/check"] = "Rejected synthetic-key-only"
-        self.page.get_by_label("API key", exact=True).fill("synthetic-key-only")
-        with self.api_response("POST", "/api/model/check", 409):
-            self.page.get_by_role("button", name="Check model", exact=True).click()
-        expect(self.page.locator("#modelError")).to_contain_text("Rejected")
-        expect(self.page.locator("#modelError")).not_to_contain_text("synthetic-key-only")
-        expect(self.page.get_by_label("API key", exact=True)).to_have_value("synthetic-key-only")
-        del self.host.failures["POST", "/api/model/check"]
-        requests = []
-        self.page.route("**/api/model/check", lambda route: requests.append(route))
-        with self.page.expect_request("**/api/model/check"):
-            self.page.get_by_role("button", name="Check model", exact=True).click()
-        try:
-            self.page.get_by_label("Model", exact=True).fill("another/exact-model")
-        finally:
-            requests[0].fulfill(json=self.host.model_check)
-        expect(self.page.locator("#modelCheckResult")).not_to_be_visible()
-        expect(self.page.get_by_label("API key", exact=True)).to_have_value("synthetic-key-only")
-        self.page.unroute("**/api/model/check")
-        with self.api_response("POST", "/api/model/check"):
-            self.page.get_by_role("button", name="Check model", exact=True).click()
-        expect(self.page.locator("#modelCheckResult")).to_contain_text("succeeded")
-        expect(self.page.get_by_label("API key", exact=True)).to_have_value("")
-
     def test_mobile_approval_has_room_despite_long_metadata_and_a_host_notice(self):
         self.page.set_viewport_size({"width": 390, "height": 844})
-        self.host.model["model"] = "synthetic-model/" + "long-segment-" * 12
+        self.host.model["summary"] = "synthetic-model/" + "long-segment-" * 12
         self.host.sessions["s1"]["title"] = "Synthetic long conversation " + "title " * 40
         self.open()
         self.start_turn()
@@ -493,7 +348,7 @@ class AssessmentTests(BrowserCase):
 
     def test_mobile_allowed_history_does_not_hide_pending_write_after_replay(self):
         self.page.set_viewport_size({"width": 390, "height": 844})
-        self.host.model["model"] = "synthetic-long-model-identifier-for-preview"
+        self.host.model["summary"] = "synthetic-long-model-identifier-for-preview"
         self.host.sessions["s1"].update(
             title="Synthetic request with a read followed by a write",
             messages=[{"role": "user", "content": "Inspect synthetic material before writing a draft.\n" * 8}],

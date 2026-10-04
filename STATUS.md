@@ -1,11 +1,15 @@
 # Release status
 
-**Midden 0.3: deterministic core, canonical bundle and a separate Compa-backed app.**
+**Midden 0.4: deterministic core, canonical bundle and a journey-based app powered by Compa.**
 
-The core CLI and separately installable agentic bundle remain independent.
-Use the bundle in an existing authenticated AI CLI, or use the Midden app with
-a supported API-key/local compatible model connection. The host AI executes
-outcome playbooks; no AI runtime or editorial approval engine is embedded in core.
+The core CLI and separately installable agentic bundle stay independent. Use the
+bundle in an existing authenticated AI CLI, or use the Midden app: Sessions,
+Evidence, Sources and Files run the core through the app's own routes without a
+model or approval card, and the assistant, Midden powered by Compa, uses the
+model chosen in Models (free models, a local model server, an API-key or address
+provider, or an extension service) with permission cards for workspace writes
+and commands. The host AI executes outcome playbooks; no AI runtime or editorial
+approval engine is embedded in core.
 
 Release automation builds core, bundle and UI packages from one source revision
 and injects the requested release version. The public website and download

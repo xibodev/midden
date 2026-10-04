@@ -28,9 +28,7 @@ func TestCustomStateDirectoryCannotBeReadOrOverwrittenAsAnArtifact(t *testing.T)
 		t.Fatal(err)
 	}
 	defer app.Close()
-	if err = app.SetModel(ModelInput{Provider: "openai", Model: "fixture", Endpoint: "https://example.invalid", APIKey: "synthetic-credential"}); err != nil {
-		t.Fatal(err)
-	}
+	storeTestModel(t, app, "https://example.invalid/v1", "synthetic-credential")
 	if _, err = app.ReadFile("host-data/kernel/auth.json"); err == nil {
 		t.Fatal("custom state credential exposed")
 	}
@@ -43,7 +41,7 @@ func TestCustomStateDirectoryCannotBeReadOrOverwrittenAsAnArtifact(t *testing.T)
 			t.Fatal("custom state listed as a deliverable")
 		}
 	}
-	if app.toolPath("host-data/model.json", true) == nil {
+	if app.toolPath("host-data/kernel/config.json", true) == nil {
 		t.Fatal("generic tool allowed overwriting model state")
 	}
 }

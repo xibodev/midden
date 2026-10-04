@@ -3,10 +3,11 @@ Midden
 The Midden core and canonical outcome bundles are distributed under the
 license in LICENSE.
 
-The independently built Midden UI embeds Compa v1.0.0
-(https://github.com/xibodev/compa), an MIT-licensed runtime. Compa's license
-and upstream attribution notices are included in the UI artifact's
-THIRD_PARTY_NOTICES.txt along with the licenses of its compiled dependencies.
+The independently built Midden app is powered by Compa
+(https://github.com/xibodev/compa), an MIT-licensed runtime. The app
+artifact's THIRD_PARTY_NOTICES.txt names Compa and the other components from
+the same team in one line each, and includes the licenses of the other
+compiled dependencies.
 
 Core artifacts contain their own THIRD_PARTY_NOTICES.txt and do not embed
 Compa or model-provider runtimes. Dependency notices are generated from the

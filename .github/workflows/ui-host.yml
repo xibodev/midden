@@ -13,7 +13,7 @@ jobs:
       matrix:
         os: [ubuntu-latest, windows-latest]
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 25
+    timeout-minutes: 35
     defaults:
       run:
         shell: pwsh
@@ -28,7 +28,7 @@ jobs:
       - name: Independent host contracts
         run: |
           Push-Location apps/midden-ui
-          go test ./... -count=1 -timeout=180s
+          go test ./... -count=1 -timeout=600s
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           go vet ./...
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

@@ -37,12 +37,11 @@ The default is a per-user app installation followed by launch. The browser opens
 on the local host. **Leave the terminal running; Ctrl+C stops the host.** Closing
 the browser tab alone is not the same as stopping the process.
 
-Open **Settings**, choose an OpenAI-compatible or Anthropic-compatible
-connection, and supply an official API key or a compatible local endpoint.
-Local servers may not require a key. **Find models** is a catalog lookup;
-**Check model** is an explicit, small tool-capability inference call that uses
-provider usage without reading workspace files. You can enter the exact model
-ID yourself. **Save settings** enables sending when a model has been selected.
+Sessions, Evidence, Sources and Files work without a model. To use the
+assistant, open **Models**: try free models, find a local model server, connect
+a provider with an API key or address, or connect an extension service. Set a
+default model and use **Test tool calling**; sending needs a working default.
+See [Configuration](CONFIGURATION.md#app-model-connections).
 
 ## Reviewable and pinned installation
 

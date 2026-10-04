@@ -87,8 +87,9 @@
           <article id="app" class="entrance app-entrance" aria-labelledby="app-title">
             <p class="eyebrow">Recommended starting point</p>
             <h3 id="app-title">Use the Midden app</h3>
-            <p>A browser workspace for conversations, explicit tool permissions,
-              drafts, previews and downloads.</p>
+            <p>A local browser workspace. Browse sessions, pin evidence, collect sources
+              and check files without a model; then work with the assistant, approving
+              each write or command.</p>
             <p class="requirements">Includes app + core + bundle.<br>No Go, Node.js or Python needed.</p>
             <h4>Windows / PowerShell</h4>
             <pre aria-label="Windows app install command"><code>irm https://xibodev.github.io/midden/install.ps1 | iex</code></pre>
@@ -100,12 +101,12 @@
             <p>Installs for your user account, then opens the browser. <strong>Keep the terminal
               running; Ctrl+C stops the host.</strong> Run <code>midden-ui</code> to start it again,
               or <code>midden-ui --no-open</code> to open the printed address yourself.</p>
-            <p>In <strong>Settings</strong>, choose an OpenAI-compatible connection
-              (including a local server) or an Anthropic-compatible connection.
-              Use an official API key, or a compatible local endpoint that may not need one.</p>
-            <p><strong>Find models</strong> is a catalog, not verified inference.
-              <strong>Check model</strong> makes a small tool-capability inference call
-              with provider usage and no workspace reads. Exact manual model IDs work too.</p>
+            <p><strong>Sessions</strong>, <strong>Evidence</strong>, <strong>Sources</strong>
+              and <strong>Files</strong> use the deterministic core directly: no model and
+              no approval card. The <strong>Assistant</strong> is Midden, powered by Compa.</p>
+            <p>In <strong>Models</strong>, try free models, find a local model server, add a
+              provider with an API key or address, or connect an extension service. Then use
+              <strong>Test tool calling</strong>: the assistant needs a model that calls tools.</p>
           </article>
           <article id="cli" class="entrance" aria-labelledby="cli-title">
             <p class="eyebrow">Bring your existing host</p>
@@ -145,8 +146,8 @@ sh midden-install.sh --mode cli --project . --host copilot</code></pre>
           <p>The core discovers, reads, searches, measures, collects and exports
             recorded material from Copilot CLI, Claude Code and OpenCode. It is
             independent of a model runtime.</p>
-          <p>The bundle supplies methods, templates and helpers. The app embeds
-            the released <strong>Compa v1.0.0</strong> kernel; an external AI CLI
+          <p>The bundle supplies methods, templates and helpers. The app's assistant
+            runs on the embedded <strong>Compa</strong> kernel; an external AI CLI
             can instead execute that same bundle with its own tools.</p>
           <a href="https://github.com/xibodev/midden/blob/main/docs/CORE.md">Read the core contracts</a>
         </div>

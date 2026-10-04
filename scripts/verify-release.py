@@ -17,10 +17,11 @@ import urllib.request
 import zipfile
 
 sys.dont_write_bytecode = True
-from release_contract import COMMIT, TARGETS, archive_name, bundle_inputs, git_blob_bytes, parse_release_tsv, release_version, safe_member, ui_inputs, validate_member_set
+from release_contract import COMMIT, TARGETS, archive_name, bundle_inputs, forbidden_notice_words, git_blob_bytes, parse_release_tsv, release_version, safe_member, ui_inputs, validate_member_set
 
 
 ROOT = Path(__file__).resolve().parent.parent
+COMPA_NOTICE = "\nCompa \u2014 https://github.com/xibodev/compa \u2014 ".encode("utf-8")
 
 
 def stream_digest(stream):
@@ -134,7 +135,12 @@ def ui_smoke(binary, version, stage, env):
         workspace = Path(status["workspace"]).resolve()
         assert binary.parent.resolve() not in workspace.parents, "workspace is inside installed binaries"
         with urllib.request.urlopen(address + "/", timeout=10) as response:
-            assert b"Bundle workspace" in response.read()
+            assert b"<title>Midden</title>" in response.read(), "UI did not serve its app shell"
+        with urllib.request.urlopen(address + "/app.js", timeout=10) as response:
+            modules = re.findall(rb'from "(/js/[a-z0-9-]+\.js)"', response.read())
+        for module in modules:
+            with urllib.request.urlopen(address + module.decode("ascii"), timeout=10) as response:
+                assert response.headers.get_content_type() == "text/javascript", module
     finally:
         process.terminate()
         try:
@@ -196,7 +202,8 @@ def main():
             assert set(actual) == {core, "LICENSE", "CORE.md", "THIRD_PARTY_NOTICES.txt"}
             assert actual[core] == manifest["core_binaries"][target]
             verify_static_source(ROOT, args.commit, [(ROOT / "LICENSE", "LICENSE"), (ROOT / "docs" / "CORE.md", "CORE.md")], actual)
-            assert b"github.com/xibodev/compa " not in archive_bytes(root / name, "THIRD_PARTY_NOTICES.txt")
+            notice = archive_bytes(root / name, "THIRD_PARTY_NOTICES.txt")
+            assert b"github.com/xibodev/compa" not in notice and not forbidden_notice_words(notice), name
         elif product == "bundle":
             assert set(actual) == bundle_names
             verify_static_source(ROOT, args.commit, bundle_inputs(ROOT, args.commit), actual)
@@ -210,9 +217,10 @@ def main():
             assert package["platform"] == target and package["source_commit"] == args.commit
             assert package["kernel"] == "github.com/xibodev/compa v1.0.0"
             assert package["files"] == {k: v for k, v in actual.items() if k != "package-manifest.json"}
-            assert b"github.com/xibodev/compa " in archive_bytes(root / name, "THIRD_PARTY_NOTICES.txt")
+            notice = archive_bytes(root / name, "THIRD_PARTY_NOTICES.txt")
+            assert COMPA_NOTICE in notice and not forbidden_notice_words(notice), "UI notices must name Compa in one line: " + name
             core_notice = archive_bytes(root / archive_name("core", manifest["version"], target), "THIRD_PARTY_NOTICES.txt")
-            assert core_notice in archive_bytes(root / name, "THIRD_PARTY_NOTICES.txt"), "UI product omitted its bundled core's notices"
+            assert core_notice in notice, "UI product omitted its bundled core's notices"
     for name in manifest["installers"]:
         assert (root / name).read_bytes() == git_blob_bytes(ROOT, args.commit, ROOT / "bootstrap" / name)
     if args.smoke:

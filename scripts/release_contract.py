@@ -9,6 +9,16 @@ BUNDLE_SUFFIXES = {".md", ".py", ".ps1", ".sh", ".json", ".yaml", ".yml", ".css"
 TARGETS = ("windows/amd64", "linux/amd64", "linux/arm64", "darwin/amd64", "darwin/arm64")
 HASH = re.compile(r"[0-9a-f]{64}")
 COMMIT = re.compile(r"[0-9a-f]{40}(?:[0-9a-f]{24})?")
+# xibodev components (the team's own modules) are named in one line each; their texts are not reproduced.
+XIBODEV_PREFIX = "github.com/xibodev/"
+XIBODEV_NAMES = {"github.com/xibodev/compa": "Compa"}
+LICENSE_SIGNATURES = (
+    ("MIT License", ("Permission is hereby granted, free of charge, to any person obtaining a copy",
+                     "The above copyright notice and this permission notice shall be included")),
+    ("Apache License 2.0", ("Apache License", "Version 2.0, January 2004")),
+)
+# Words the shipped notices must never contain, compared case-insensitively.
+FORBIDDEN_NOTICE_WORDS = ("picoclaw", "facet")
 
 
 def release_version(value):
@@ -198,6 +208,11 @@ def materialize_inputs(root, revision, files, destination):
 
 def dependency_notices(cwd, package, env):
     """Collect license/notice texts only from the production dependency graph."""
+    return format_notices(dependency_modules(cwd, package, env))
+
+
+def dependency_modules(cwd, package, env):
+    """(module path, version, source directory) for each compiled module, plus the Go standard library."""
     template = '{{if .Module}}{{if not .Module.Main}}{{.Module.Path}}|{{.Module.Version}}|{{.Module.Dir}}{{end}}{{end}}'
     raw = subprocess.check_output(["go", "list", "-mod=readonly", "-deps", "-f", template, package],
                                   cwd=cwd, env=env, text=True)
@@ -211,12 +226,56 @@ def dependency_notices(cwd, package, env):
     go_root = subprocess.check_output(["go", "env", "GOROOT"], cwd=cwd, env=env, text=True).strip()
     go_version = subprocess.check_output(["go", "env", "GOVERSION"], cwd=cwd, env=env, text=True).strip()
     modules.add(("Go standard library", go_version, go_root))
-    sections = [b"Third-party licenses and attribution for this compiled artifact.\n"]
+    return modules
+
+
+def notice_files(directory):
+    return [p for p in Path(directory).iterdir()
+            if p.is_file() and not p.is_symlink()
+            and p.name.upper().startswith(("LICENSE", "COPYING", "NOTICE"))]
+
+
+def license_name(text):
+    """The standard license a license file grants, or None when unrecognised or ambiguous."""
+    words = " ".join(text.split())
+    names = [name for name, phrases in LICENSE_SIGNATURES if all(phrase in words for phrase in phrases)]
+    return names[0] if len(names) == 1 else None
+
+
+def xibodev_line(path, directory):
+    """Name a xibodev component in one line: display name, repository and the license its files grant."""
+    licenses = set()
+    for candidate in notice_files(directory):
+        if not candidate.name.upper().startswith("NOTICE"):
+            name = license_name(candidate.read_text(encoding="utf-8", errors="replace"))
+            if name is None:
+                raise RuntimeError(f"Unrecognised license file {candidate.name} in xibodev component {path}")
+            licenses.add(name)
+    if len(licenses) != 1:
+        raise RuntimeError(f"xibodev component {path} must declare exactly one recognised license")
+    repository = "/".join(path.split("/")[:3])
+    title = XIBODEV_NAMES.get(repository, repository.rsplit("/", 1)[-1])
+    return f"{title} \u2014 https://{repository} \u2014 {licenses.pop()}\n"
+
+
+def forbidden_notice_words(text):
+    """FORBIDDEN_NOTICE_WORDS present in rendered notice bytes, ignoring ASCII case."""
+    lowered = text.lower()
+    return [word for word in FORBIDDEN_NOTICE_WORDS if word.encode("ascii") in lowered]
+
+
+def format_notices(modules):
+    """Render THIRD_PARTY_NOTICES.txt from (module path, version, source directory) entries.
+
+    xibodev components are named in one line each without their license or notice texts;
+    every other module keeps its complete license and notice files.
+    """
+    components, sections = [], []
     for path, version, directory in sorted(modules):
-        candidates = [p for p in Path(directory).iterdir()
-                      if p.is_file() and not p.is_symlink()
-                      and (p.name.upper().startswith("LICENSE") or p.name.upper().startswith("COPYING")
-                           or p.name.upper().startswith("NOTICE"))]
+        if path.startswith(XIBODEV_PREFIX):
+            components.append(xibodev_line(path, directory))
+            continue
+        candidates = notice_files(directory)
         if not candidates:
             if path == "github.com/kagisearch/kagi-openapi-golang" and version == "v0.0.0-20260526215348-96575e864d62":
                 declaration = (Path(directory) / "api" / "openapi.yaml").read_text(encoding="utf-8")
@@ -234,4 +293,11 @@ def dependency_notices(cwd, package, env):
         for notice in sorted(candidates):
             heading = f"\n{'=' * 72}\n{path} {version} / {notice.name}\n{'=' * 72}\n".encode("utf-8")
             sections.extend((heading, notice.read_bytes(), b"\n"))
-    return b"".join(sections)
+    header = "Third-party licenses and attribution for this compiled artifact.\n"
+    if components:
+        header += "\n" + "".join(components)
+    text = header.encode("utf-8") + b"".join(sections)
+    found = forbidden_notice_words(text)
+    if found:
+        raise RuntimeError("Third-party notices must not contain: " + ", ".join(found))
+    return text

@@ -5,95 +5,97 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="light">
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:; frame-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'">
-  <title>Midden | Bundle workspace</title>
+  <title>Midden</title>
   <link rel="icon" href="data:,">
   <link rel="stylesheet" href="/style.css">
-  <script src="/app.js" defer></script>
+  <script type="module" src="/app.js"></script>
 </head>
-<body data-panel="chat">
-  <a class="skip-link" href="#message">Skip to message</a>
+<body data-route="sessions">
+  <a class="skip-link" href="#main">Skip to content</a>
   <header class="topbar">
-    <div class="brand"><span class="mark" aria-hidden="true">m</span><div><strong>Midden</strong><small>Bundle workspace</small></div></div>
-    <div class="workspace-meta"><strong id="workspace">Loading workspace...</strong><div class="versions"><span id="coreVersion">Core loading</span><span id="kernelVersion">Kernel loading...</span></div></div>
-    <div class="model-meta"><span id="modelSummary">Model loading...</span><small id="modelCredential">Model/authentication status not loaded</small></div>
-    <button id="openSettings" type="button">Settings</button>
+    <a class="brand" href="#/sessions">Midden</a>
+    <span id="workspace" class="pill" title="">Loading workspace...</span>
+    <span class="spacer"></span>
+    <a id="modelChip" class="chip" href="#/models">Model loading...</a>
   </header>
-  <p id="hostNotice" class="host-notice" role="note" aria-label="Host execution notice" hidden></p>
-  <div id="modelSetupNotice" class="setup-notice" role="alert" hidden><strong>Model setup needed</strong><p id="modelSetupError"></p></div>
   <div id="notice" class="notice" role="alert" hidden><span id="noticeText"></span><button id="retryHost" type="button">Refresh host</button><button id="dismissNotice" type="button" aria-label="Dismiss notification">Dismiss</button></div>
-  <nav class="mobile-nav" aria-label="Workspace panels">
-    <button type="button" data-panel="sessions" aria-controls="sessionsPane" aria-pressed="false">Conversations</button>
-    <button type="button" data-panel="chat" aria-controls="chatPane" aria-pressed="true">Chat</button>
-    <button type="button" data-panel="files" aria-controls="filesPane" aria-pressed="false">Files</button>
-  </nav>
   <div class="layout">
-    <aside id="sessionsPane" class="sessions-pane" aria-label="Conversations">
-      <div class="pane-heading"><h2>Conversations <span id="sessionCount" class="count"></span></h2><button id="refreshSessions" class="compact" type="button" aria-label="Refresh conversations">Refresh</button></div>
-      <button id="newSession" class="new-session" type="button" aria-label="New conversation" disabled><span aria-hidden="true">+</span> New conversation</button>
-      <nav id="sessionList" class="session-list" aria-label="Conversation list"><p class="quiet">Loading conversations...</p></nav>
-      <details class="bundles" open><summary>Shared bundle outcomes</summary><ul id="bundles"><li>Loading shared bundles...</li></ul></details>
-      <p id="connection" class="connection" role="status">Connecting to host...</p>
-    </aside>
-    <main id="chatPane" class="chat-pane">
-      <div class="chat-heading"><div><p class="eyebrow">Conversation</p><h1 id="sessionTitle">New conversation</h1></div><div class="turn-info"><span id="turnStatus" role="status">Loading host...</span><button id="setupModel" class="compact" type="button" hidden>Set up model</button><button id="activeSession" class="compact" type="button" hidden>Open active conversation</button></div></div>
-      <div id="chatScroll" class="chat-scroll">
-        <div id="welcome" class="welcome">
-          <span class="hero-mark" aria-hidden="true">m</span><p class="eyebrow">A little context. A useful outcome.</p>
-          <h2>Start with what<br>you want to do.</h2>
-          <p>Ask a question, develop a draft, or turn your material into something you can share.</p>
-          <p class="quiet">Use your own words. Work in ordinary files. Review tool permissions as you go.</p>
+    <nav class="side" aria-label="Main">
+      <span class="nav-label" aria-hidden="true">Work</span>
+      <a href="#/sessions" data-nav="sessions">Sessions</a>
+      <a href="#/sources" data-nav="sources">Sources</a>
+      <a href="#/files" data-nav="files">Files</a>
+      <a href="#/assistant" data-nav="assistant">Assistant</a>
+      <span class="grow" aria-hidden="true"></span>
+      <a href="#/models" data-nav="models">Models</a>
+    </nav>
+    <main id="main" tabindex="-1">
+      <section id="view-sessions" class="view" data-view="sessions" aria-label="Sessions" hidden></section>
+      <section id="view-evidence" class="view" data-view="evidence" aria-label="Evidence" hidden></section>
+      <section id="view-sources" class="view" data-view="sources" aria-label="Sources" hidden></section>
+      <section id="view-files" class="view files-view" data-view="files" aria-label="Files" hidden>
+        <div class="view-heading"><h1>Files</h1><p class="sub">Your workspace: ordinary files you can open anywhere. Previews are read-only.</p></div>
+        <div class="files-layout">
+          <aside id="filesPane" class="files-pane" aria-label="Workspace files">
+            <div class="pane-heading"><h2>Workspace files <span id="fileCount" class="count"></span></h2><button id="refreshFiles" class="compact" type="button" aria-label="Refresh files">Refresh</button></div>
+            <p id="filesError" class="error" role="alert" hidden></p>
+            <ul id="fileList" class="file-list"><li class="quiet">Loading files...</li></ul>
+          </aside>
+          <div class="files-detail">
+            <p id="fileEmpty" class="file-empty">Choose a file to inspect it.<br>Drafts and delivered artifacts appear here.</p>
+            <section id="filePreview" class="file-preview" aria-label="Selected file" hidden>
+              <h3 id="fileName"></h3><p id="fileMeta" class="quiet"></p>
+              <div class="file-actions"><button id="expandPreview" type="button" disabled>Expand preview</button><button id="downloadFile" type="button">Download</button><button id="reviseFile" type="button">Ask for a revision</button></div>
+              <p id="previewHint" class="quiet"></p><pre id="fileContent"></pre>
+              <iframe id="fileFrame" title="Sandboxed artifact preview" sandbox="allow-scripts" referrerpolicy="no-referrer" hidden></iframe>
+              <details class="fingerprint"><summary>SHA-256 fingerprint</summary><code id="fileHash"></code></details>
+            </section>
+            <div id="quoteCheck"></div>
+          </div>
         </div>
-        <p id="sessionLoading" class="quiet" role="status" hidden>Loading conversation...</p>
-        <p id="sessionError" class="error" role="alert" hidden></p>
-        <div id="messages" role="log" aria-label="Conversation messages" aria-live="off"></div>
-        <details id="activity" class="activity" hidden><summary id="activitySummary">Tool activity</summary><div id="activityList"></div></details>
-      </div>
-      <form id="composer" class="composer">
-        <label class="sr-only" for="message">Message</label>
-        <textarea id="message" name="message" rows="3" placeholder="Describe what you'd like to understand or create..." aria-describedby="composerHelp" required disabled></textarea>
-        <div id="draftState" class="draft-state" hidden><small id="draftStatus" role="status"></small><button id="retryDrafts" type="button" class="compact" hidden>Retry draft save</button></div>
-        <div class="composer-actions"><small id="composerHelp">Enter for a new line. Ctrl/Cmd + Enter to send.</small><button id="stop" class="danger" type="button" hidden>Stop</button><button id="send" class="primary" type="submit" disabled>Send</button></div>
-      </form>
+      </section>
+      <section id="view-assistant" class="view assistant-view" data-view="assistant" aria-label="Assistant" hidden>
+        <p id="hostNotice" class="host-notice" role="note" aria-label="Host execution notice" hidden></p>
+        <div id="modelSetupNotice" class="setup-notice" role="alert" hidden><strong>Model setup needed</strong><p id="modelSetupError"></p></div>
+        <div class="assistant-layout">
+          <aside id="sessionsPane" class="sessions-pane" aria-label="Conversations">
+            <div class="pane-heading"><h2>Conversations <span id="sessionCount" class="count"></span></h2><button id="refreshSessions" class="compact" type="button" aria-label="Refresh conversations">Refresh</button></div>
+            <button id="newSession" class="new-session" type="button" aria-label="New conversation" disabled><span aria-hidden="true">+</span> New conversation</button>
+            <nav id="sessionList" class="session-list" aria-label="Conversation list"><p class="quiet">Loading conversations...</p></nav>
+            <details class="bundles"><summary>Outcomes the assistant knows</summary><ul id="bundles"><li>Loading outcomes...</li></ul></details>
+          </aside>
+          <div id="chatPane" class="chat-pane">
+            <div class="chat-heading"><div><p class="eyebrow">Conversation</p><h1 id="sessionTitle">New conversation</h1></div><div class="turn-info"><span id="turnStatus" role="status">Loading host...</span><button id="setupModel" class="compact" type="button" hidden>Set up model</button><button id="activeSession" class="compact" type="button" hidden>Open active conversation</button></div></div>
+            <div id="chatScroll" class="chat-scroll">
+              <div id="welcome" class="welcome">
+                <p class="eyebrow">Investigation, articles, presentations, long-form</p>
+                <h2>Start with what<br>you want to do.</h2>
+                <p>Ask what's worth explaining, develop a draft, or turn your sources into something you can share.</p>
+                <p class="quiet">Pick sessions or sources first and use “Use in chat” to hand them over. Work stays in ordinary files; you approve writes and commands as you go.</p>
+              </div>
+              <p id="sessionLoading" class="quiet" role="status" hidden>Loading conversation...</p>
+              <p id="sessionError" class="error" role="alert" hidden></p>
+              <div id="messages" role="log" aria-label="Conversation messages" aria-live="off"></div>
+              <details id="activity" class="activity" hidden><summary id="activitySummary">Tool activity</summary><div id="activityList"></div></details>
+            </div>
+            <form id="composer" class="composer">
+              <div id="contextTray" class="context-tray" hidden>
+                <div id="contextChips" class="row" aria-label="Context for the next message"></div>
+                <button id="contextPreviewToggle" class="link" type="button" aria-expanded="false" aria-controls="contextPreview">Preview what's sent</button>
+                <pre id="contextPreview" class="context-preview" hidden></pre>
+              </div>
+              <label class="sr-only" for="message">Message</label>
+              <textarea id="message" name="message" rows="3" placeholder="Ask for findings, an article, a talk, or a revision..." aria-describedby="composerHelp" required disabled></textarea>
+              <div id="draftState" class="draft-state" hidden><small id="draftStatus" role="status"></small><button id="retryDrafts" type="button" class="compact" hidden>Retry draft save</button></div>
+              <div class="composer-actions"><small id="composerHelp">Enter for a new line. Ctrl/Cmd + Enter to send.</small><button id="stop" class="danger" type="button" hidden>Stop</button><button id="send" class="primary" type="submit" disabled>Send</button></div>
+            </form>
+          </div>
+        </div>
+      </section>
+      <section id="view-models" class="view" data-view="models" aria-label="Models" hidden></section>
     </main>
-    <aside id="filesPane" class="files-pane" aria-label="Workspace files">
-      <div class="pane-heading"><h2>Workspace files <span id="fileCount" class="count"></span></h2><button id="refreshFiles" class="compact" type="button" aria-label="Refresh files">Refresh</button></div>
-      <p class="pane-note">Read-only previews. Your files stay in place.</p>
-      <p id="filesError" class="error" role="alert" hidden></p>
-      <ul id="fileList" class="file-list"><li class="quiet">Loading files...</li></ul>
-      <p id="fileEmpty" class="file-empty">Choose a file to inspect it.<br>Drafts and delivered artifacts appear here.</p>
-      <section id="filePreview" class="file-preview" aria-label="Selected file" hidden>
-        <h3 id="fileName"></h3><p id="fileMeta" class="quiet"></p>
-        <div class="file-actions"><button id="expandPreview" type="button" disabled>Expand preview</button><button id="downloadFile" type="button">Download</button></div>
-        <p id="previewHint" class="quiet"></p><pre id="fileContent"></pre>
-        <iframe id="fileFrame" title="Sandboxed artifact preview" sandbox="allow-scripts" referrerpolicy="no-referrer" hidden></iframe>
-        <details class="fingerprint"><summary>SHA-256 fingerprint</summary><code id="fileHash"></code></details>
-      </section>
-    </aside>
   </div>
-  <dialog id="settings" aria-labelledby="settingsTitle">
-    <form id="modelForm" autocomplete="off">
-      <div class="dialog-heading"><div><p class="eyebrow">Host configuration</p><h2 id="settingsTitle">Model settings</h2></div><button class="close-settings" type="button" aria-label="Close settings">Close</button></div>
-      <p id="credentialStatus" class="credential-status" role="status">Loading configuration...</p>
-      <p id="modelError" class="error" role="alert" hidden></p>
-      <p id="providerNotice" class="error" role="alert" hidden></p>
-      <label for="provider">Provider</label>
-      <select id="provider" name="provider" required autofocus><option value="openai">OpenAI-compatible (API key or local server)</option><option value="anthropic">Anthropic-compatible</option></select>
-      <label for="model">Model</label><input id="model" name="model" required placeholder="Model identifier" spellcheck="false">
-      <label for="endpoint">Endpoint <span class="quiet">(optional)</span></label><input id="endpoint" name="endpoint" type="url" placeholder="https://..." spellcheck="false" aria-describedby="endpointHelp">
-      <p id="endpointHelp" class="quiet">Leave blank for the official provider endpoint, or enter a compatible local server URL. Local servers may not need an API key.</p>
-      <label for="apiKey">API key</label><input id="apiKey" name="apiKey" type="password" autocomplete="new-password" spellcheck="false" aria-describedby="credentialHelp">
-      <label for="credentialRef">Credential reference</label><input id="credentialRef" name="credentialRef" spellcheck="false" aria-describedby="credentialHelp">
-      <p id="credentialHelp" class="quiet">Blank credentials reuse a stored connection only for the same provider and endpoint. Changing either clears both credential fields; explicitly enter a reference afterward to reuse it. Keys are cleared after successful requests or when this dialog closes, and are never stored with drafts. Re-enter a key for another request if needed.</p>
-      <section class="model-tools" aria-label="Model discovery and checks">
-        <div class="model-tool-actions"><button id="listModels" type="button" disabled>Find models</button><button id="checkModel" type="button" disabled>Check model</button></div>
-        <p class="quiet">Finding models does not verify inference. Checking makes a small tool-capability inference call without reading workspace files. Neither action saves settings.</p>
-        <p id="modelToolStatus" role="status" hidden></p>
-        <div id="modelCatalog" hidden><label for="modelChoice">Discovered models</label><select id="modelChoice"></select><p id="modelCatalogNote" class="quiet"></p></div>
-        <p id="modelCheckResult" role="status" hidden></p>
-      </section>
-      <div class="dialog-actions"><button class="close-settings" type="button">Cancel</button><button id="saveModel" class="primary" type="submit" disabled>Save settings</button></div>
-    </form>
-  </dialog>
+  <footer class="footer"><span id="versions">Loading versions...</span><span id="connection" class="connection" role="status">Connecting to host...</span></footer>
   <dialog id="previewDialog" class="preview-dialog" aria-labelledby="previewTitle">
     <div class="dialog-heading"><h2 id="previewTitle">File preview</h2><button id="closePreview" type="button">Close preview</button></div>
     <p id="previewError" class="error" role="alert" hidden></p>

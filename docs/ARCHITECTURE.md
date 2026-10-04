@@ -35,6 +35,18 @@ The bundle does not execute an AI loop. Helpers perform concrete reusable
 mechanics; external rendering belongs to existing tools such as Pandoc and the
 host's browser. The operator supplies intent and judgment, not API choreography.
 
+## The app's two doors to the core
+
+The Midden app runs the same core executable through two doors. Your actions in
+Sessions, Evidence, Sources and Files go through the app's own routes
+(`/api/core/...`), with no model and no approval card. The assistant goes
+through its `midden` tool. One validator checks both: allowlisted commands and
+flags, host-owned source and state bindings, collection paths inside the
+workspace, and output paths that must be new and inside it. On the assistant's
+door, reads and cache writes run without a card; workspace writes ask for Allow
+or Deny. The app's routes pass the core's [JSON output](CORE.md#json-output)
+through unchanged.
+
 ## Data and working surface
 
 Source records and available assets remain distinguishable from interpretations

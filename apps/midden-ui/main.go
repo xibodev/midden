@@ -116,6 +116,10 @@ func runArgs(args []string, output io.Writer) error {
 	if err = os.Setenv(config.EnvHome, filepath.Join(opts.State, "kernel")); err != nil {
 		return err
 	}
+	// The kernel's identity names the Compa release that powers Midden.
+	if config.Version == "" || config.Version == "dev" {
+		config.Version = kernelVersion()
+	}
 	app, err := NewApp(opts)
 	if err != nil {
 		return err
@@ -135,7 +139,7 @@ func runArgs(args []string, output io.Writer) error {
 		server.Shutdown(shutdown)
 	}()
 	address := "http://" + listener.Addr().String()
-	fmt.Fprintf(output, "Midden UI %s: %s\nWorkspace: %s\nState: %s\nKernel: Compa %s\n", version, address, opts.Workspace, opts.State, kernelVersion)
+	fmt.Fprintf(output, "Midden UI %s: %s\nWorkspace: %s\nState: %s\nPowered by Compa %s\n", version, address, opts.Workspace, opts.State, kernelVersion())
 	if !*noOpen {
 		go func() {
 			if err := openBrowser(address); err != nil {

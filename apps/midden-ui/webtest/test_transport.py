@@ -17,22 +17,22 @@ class HTTPTransportTests(BrowserCase):
             routed.append(route.request)
             route.continue_()
 
-        self.page.route("**/api/model", forward)
+        self.page.route("**/api/models/state", forward)
         try:
-            with self.hold_api("GET", "/api/model") as gate:
+            with self.hold_api("GET", "/api/models/state") as gate:
                 self.page.evaluate("""() => {
                     requestAnimationFrame(() => requestAnimationFrame(() => {
-                        document.getElementById("openSettings").click();
+                        document.querySelector('nav.side a[data-nav="models"]').click();
                     }));
                 }""")
                 self.wait_for_gate(gate)
                 self.assertEqual(len(routed), 1)
-                expect(self.page.get_by_label("Model", exact=True)).to_be_disabled()
-                with self.api_response("GET", "/api/model"):
+                expect(self.page.locator("#view-models").get_by_role("status")).to_have_text("Loading model connections...")
+                with self.api_response("GET", "/api/models/state"):
                     gate.release.set()
-            expect(self.page.get_by_label("Model", exact=True)).to_be_enabled()
+            expect(self.page.get_by_label("Default model", exact=True)).to_be_enabled()
         finally:
-            self.page.unroute("**/api/model")
+            self.page.unroute("**/api/models/state")
 
     def gated_exchange(self, method, path, action, status=200):
         before = len(self.host.calls)
@@ -79,28 +79,32 @@ class HTTPTransportTests(BrowserCase):
         self.host.emit("turn_done", sessionId="s3")
         expect(self.page.locator("#turnStatus")).to_have_text("Ready")
 
-        self.gated_exchange("GET", "/api/model", self.page.get_by_role("button", name="Settings", exact=True).click)
-        expect(self.page.get_by_label("Model", exact=True)).to_be_enabled()
-        self.page.get_by_label("Model", exact=True).fill("controlled/exact-model")
-        self.assert_no_api_calls("POST", "/api/models")
-        self.assert_no_api_calls("POST", "/api/model/check")
-        self.assert_no_api_calls("PUT", "/api/model")
-        for path, button, result in (
-            ("/api/models", "Find models", "#modelCatalog"),
-            ("/api/model/check", "Check model", "#modelCheckResult"),
-        ):
-            body = self.gated_exchange("POST", path, self.page.get_by_role("button", name=button, exact=True).click)
-            self.assertEqual(body["model"], "controlled/exact-model")
-            expect(self.page.locator(result)).to_be_visible()
-            self.assertEqual(self.host.model["model"], "synthetic-model")
-            self.assert_no_api_calls("PUT", "/api/model")
+        self.nav("Models").click()
+        default = self.page.get_by_label("Default model", exact=True)
+        expect(default).to_have_value("synthetic/synthetic-model")
+        self.assert_no_api_calls("POST", "/api/models/instances/synthetic/check")
+        self.assert_no_api_calls("PUT", "/api/models/default")
+        instance = self.page.locator(".instance").filter(has_text="Synthetic service")
+        instance.get_by_text("2 models", exact=True).click()
+        row = instance.locator(".model-row").filter(has_text="other-model")
+        body = self.gated_exchange("POST", "/api/models/instances/synthetic/check",
+                                   row.get_by_role("button", name="Test tool calling", exact=True).click)
+        self.assertEqual(body, {"model": "other-model"})
+        expect(self.page.locator("#view-models .status-message")).to_have_text(
+            "synthetic/other-model: Synthetic tool-calling probe succeeded.")
+        expect(row).to_contain_text("Tool calling: tested")
+        self.assertEqual(self.host.model["defaultModel"], "synthetic/synthetic-model")
+        self.assert_no_api_calls("PUT", "/api/models/default")
+        default.select_option("synthetic/other-model")
+        choose = self.page.locator(".card").filter(has=self.page.get_by_role("heading", name="Default model"))
         body = self.gated_exchange(
-            "PUT", "/api/model", self.page.get_by_role("button", name="Save settings", exact=True).click)
-        self.assertEqual(body["model"], "controlled/exact-model")
-        self.assertEqual(self.host.model["model"], "controlled/exact-model")
-        expect(self.page.locator("#settings")).not_to_be_visible()
+            "PUT", "/api/models/default", choose.get_by_role("button", name="Use as default", exact=True).click)
+        self.assertEqual(body, {"selection": "synthetic/other-model"})
+        self.assertEqual(self.host.model["defaultModel"], "synthetic/other-model")
+        expect(self.page.locator("#modelChip")).to_have_text("synthetic/other-model")
+        expect(default).to_have_value("synthetic/other-model")
 
-    def test_settings_response_survives_connection_burst_with_sse_open(self):
+    def test_models_response_survives_connection_burst_with_sse_open(self):
         self.open()
         expect(self.page.locator("#message")).to_be_enabled()
         expect(self.page.locator("#fileList button")).to_have_count(2)
@@ -120,10 +124,10 @@ class HTTPTransportTests(BrowserCase):
             for _ in range(5):
                 clients.append(socket.create_connection(self.server.server_address, timeout=1))
             self.assertTrue(accept_waiting.wait(1), "The accept loop did not reach its gate")
-            with self.page.expect_request("**/api/model") as model_request:
-                self.page.get_by_role("button", name="Settings", exact=True).click()
-            expect(self.page.get_by_label("Model", exact=True)).to_be_disabled()
-            self.assertFalse(any(call[:2] == ("GET", "/api/model") for call in self.host.calls))
+            with self.page.expect_request("**/api/models/state") as state_request:
+                self.nav("Models").click()
+            expect(self.page.locator("#view-models").get_by_role("status")).to_have_text("Loading model connections...")
+            self.assertFalse(any(call[:2] == ("GET", "/api/models/state") for call in self.host.calls))
 
             # Observe whether another TCP handshake fits without sleeping or
             # extending the UI assertion deadline. This is a capacity probe.
@@ -136,15 +140,15 @@ class HTTPTransportTests(BrowserCase):
                     admitted = False
             accept_gate.set()
             try:
-                expect(self.page.get_by_label("Model", exact=True)).to_be_enabled()
+                expect(self.page.get_by_label("Default model", exact=True)).to_be_enabled()
             except AssertionError as failure:
-                received = any(call[:2] == ("GET", "/api/model") for call in self.host.calls)
+                received = any(call[:2] == ("GET", "/api/models/state") for call in self.host.calls)
                 raise AssertionError(
-                    f"{failure}\nGET /api/model reached mock handler: {received}; "
-                    f"browser network timing: {model_request.value.timing}"
+                    f"{failure}\nGET /api/models/state reached mock handler: {received}; "
+                    f"browser network timing: {state_request.value.timing}"
                 ) from failure
             self.assertTrue(admitted, "The mock listener rejected the concurrent connection burst")
-            expect(self.page.get_by_label("Model", exact=True)).to_have_value("synthetic-model")
+            expect(self.page.get_by_label("Default model", exact=True)).to_have_value("synthetic/synthetic-model")
             expect(self.page.locator("#connection")).to_have_text("Live updates connected")
         finally:
             accept_gate.set()

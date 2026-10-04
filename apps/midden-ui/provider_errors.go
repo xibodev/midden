@@ -7,6 +7,16 @@ import (
 	"github.com/xibodev/compa/pkg/providers"
 )
 
+// redact replaces every nonempty secret in text.
+func redact(text string, secrets ...string) string {
+	for _, secret := range secrets {
+		if secret != "" {
+			text = strings.ReplaceAll(text, secret, "[redacted]")
+		}
+	}
+	return text
+}
+
 type protectedProvider struct {
 	providers.LLMProvider
 	secret string
@@ -24,7 +34,7 @@ func (p protectedProvider) protect(err error) error {
 	if err == nil || p.secret == "" || !strings.Contains(err.Error(), p.secret) {
 		return err
 	}
-	return protectedError{cause: err, text: strings.ReplaceAll(err.Error(), p.secret, "[redacted]")}
+	return protectedError{cause: err, text: redact(err.Error(), p.secret)}
 }
 
 func (p protectedProvider) Chat(ctx context.Context, messages []providers.Message, tools []providers.ToolDefinition, model string, options map[string]any) (*providers.LLMResponse, error) {

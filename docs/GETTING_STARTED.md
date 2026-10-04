@@ -7,13 +7,17 @@ the app to use Midden in your existing AI CLI.
 
 1. Follow the default [app installation](INSTALL.md#app-quick-install).
 2. Keep the app terminal running while you use the local browser workspace.
-3. Open **Settings**. Choose an OpenAI-compatible or Anthropic-compatible
-   connection, with an official API key or a compatible local endpoint.
-4. Use **Find models**, or enter an exact model ID. A catalog entry is not
-   verified inference. **Check model** makes an explicit small inference probe
-   with provider usage and no workspace reads.
-5. **Save settings**, then give a normal request. Review each requested tool
-   permission and inspect the resulting files.
+3. In **Sessions**, filter recorded work or find text, then pick a session to
+   see its facts, usage and brief. **Open evidence** pins its records.
+4. In **Evidence**, page or search the pinned view, select records and
+   **Collect into workspace**. The new collection appears in **Sources**, where
+   you can check its integrity, read, search, export or merge it.
+5. To work with the assistant, open **Models**. Try free models, find a local
+   model server, connect a provider with an API key or address, or connect an
+   extension service. Set a default model and use **Test tool calling**.
+6. In **Sources**, use a collection's outcome starter (Investigation, Article,
+   Presentation or Long-form), or describe the work in **Assistant**. Review
+   each permission card and inspect the resulting files in **Files**.
 
 For example:
 
@@ -25,11 +29,15 @@ Then, once you have chosen the direction:
 > Develop that idea as a short tutorial. Keep the editable source, and tell me
 > which claims still need checking.
 
-The conversation list, drafts and file previews remain usable before model
-setup. Sending is gated until a model is selected. Selection does not guarantee
-authentication, entitlement or useful output.
+Sessions, Evidence, Sources and Files work without a model and ask for no
+approval. Sending needs a working default model; a default does not guarantee
+authentication, entitlement or useful output. The assistant needs tool calls:
+if the selected model cannot make them, the turn stops with a message saying so.
 
-The app embeds Compa v1.0.0.
+The assistant is Midden, powered by Compa; the footer names the embedded Compa
+version. Its memory is off; each conversation keeps its own history.
+**Use in chat**, **Ask for a revision** and the outcome starters add context to
+your next message; **Preview what's sent** shows it before you send.
 
 Use **Stop** to cancel an active turn; inspect any files already written.
 Ctrl+C in the terminal stops the host. Later, run `midden-ui` again. Use
@@ -68,7 +76,8 @@ midden collect --view VIEW_ID --record RECORD_ID --out sources --json
 
 Copy the exact source tool, session, view and record IDs from the preceding
 results. Read scope, clipping and inventory warnings. Do not turn an invalid
-selector into an all-history scan.
+selector into an all-history scan. Each `--json` result follows the
+[JSON output contract](CORE.md#json-output).
 
 See [Core](CORE.md), [Configuration](CONFIGURATION.md),
 [Operations](OPERATIONS.md) and [Troubleshooting](TROUBLESHOOTING.md).
