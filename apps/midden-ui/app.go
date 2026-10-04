@@ -66,6 +66,11 @@ type Event struct {
 	Allow        *bool  `json:"allow,omitempty"`
 	Status       string `json:"status,omitempty"`
 	Error        string `json:"error,omitempty"`
+
+	CallID          string `json:"callId,omitempty"`
+	Effect          string `json:"effect,omitempty"`
+	Result          string `json:"result,omitempty"`
+	ResultTruncated bool   `json:"resultTruncated,omitempty"`
 }
 type permission struct {
 	ID, Tool  string
