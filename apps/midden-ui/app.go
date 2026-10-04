@@ -84,6 +84,7 @@ type App struct {
 	opts        Options
 	csrf        string
 	mu          sync.Mutex
+	modelMu     sync.Mutex // serializes model configuration changes; never held with mu across I/O
 	model       Model
 	credential  string
 	sessions    map[string]*Session

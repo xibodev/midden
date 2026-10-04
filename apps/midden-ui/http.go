@@ -12,10 +12,22 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
 )
+
+// staticAsset admits only the embedded entry page and flat module/style files.
+var staticAsset = regexp.MustCompile(`^/(?:|app\.js|style\.css|js/[a-z0-9][a-z0-9-]*\.js|css/[a-z0-9][a-z0-9-]*\.css)$`)
+
+// staticTypes avoids platform MIME tables: Windows registries can map .js to a
+// type that browsers refuse for module scripts.
+var staticTypes = map[string]string{
+	".html": "text/html; charset=utf-8",
+	".js":   "text/javascript; charset=utf-8",
+	".css":  "text/css; charset=utf-8",
+}
 
 func (a *App) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("X-Content-Type-Options", "nosniff")
@@ -158,6 +170,10 @@ func (a *App) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		data := a.modelStatusLocked()
 		a.mu.Unlock()
 		respond(w, data)
+	case strings.HasPrefix(r.URL.Path, "/api/core/"):
+		a.serveCore(w, r)
+	case strings.HasPrefix(r.URL.Path, "/api/models/"):
+		a.serveModels(w, r)
 	case r.URL.Path == "/api/files" && r.Method == "GET":
 		files, err := a.Files()
 		if err != nil {
@@ -174,7 +190,7 @@ func (a *App) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		respond(w, data)
 	case (r.URL.Path == "/preview" || r.URL.Path == "/download") && r.Method == "GET":
 		a.serveArtifact(w, r)
-	case r.Method == "GET" && (r.URL.Path == "/" || r.URL.Path == "/app.js" || r.URL.Path == "/style.css"):
+	case r.Method == "GET" && staticAsset.MatchString(r.URL.Path):
 		name := strings.TrimPrefix(r.URL.Path, "/")
 		if name == "" {
 			name = "index.html"
@@ -189,7 +205,7 @@ func (a *App) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:; frame-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'")
-		w.Header().Set("Content-Type", mime.TypeByExtension(filepath.Ext(name)))
+		w.Header().Set("Content-Type", staticTypes[filepath.Ext(name)])
 		w.Write(raw)
 	default:
 		apiError(w, 404, "route not found")
