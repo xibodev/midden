@@ -151,6 +151,10 @@ func (a *App) runCoreRequest(w http.ResponseWriter, r *http.Request, request cor
 		case json.Valid([]byte(out.Stdout)):
 			w.Header().Set("Content-Type", "application/json")
 			w.Write([]byte(out.Stdout))
+			if effect == effectWritesWorkspace && err == nil {
+				// Every view that lists workspace files refreshes, as after an agent turn.
+				a.emit(Event{Type: "files_changed"})
+			}
 		case err != nil:
 			apiError(w, http.StatusUnprocessableEntity, coreFailure(out))
 		default:

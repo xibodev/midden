@@ -88,9 +88,17 @@ class MockHost:
         self.catalog = {"models": [{"id": "synthetic/available", "name": "Available model"},
                                    {"id": "synthetic/other"}], "note": "Synthetic provider catalog."}
         self.model_check = {"ok": True, "message": "Synthetic tool-capability probe succeeded."}
-        self.model = dict(provider="openai", model="synthetic-model", endpoint="",
-                          credentialRef="", configured=True, credentialConfigured=False,
-                          authStatus="Credentials are checked by the provider when used.")
+        self.model = dict(configured=True, defaultModel="synthetic/synthetic-model",
+                          summary="synthetic/synthetic-model", setupError="")
+        # View tests extend this: (method, path) -> callable(handler, body or None) returning a JSON-able reply.
+        self.routes = {
+            ("GET", "/api/core/sessions"): lambda *_: dict(sessions=[], total=0, matched=0, excluded_noise=0, offset=0,
+                                                            stores_read=[], warnings=[], partial=False),
+            ("GET", "/api/core/collections"): lambda *_: dict(collections=[]),
+            ("GET", "/api/models/state"): lambda *_: dict(state=dict(roster=[], instances=[], routes=[],
+                defaultModel=self.model.get("defaultModel", ""), activeModels=[], extension=dict(url="", connected=False),
+                configured=self.model.get("configured", False), setupError=self.model.get("setupError", ""))),
+        }
         self.sessions = {
             "s1": dict(id="s1", title="Research notes", messages=[], updated="2026-01-01T12:00:00Z"),
             "s2": dict(id="s2", title="Earlier conversation", updated="2026-01-01T11:00:00Z",
@@ -180,10 +188,12 @@ class MockHost:
                 host.calls.append(("GET", path, None, None))
                 if ("GET", path) in host.failures:
                     return self.reply({"error": host.failures["GET", path]}, 503)
-                if path in ("/", "/app.js", "/style.css"):
+                if path in ("/", "/app.js", "/style.css") or (path.startswith(("/js/", "/css/")) and path.count("/") == 2):
                     asset = WEB / (path[1:] or "index.html")
-                    mime = {".html": "text/html", ".js": "text/javascript", ".css": "text/css"}[asset.suffix]
-                    return self.reply(asset.read_bytes() if asset.exists() else b"UI not implemented", mime=mime)
+                    mime = {".html": "text/html", ".js": "text/javascript", ".css": "text/css"}.get(asset.suffix, "text/plain")
+                    return self.reply(asset.read_bytes() if asset.exists() else b"UI not implemented", 200 if asset.exists() else 404, mime=mime)
+                if ("GET", path) in host.routes:
+                    return self.reply(host.routes["GET", path](self, None))
                 if path == "/api/status":
                     host.tokens.add(host.csrf)
                     return self.reply(dict(workspace=host.workspace_name, workspaceId=host.workspace_id, coreVersion="test-core",
@@ -223,15 +233,8 @@ class MockHost:
                     return self.reply({"error": "Missing CSRF token"}, 403)
                 if (self.command, path) in host.failures:
                     return self.reply({"error": host.failures[self.command, path]}, 409)
-                if path == "/api/model":
-                    host.model = {key: value for key, value in body.items() if key != "apiKey"}
-                    host.model["configured"] = bool(body.get("model"))
-                    host.model["credentialConfigured"] = bool(body.get("apiKey") or body.get("credentialRef"))
-                    return self.reply(host.model)
-                if path == "/api/models":
-                    return self.reply(host.catalog)
-                if path == "/api/model/check":
-                    return self.reply(host.model_check)
+                if (self.command, path) in host.routes:
+                    return self.reply(host.routes[self.command, path](self, body))
                 if path == "/api/sessions":
                     sid = f"s{len(host.sessions) + 1}"
                     host.sessions[sid] = dict(id=sid, title="New conversation", messages=[], outcomes=[], updated="2026-01-01T12:00:00Z")
@@ -337,8 +340,8 @@ class BrowserCase(unittest.TestCase):
             if method != "GET":
                 self.assertIn(token, self.host.tokens)
 
-    def open(self):
-        self.page.goto(self.url)
+    def open(self, route="#/assistant"):
+        self.page.goto(self.url + "/" + route)
         expect(self.page.locator("#connection")).to_have_text("Live updates connected")
         expect(self.page.locator("#sessionList button")).to_have_count(len(self.host.sessions))
 
