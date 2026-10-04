@@ -35,12 +35,12 @@ class NoticeTests(unittest.TestCase):
         self.root = Path(temporary.name)
         self.modules = set()
         self.module("github.com/xibodev/compa", "v1.0.0", {
-            "LICENSE": MIT.format(holder="xibodev\nCopyright (c) 2026 PicoClaw contributors (portions; see NOTICE)"),
-            "NOTICE": "Compa\nThis synthetic product is a fork of PicoClaw (https://example.invalid/picoclaw).\n",
+            "LICENSE": MIT.format(holder="xibodev\nCopyright (c) 2026 Synthetic Upstream contributors (portions; see NOTICE)"),
+            "NOTICE": "Compa\nThis synthetic product is a fork of Synthetic Upstream (https://example.invalid/upstream).\n",
         })
         self.module("github.com/xibodev/llmgw-core", "v1.3.0", {
             "LICENSE": MIT.format(holder="xibodev"),
-            "NOTICE": "llmgw-core\nIncludes an adaptation of xibodev/facet-studio's synthetic provider.\n",
+            "NOTICE": "llmgw-core\nIncludes an adaptation of a synthetic sibling project's provider.\n",
         })
         self.module("github.com/xibodev/llm-provider-auth", "v1.0.0", {"LICENSE": MIT.format(holder="xibodev")})
         self.module("github.com/xibodev/llm-translate", "v0.3.0", {"LICENSE": MIT.format(holder="xibodev")})
@@ -79,7 +79,7 @@ class NoticeTests(unittest.TestCase):
                 lines = [line for line in text.splitlines() if f"https://github.com/xibodev/{repository} " in line]
                 self.assertEqual(len(lines), 1)
         self.assertEqual(text.count("xibodev"), 4, "only the one-line entries may mention xibodev")
-        for fragment in ("Copyright (c) 2026 xibodev", "synthetic product is a fork", "adaptation of"):
+        for fragment in ("Copyright (c) 2026 xibodev", "synthetic product is a fork", "Synthetic Upstream", "adaptation of"):
             self.assertNotIn(fragment, text)
         self.assertEqual(text.count("Permission is hereby granted"), 1, "only the foreign MIT text is reproduced")
 
@@ -98,19 +98,19 @@ class NoticeTests(unittest.TestCase):
         self.assertIn(section("example.com/raw v0.0.1 / COPYING", raw).encode("utf-8"),
                       contract.format_notices(modules))
 
-    def test_notices_never_contain_picoclaw_or_facet(self):
-        inputs = b"".join(path.read_bytes() for path in self.root.rglob("*") if path.is_file()).lower()
-        self.assertIn(b"picoclaw", inputs)
-        self.assertIn(b"facet", inputs)
-        text = self.render().lower()
-        self.assertNotIn("picoclaw", text)
-        self.assertNotIn("facet", text)
-        for index, word in enumerate(("PicoClaw", "FACET")):
-            with self.subTest(word=word), self.assertRaises(RuntimeError):
-                modules = set(self.modules)
-                self.module("example.com/wording", f"v1.0.{index}",
-                            {"LICENSE": f"Synthetic license naming {word}.\n"}, modules)
-                contract.format_notices(modules)
+    def test_only_the_one_line_entries_mention_xibodev_components(self):
+        self.assertEqual(contract.stray_xibodev_lines(self.render().encode("utf-8")), [])
+        for text in (section("github.com/xibodev/compa v1.0.0 / NOTICE", "Synthetic attribution.\n"),
+                     "Synthetic terms. Copyright (c) 2026 Xibodev.\n",
+                     f"Compa {DASH} https://github.com/xibodev/compa {DASH} MIT License, with more text\n",
+                     f"Compa {DASH} https://github.com/xibodev/compa {DASH} Synthetic License\n"):
+            with self.subTest(text=text):
+                self.assertTrue(contract.stray_xibodev_lines(text.encode("utf-8")))
+        modules = set(self.modules)
+        self.module("example.com/wording", "v1.0.0", {"LICENSE": "Synthetic terms. Copyright (c) 2026 xibodev.\n"}, modules)
+        with self.assertRaises(RuntimeError) as refused:
+            contract.format_notices(modules)
+        self.assertNotIn("Synthetic terms", str(refused.exception), "release logs are public; lines are not repeated")
 
     def test_xibodev_license_type_is_read_from_its_license_file(self):
         modules = set()

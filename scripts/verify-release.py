@@ -17,7 +17,7 @@ import urllib.request
 import zipfile
 
 sys.dont_write_bytecode = True
-from release_contract import COMMIT, TARGETS, archive_name, bundle_inputs, forbidden_notice_words, git_blob_bytes, parse_release_tsv, release_version, safe_member, ui_inputs, validate_member_set
+from release_contract import COMMIT, TARGETS, archive_name, bundle_inputs, git_blob_bytes, parse_release_tsv, release_version, safe_member, stray_xibodev_lines, ui_inputs, validate_member_set
 
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -203,7 +203,7 @@ def main():
             assert actual[core] == manifest["core_binaries"][target]
             verify_static_source(ROOT, args.commit, [(ROOT / "LICENSE", "LICENSE"), (ROOT / "docs" / "CORE.md", "CORE.md")], actual)
             notice = archive_bytes(root / name, "THIRD_PARTY_NOTICES.txt")
-            assert b"github.com/xibodev/compa" not in notice and not forbidden_notice_words(notice), name
+            assert b"github.com/xibodev/compa" not in notice and not stray_xibodev_lines(notice), name
         elif product == "bundle":
             assert set(actual) == bundle_names
             verify_static_source(ROOT, args.commit, bundle_inputs(ROOT, args.commit), actual)
@@ -218,7 +218,7 @@ def main():
             assert package["kernel"] == "github.com/xibodev/compa v1.0.0"
             assert package["files"] == {k: v for k, v in actual.items() if k != "package-manifest.json"}
             notice = archive_bytes(root / name, "THIRD_PARTY_NOTICES.txt")
-            assert COMPA_NOTICE in notice and not forbidden_notice_words(notice), "UI notices must name Compa in one line: " + name
+            assert COMPA_NOTICE in notice and not stray_xibodev_lines(notice), "UI notices must name Compa in one line: " + name
             core_notice = archive_bytes(root / archive_name("core", manifest["version"], target), "THIRD_PARTY_NOTICES.txt")
             assert core_notice in notice, "UI product omitted its bundled core's notices"
     for name in manifest["installers"]:
