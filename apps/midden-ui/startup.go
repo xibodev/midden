@@ -9,7 +9,7 @@ import (
 	"time"
 )
 
-var version = "0.3.0-dev"
+var version = "0.4.0-dev"
 
 func applicationDataRoot(platform, home, local, xdg string) (string, error) {
 	if !filepath.IsAbs(home) {
