@@ -317,7 +317,7 @@ func (a *App) StartTurn(id, text string) (string, error) {
 	}
 	if a.modelChanging {
 		a.mu.Unlock()
-		return "", fmt.Errorf("model settings are being saved; try again when they are done")
+		return "", fmt.Errorf("model settings are being changed or checked; try again when that is done")
 	}
 	if !a.storedModelStatus().Configured {
 		a.mu.Unlock()

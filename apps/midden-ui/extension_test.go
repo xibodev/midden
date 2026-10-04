@@ -48,6 +48,7 @@ type fakeExtensionService struct {
 	mu        sync.Mutex
 	providers []extension.ProviderInfo
 	polls     int
+	address   string // replaces the sign-in addresses when set
 }
 
 func newFakeExtensionService(t *testing.T) *fakeExtensionService {
@@ -83,6 +84,15 @@ func (f *fakeExtensionService) provider(id string) (extension.ProviderInfo, bool
 		}
 	}
 	return extension.ProviderInfo{}, false
+}
+
+func (f *fakeExtensionService) signInAddress(address string) string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.address != "" {
+		return f.address
+	}
+	return address
 }
 
 func writeFakeJSON(w http.ResponseWriter, status int, value any) {
@@ -139,12 +149,12 @@ func (f *fakeExtensionService) serve(w http.ResponseWriter, r *http.Request) {
 		switch request.Method {
 		case oauthflow.MethodDevice:
 			writeFakeJSON(w, http.StatusOK, extension.OAuthStartResponse{Authorization: oauthflow.Authorization{
-				UserCode: "WXYZ-2345", VerificationURI: "https://example.test/device", Interval: 20 * time.Millisecond,
+				UserCode: "WXYZ-2345", VerificationURI: f.signInAddress("https://example.test/device"), Interval: 20 * time.Millisecond,
 				Secrets: oauthflow.Secrets{DeviceCode: fakeDeviceCode},
 			}})
 		case oauthflow.MethodManual:
 			writeFakeJSON(w, http.StatusOK, extension.OAuthStartResponse{Authorization: oauthflow.Authorization{
-				AuthorizationURL: "https://example.test/authorize?state=" + fakeOAuthState, ExpiresIn: time.Hour,
+				AuthorizationURL: f.signInAddress("https://example.test/authorize?state=" + fakeOAuthState), ExpiresIn: time.Hour,
 				Secrets: oauthflow.Secrets{State: fakeOAuthState, Verifier: fakeVerifier},
 			}})
 		default:
@@ -496,6 +506,31 @@ func TestExtensionManualSignInAcceptsTheRedirectAddress(t *testing.T) {
 	assertNoSecrets(t, app, bodies)
 }
 
+func TestExtensionSignInRefusesAddressesThatAreNotWebPages(t *testing.T) {
+	app := extensionTestApp(t)
+	fake := newFakeExtensionService(t)
+	var bodies []string
+	connectFakeService(t, app, fake, &bodies)
+	setAddress := func(address string) {
+		fake.mu.Lock()
+		fake.address = address
+		fake.mu.Unlock()
+	}
+	for _, address := range []string{"javascript:alert(1)", "file:///C:/Windows/system32/calc.exe", "ms-settings:privacy", "http://example.test/device"} {
+		setAddress(address)
+		for _, method := range []string{"device", "manual"} {
+			reply := callExtras(t, app, &bodies, http.MethodPost, "/api/models/extension/ext-provider-a/signin", map[string]any{"method": method})
+			expectStatus(t, reply, http.StatusBadGateway)
+			if reply.value["flowId"] != nil || strings.Contains(reply.body, address) {
+				t.Fatalf("%s sign-in with %q = %s", method, address, reply.body)
+			}
+		}
+	}
+	setAddress("")
+	expectStatus(t, callExtras(t, app, &bodies, http.MethodPost, "/api/models/extension/ext-provider-a/signin", map[string]any{"method": "device"}), http.StatusOK)
+	assertNoSecrets(t, app, bodies)
+}
+
 func TestExtensionReconnectFollowsTheServiceProviders(t *testing.T) {
 	app := extensionTestApp(t)
 	fake := newFakeExtensionService(t)
@@ -623,5 +658,26 @@ func TestModelExtrasServesOnlyItsRoutes(t *testing.T) {
 		{http.MethodDelete, "/api/models/extension/signin/flow/complete"},
 	} {
 		expectStatus(t, callExtras(t, app, nil, route.method, route.path, nil), http.StatusMethodNotAllowed)
+	}
+}
+
+func TestSignInAddressesMustBeWebPages(t *testing.T) {
+	for address, want := range map[string]bool{
+		"https://example.invalid/device":           true,
+		"https://example.invalid/oauth?state=abc":  true,
+		"http://127.0.0.1:18888/signin":            true,
+		"http://localhost:18888/signin":            true,
+		"http://example.invalid/device":            false,
+		"javascript:alert(1)":                      false,
+		"file:///C:/Windows/system32/calc.exe":     false,
+		"ms-settings:privacy":                      false,
+		"https://user:secret@example.invalid/path": false,
+		"//example.invalid/no-scheme":              false,
+		"not a url at all":                         false,
+		"":                                         false,
+	} {
+		if got := safeSignInAddress(address); got != want {
+			t.Errorf("safeSignInAddress(%q) = %v, want %v", address, got, want)
+		}
 	}
 }

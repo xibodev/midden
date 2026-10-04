@@ -498,12 +498,18 @@ func (a *App) checkModel(ctx context.Context, id, model string) (modelCheck, err
 	if model == "" || len(model) > 300 {
 		return modelCheck{}, modelFailure(http.StatusBadRequest, "choose a model to check")
 	}
+	// The probe is admitted like a model change: it never overlaps a turn, and
+	// the connection it tests cannot be replaced before its result is saved.
+	a.modelMu.Lock()
+	defer a.modelMu.Unlock()
 	a.mu.Lock()
-	busy := a.active != nil
-	a.mu.Unlock()
-	if busy {
+	if a.active != nil {
+		a.mu.Unlock()
 		return modelCheck{}, modelFailure(http.StatusConflict, "stop the active turn before checking a model")
 	}
+	a.modelChanging = true
+	a.mu.Unlock()
+	defer func() { a.mu.Lock(); a.modelChanging = false; a.mu.Unlock() }()
 	cfg, err := a.loadModelConfig()
 	if err != nil {
 		return modelCheck{}, err
@@ -536,11 +542,6 @@ func (a *App) checkModel(ctx context.Context, id, model string) (modelCheck, err
 		result = modelCheck{Status: "failed", Message: clip(redact(err.Error(), secret), 500)}
 	}
 	result.At = time.Now().UTC().Format(time.RFC3339)
-	a.modelMu.Lock()
-	defer a.modelMu.Unlock()
-	if current, err := a.loadModelConfig(); err != nil || findInstance(current, id) == nil {
-		return result, nil
-	}
 	checks := a.loadModelChecks()
 	if checks[id] == nil {
 		checks[id] = map[string]modelCheck{}

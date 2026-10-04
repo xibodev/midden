@@ -3,13 +3,16 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/xibodev/compa/pkg/auth"
 	"github.com/xibodev/compa/pkg/config"
@@ -350,7 +353,7 @@ func TestModelChangesAreRefusedDuringATurn(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := app.StartTurn(s.ID, "Start while settings change."); err == nil || !strings.Contains(err.Error(), "being saved") {
+	if _, err := app.StartTurn(s.ID, "Start while settings change."); err == nil || !strings.Contains(err.Error(), "being changed or checked") {
 		t.Fatal("a turn started during a model change", err)
 	}
 	app.mu.Lock()
@@ -358,6 +361,61 @@ func TestModelChangesAreRefusedDuringATurn(t *testing.T) {
 	app.mu.Unlock()
 	if state := callModels(t, app, "GET", "/api/models/state", nil).State; state.DefaultModel != "fixture/fixture" || len(state.Instances) != 1 {
 		t.Fatalf("refused changes altered the state: %+v", state)
+	}
+}
+
+func TestModelCheckHoldsTurnsAndChangesUntilItsResultIsSaved(t *testing.T) {
+	probing, release := make(chan struct{}), make(chan struct{})
+	var started sync.Once
+	service := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		io.Copy(io.Discard, r.Body)
+		started.Do(func() { close(probing) })
+		select {
+		case <-release:
+		case <-r.Context().Done():
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"choices":[{"message":{"role":"assistant","tool_calls":[{"id":"check","type":"function","function":{"name":"midden_connection_check","arguments":"{\"ok\":true}"}}]},"finish_reason":"tool_calls"}]}`))
+	}))
+	defer service.Close()
+	app := newTestApp(t)
+	storeTestModel(t, app, service.URL, "")
+	serve := func(method, path, body string) *httptest.ResponseRecorder {
+		r := httptest.NewRequest(method, "http://127.0.0.1:18890"+path, strings.NewReader(body))
+		r.Header.Set("X-Midden-CSRF", app.csrf)
+		w := httptest.NewRecorder()
+		app.ServeHTTP(w, r)
+		return w
+	}
+	checked := make(chan *httptest.ResponseRecorder, 1)
+	go func() { checked <- serve("POST", "/api/models/instances/fixture/check", `{"model":"fixture"}`) }()
+	<-probing
+	s, err := app.NewSession("during a check")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := app.StartTurn(s.ID, "Start during a check."); err == nil || !strings.Contains(err.Error(), "being changed or checked") {
+		t.Fatal("a turn started while a model was being checked", err)
+	}
+	deleted := make(chan *httptest.ResponseRecorder, 1)
+	go func() { deleted <- serve("DELETE", "/api/models/instances/fixture", "") }()
+	select {
+	case reply := <-deleted:
+		t.Fatalf("the connection changed while it was being checked: %d %s", reply.Code, reply.Body)
+	case <-time.After(300 * time.Millisecond):
+	}
+	close(release)
+	if reply := <-checked; reply.Code != http.StatusOK || !strings.Contains(reply.Body.String(), `"status":"tested"`) {
+		t.Fatalf("check: %d %s", reply.Code, reply.Body)
+	}
+	if reply := <-deleted; reply.Code != http.StatusOK {
+		t.Fatalf("delete after the check: %d %s", reply.Code, reply.Body)
+	}
+	// A connection re-created under the same name starts unchecked.
+	storeTestModel(t, app, service.URL, "")
+	if checks := app.loadModelChecks(); len(checks["fixture"]) != 0 {
+		t.Fatalf("a re-created connection inherited the earlier check: %+v", checks)
 	}
 }
 

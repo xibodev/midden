@@ -175,14 +175,19 @@ function extensionProvider(provider) {
   return item;
 }
 
+function webLink(address, text) {
+  // Defense in depth: the host already refuses non-web sign-in addresses.
+  return /^https?:\/\//i.test(address || "") ? el("a", { text, attrs: { href: address, target: "_blank", rel: "noreferrer noopener" } }) : el("span", { class: "mono", text: address || "" });
+}
+
 function signInPanel(provider, flow) {
   const box = el("div", { class: "signin" });
   if (flow.error) box.append(errorBox(flow.error));
-  if (flow.userCode) box.append(el("p", {}, "Open ", el("a", { text: flow.verificationUri, attrs: { href: flow.verificationUri, target: "_blank", rel: "noreferrer noopener" } }), " and enter ", el("strong", { class: "mono", text: flow.userCode })),
+  if (flow.userCode) box.append(el("p", {}, "Open ", webLink(flow.verificationUri, flow.verificationUri), " and enter ", el("strong", { class: "mono", text: flow.userCode })),
     el("p", { class: "quiet", text: "Waiting for the sign-in to finish..." }));
   if (flow.authorizationUrl) {
     const code = el("input", { attrs: { placeholder: "Paste the code or the full redirect address", "aria-label": "Sign-in code" } });
-    box.append(el("p", {}, "Open ", el("a", { text: "the sign-in page", attrs: { href: flow.authorizationUrl, target: "_blank", rel: "noreferrer noopener" } }), ", then paste the code here."),
+    box.append(el("p", {}, "Open ", webLink(flow.authorizationUrl, "the sign-in page"), ", then paste the code here."),
       el("div", { class: "row" }, code, button("Finish sign-in", { small: true, primary: true, onClick: () => finishSignIn(provider, flow, code.value) })));
   }
   box.append(button("Cancel", { small: true, link: true, onClick: () => { flow.cancelled = true; view.flows.delete(provider.instanceId); render(); } }));

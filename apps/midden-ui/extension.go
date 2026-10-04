@@ -10,6 +10,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -643,16 +644,25 @@ func (extensionCredentialStore) Resolve(context.Context, core.Caller, string) (s
 	return "", core.ErrNoCredential
 }
 
-// extensionCappedDriver is a service provider's sign-in driver whose flows
-// last at most extensionFlowTTL.
-type extensionCappedDriver struct{ *extension.OAuthDriver }
+// extensionSignInDriver is a service provider's sign-in driver whose flows
+// last at most extensionFlowTTL and whose addresses are web pages. A refused
+// address fails the start, so no flow is kept for it.
+type extensionSignInDriver struct{ *extension.OAuthDriver }
 
-func (d extensionCappedDriver) Start(ctx context.Context, request oauthflow.StartRequest) (oauthflow.Authorization, error) {
+func (d extensionSignInDriver) Start(ctx context.Context, request oauthflow.StartRequest) (oauthflow.Authorization, error) {
 	authorization, err := d.OAuthDriver.Start(ctx, request)
-	if err == nil && (authorization.ExpiresIn <= 0 || authorization.ExpiresIn > extensionFlowTTL) {
+	if err != nil {
+		return authorization, err
+	}
+	for _, address := range []string{authorization.VerificationURI, authorization.VerificationURIComplete, authorization.AuthorizationURL} {
+		if address != "" && !safeSignInAddress(address) {
+			return oauthflow.Authorization{}, extensionFail(http.StatusBadGateway, "the extension service returned a sign-in address that isn't a web page")
+		}
+	}
+	if authorization.ExpiresIn <= 0 || authorization.ExpiresIn > extensionFlowTTL {
 		authorization.ExpiresIn = extensionFlowTTL
 	}
-	return authorization, err
+	return authorization, nil
 }
 
 // extensionSignIns holds each App's sign-in service; flows live in memory.
@@ -715,7 +725,7 @@ func (a *App) extensionDriverFor(instanceID string, method oauthflow.Method) (oa
 	if err != nil {
 		return nil, err
 	}
-	return extensionCappedDriver{client.OAuthDriver(instance.ExtensionProvider())}, nil
+	return extensionSignInDriver{client.OAuthDriver(instance.ExtensionProvider())}, nil
 }
 
 func (a *App) serveExtensionSignInStart(w http.ResponseWriter, r *http.Request, instanceID string) {
@@ -888,4 +898,25 @@ func (a *App) finishExtensionSignIn(w http.ResponseWriter, r *http.Request, view
 		payload["error"] = extensionRedact("signed in, but the provider's models could not load: "+loadErr.Error(), secrets...)
 	}
 	a.respondExtensionState(w, payload)
+}
+
+// safeSignInAddress admits only web pages for the sign-in links a person opens:
+// https anywhere, or http on this computer, never with user info.
+func safeSignInAddress(address string) bool {
+	parsed, err := url.Parse(address)
+	if err != nil || parsed.User != nil || parsed.Host == "" {
+		return false
+	}
+	switch strings.ToLower(parsed.Scheme) {
+	case "https":
+		return true
+	case "http":
+		host := parsed.Hostname()
+		if strings.EqualFold(host, "localhost") {
+			return true
+		}
+		ip := net.ParseIP(host)
+		return ip != nil && ip.IsLoopback()
+	}
+	return false
 }
