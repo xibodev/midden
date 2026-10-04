@@ -17,8 +17,9 @@ LICENSE_SIGNATURES = (
                      "The above copyright notice and this permission notice shall be included")),
     ("Apache License 2.0", ("Apache License", "Version 2.0, January 2004")),
 )
-# Words the shipped notices must never contain, compared case-insensitively.
-FORBIDDEN_NOTICE_WORDS = ("picoclaw", "facet")
+# The only lines of shipped notices that may mention a xibodev component: its one-line entry.
+XIBODEV_ENTRY = re.compile(r"[A-Za-z0-9._-]+ \u2014 https://github\.com/xibodev/[A-Za-z0-9._-]+ \u2014 (?:"
+                           + "|".join(re.escape(name) for name, _ in LICENSE_SIGNATURES) + ")")
 
 
 def release_version(value):
@@ -258,10 +259,10 @@ def xibodev_line(path, directory):
     return f"{title} \u2014 https://{repository} \u2014 {licenses.pop()}\n"
 
 
-def forbidden_notice_words(text):
-    """FORBIDDEN_NOTICE_WORDS present in rendered notice bytes, ignoring ASCII case."""
-    lowered = text.lower()
-    return [word for word in FORBIDDEN_NOTICE_WORDS if word.encode("ascii") in lowered]
+def stray_xibodev_lines(text):
+    """Lines of rendered notice bytes that mention a xibodev component outside its one-line entry."""
+    return [line for line in text.decode("utf-8", errors="replace").splitlines()
+            if "xibodev" in line.lower() and not XIBODEV_ENTRY.fullmatch(line)]
 
 
 def format_notices(modules):
@@ -297,7 +298,8 @@ def format_notices(modules):
     if components:
         header += "\n" + "".join(components)
     text = header.encode("utf-8") + b"".join(sections)
-    found = forbidden_notice_words(text)
-    if found:
-        raise RuntimeError("Third-party notices must not contain: " + ", ".join(found))
+    stray = stray_xibodev_lines(text)
+    if stray:
+        # The lines themselves are not repeated: release logs are public.
+        raise RuntimeError(f"Third-party notices mention xibodev components outside their one-line entries ({len(stray)} lines)")
     return text
