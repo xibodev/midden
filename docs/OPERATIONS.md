@@ -8,13 +8,17 @@ proof that an authored claim is true.
 
 | Action | Effect and boundary |
 |---|---|
-| Find models | Lists a provider catalog; no inference verification or saved-configuration change |
-| Check model | Explicit small tool-capability inference probe; provider usage, no workspace reads |
-| Save settings | Saves the chosen connection/model; it is not an authentication or content-quality certificate |
-| Send | Starts a turn using the configured model and ordinary request |
-| Allow / Deny | Decides one requested operation; it is not a blanket grant or publication approval |
+| Sessions, Evidence, Sources, Files | Run the deterministic core through the app's own routes; no model and no approval card. Collect, export and merge create new paths inside the workspace |
+| Try free models | Checks public services that need no key and connects those that answer; prompts then go to the service that answers |
+| Find local model servers | Probes the usual local ports; nothing is connected until you choose **Connect** |
+| Connect a provider or extension service | Reads its model list with the supplied credential, then stores the credential write-only in host state |
+| Test tool calling | One inert tool-call request to the chosen model; provider usage, no workspace reads, no tool run |
+| Use as default | Selects the model or route for future turns; it is not an authentication or content-quality certificate |
+| Send | Starts a turn using the default model and ordinary request |
+| Allow / Deny | Decides one requested workspace write, file write or shell command; it is not a blanket grant or publication approval |
 | Stop | Requests cancellation; inspect files already written rather than assuming rollback |
 | File preview / download | Inspects or copies an existing workspace artifact; the preview does not edit the original |
+| Use in chat / Ask for a revision | Adds context to the next message; **Preview what's sent** shows it before sending |
 | Ctrl+C in the terminal | Stops the host; closing the browser alone does not stop it |
 
 Pending decisions appear ahead of collapsible activity history. Arguments remain

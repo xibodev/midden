@@ -12,7 +12,8 @@ earlier changes/truncation, collection integrity, asset confinement and portable
 export.
 
 Use synthetic stores for public tests. Compare source hashes before/after read
-operations and inspect actual files, not only successful JSON responses.
+operations and inspect actual files, not only successful JSON responses. Check
+that `--json` results keep the [JSON output contract](CORE.md#json-output).
 
 ## Installation and release
 
@@ -38,20 +39,32 @@ attribution.
 
 Verify no-argument per-user defaults, sibling core/bundle resolution, rejection
 of `--workspace` without `--state`, `--state` alone with the default workspace,
-foreground shutdown and `--no-open`. The `--version` path must report its
-version without state IO.
+foreground shutdown, `--no-open` and a loopback-only `--listen`. The `--version`
+path must report its version without state IO.
 
-Exercise setup gating, exact manual model IDs, explicit catalog/check actions,
-write-only credentials and provider/endpoint changes. A model catalog is not
-verified inference; a tool-capability check is not a content-quality evaluation.
+Deterministic journeys must work with no model connected and without approval
+cards: Sessions (filters, text find, facts, usage, brief), Evidence (paging,
+search pinning a new view, context, selection, assets, collection), Sources
+(integrity, read, search, export, merge) and Files (preview, download, quote
+check). Each write must create a new path inside the workspace and refuse an
+existing one. Inspect the actual files, not only the success message.
 
-Verify scoped persistent drafts, conversation reload, streamed/final text,
-replayed events, Stop, independent permission decisions, mobile visibility and
-keyboard focus, host turn outcomes after restart, downloads and isolated
-artifact runtimes.
+Run agent journeys against a scripted local provider: tool activity and
+rendered results, permission cards by effect (none for reads and cache writes;
+Allow/Deny for workspace writes, file writes and shell commands), independent
+decisions and denial, Stop, a turn stopped because the model cannot call tools,
+context handed over from other journeys, scoped persistent drafts, conversation
+reload, replayed events, host turn outcomes after restart, mobile visibility,
+keyboard focus, downloads and isolated artifact runtimes.
 
-Synthetic HTTP/SSE and local provider fixtures test these contracts without
-proving a real account's authorization.
+Exercise Models against synthetic services: free-model outcomes, local server
+detection, API-key connections, extension services with token and sign-in
+flows, routes, the default model, **Test tool calling** and write-only secrets.
+A passed tool-calling test is not a content-quality evaluation.
+
+Scripted providers and synthetic HTTP/SSE fixtures test these contracts without
+proving a real account's authorization. Live-provider effectiveness is accepted
+separately, under bundle outcomes.
 
 ## Bundle outcomes
 

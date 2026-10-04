@@ -31,9 +31,9 @@ go vet ./...
 ```
 
 Use native executable names/path separators on other platforms. The app embeds
-Compa v1.0.0; core builds do not import that kernel, model/provider SDKs or
-bundle content. The canonical bundle remains a separate set of guidance and
-supporting files.
+the Compa release pinned in its `go.mod`; core builds do not import that kernel,
+model/provider SDKs or bundle content. The canonical bundle remains a separate
+set of guidance and supporting files.
 
 A source-built UI still needs the matching core and bundle in its intended
 layout. Refer to the [host developer notes](../apps/midden-ui/README.md).

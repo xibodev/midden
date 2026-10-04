@@ -6,7 +6,8 @@ Changing one component's state path does not reconfigure another host's account.
 ## App workspace and state
 
 `midden-ui` resolves the installed sibling core and canonical bundle. Its
-no-argument launch keeps workspace and host state outside the installation:
+no-argument launch keeps `workspace` and `host-state` under a per-user data root,
+outside the installation:
 
 | Platform | App data root |
 |---|---|
@@ -19,13 +20,16 @@ alternative; `--workspace` without `--state` is an error. `--state PATH` alone
 selects a separate host state with the default workspace.
 
 Keep the installation separate from working data. Workspace files are your
-ordinary drafts, notes, source collections and output. Host state contains
-conversation/runtime data and connection configuration; back it up with the
+ordinary drafts, notes, source collections and output. Host state holds
+conversations, model connections and keys (`kernel`), the app's own core cache
+with its pinned views (`core`) and the mounted bundle. Back it up with the
 workspace when moving an installation.
 
-`--no-open` starts the foreground host without opening a browser. `--version`
-prints `midden-ui VERSION` without reading or writing application state.
-Keep the host's terminal running and use Ctrl+C to stop it.
+`--no-open` starts the foreground host without opening a browser. `--listen`
+selects another loopback address (default `127.0.0.1:18890`); `--core` and
+`--bundle` select a specific core executable and bundle. `--version` prints
+`midden-ui VERSION` without reading or writing application state. Keep the
+host's terminal running and use Ctrl+C to stop it.
 
 ### Browser drafts
 
@@ -36,33 +40,48 @@ only matching drafts. This is not cross-device synchronization.
 If the browser refuses storage, the UI keeps text in memory, reports the failure
 and offers retry. Keep that tab open and copy important text before closing or
 clearing browser data. Removing the app does not itself clear browser storage.
-Credential inputs are not stored with drafts.
+Credential inputs are not stored with drafts. Records selected in Evidence stay
+selected for that browser tab, per workspace.
 
 ## App model connections
 
-The Compa v1.0.0-backed app exposes two connection types:
+The **Models** view manages connections in Compa's own format. `midden-ui` binds
+Compa's home to `STATE/kernel` and reads no global Compa configuration:
 
-| Provider choice | Endpoint and credentials |
+| File in `STATE/kernel` | Holds |
 |---|---|
-| OpenAI-compatible | Blank endpoint uses the official provider; an explicit endpoint may select a compatible local server. Supply an API key when that service requires one. |
-| Anthropic-compatible | Blank endpoint uses the official provider; use an explicit compatible endpoint and the credentials required by that service. |
+| `config.json` | Connections, routes and the default model |
+| `model_catalogs.json` | Each connection's model list |
+| `auth.json` | API keys, tokens, sign-ins and the extension service secret |
 
-A local server may require no API key. Do not send a service's key to an
-untrusted endpoint. Changing provider or endpoint clears inherited API-key and
-credential-reference fields; explicitly enter a reference afterward only if you
-intend to reuse it.
+Tool-calling results are kept in `STATE/model-checks.json`. Opening Models
+contacts no provider; connecting, refreshing and testing do.
 
-**Find models** performs a catalog lookup without saving settings or verifying
-inference. If discovery is unavailable, an exact manually entered model ID
-remains valid input. **Check model** makes a small, inert tool-capability
-inference probe, using provider usage but no workspace files. A successful check
-does not certify future outputs or every feature of that provider.
+| Section | What happens |
+|---|---|
+| Free models, no key | **Try free models** checks a few public services that need no key and connects those that answer a short check. Your prompts go to the service that answers. The check does not test tool calling. |
+| On this computer | **Find local model servers** looks for Ollama, LM Studio, llama.cpp, vLLM, LocalAI and Jan on their usual ports on this computer. **Connect** adds a server it found. |
+| With an API key or address | Choose a provider from Compa's list and enter its API key and, where needed, its address. Connecting reads the provider's model list; a connection whose models cannot be listed is not saved. |
+| From an extension service | Enter the address of a separately running extension service and its secret, if it needs one. The providers it offers appear; each is ready, or needs a token or a sign-in by device code or pasted code. |
 
-**Save settings** selects the connection/model for future turns. "Model
-selected" is not evidence that authentication has been verified. Errors from
-the provider remain explicit. API keys are write-only: they are not returned
-to the form and are cleared after successful requests or when the dialog closes.
-You may need to enter a key again for a later request that has not been saved.
+A connection's first chat model becomes the default when none is set. In
+**Default model**, choose one exact model or a **route**: an ordered list of
+models where, if one is busy or fails, the next answers. **Refresh models**
+reads a connection's list again; routes and the default drop models it does not
+list. **Remove** is refused for a connection that a route uses; take it out of
+the route first.
+
+**Test tool calling** asks one model for an inert tool call. It reads no
+workspace files and runs no tool, but uses the provider's service. The assistant
+needs tool calls: when the selected model cannot make them, the turn stops with
+a message saying so rather than answering without tools. A passed test does not
+certify future output.
+
+Secrets are write-only. No answer returns an API key, token, sign-in or service
+secret, and error messages redact them. A stored extension service secret is
+reused only for the address it was saved for; do not send a service's key to an
+untrusted address. Model changes and tests are refused while a turn runs; a
+saved change applies from the next turn.
 
 ## Core cache and source scope
 
@@ -90,6 +109,10 @@ For a shell or host conversation, `MIDDEN_COPILOT_ROOT`, `MIDDEN_CLAUDE_ROOT`
 and `MIDDEN_OPENCODE_DB` select explicit source locations. When any are set,
 that set is closed: unrelated ambient stores are not read. This does not change
 the AI CLI's own home, authentication or session storage.
+
+The app runs the core with `MIDDEN_HOME` set to `STATE/core` and passes only the
+source locations set when it started. Its pinned views stay with that host
+state, separate from the core cache of your shell.
 
 Changing `MIDDEN_HOME` does not move sources. Investigation, reading, collection
 and asset extraction leave source stores read-only.

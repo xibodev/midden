@@ -41,16 +41,31 @@ The app opens in your browser. Keep its terminal running; **Ctrl+C stops the
 host**. Start it again with `midden-ui`. Use `midden-ui --no-open` when you want
 to open the printed local address yourself.
 
-In **Settings**, choose an **OpenAI-compatible** connection, including a local
-server, or an **Anthropic-compatible** connection. A blank endpoint uses the
-official provider; a compatible local server may not need an API key.
+It starts on **Sessions**; its views follow the work:
 
-- **Find models** lists a catalog. It does not verify inference.
-- **Check model** makes a small tool-capability inference probe. It uses provider
-  usage but reads no workspace files.
-- You can enter an exact model ID manually, then **Save settings**.
+- **Sessions** lists recorded Copilot CLI, Claude Code and OpenCode work with
+  filters, text find and a detail panel of facts, usage and a brief.
+- **Evidence** opens from a session as a pinned view: page and search records,
+  show their context, then **Collect into workspace** or **Use in chat**.
+- **Sources** checks, reads, searches, exports and merges portable collections,
+  and starts an investigation, article, presentation or long-form piece.
+- **Files** previews and downloads workspace files and checks a quote against a
+  source record.
+- **Assistant** holds conversations with Midden, powered by Compa: tool activity,
+  permission cards and the context you hand over.
 
-See [Configuration](docs/CONFIGURATION.md).
+Sessions, Evidence, Sources and Files call the deterministic core directly. They
+need no model and ask for no approval; their writes create new files or folders
+inside the workspace.
+
+The assistant needs a model. In **Models**, choose **Try free models** (public
+services, no key; your prompts go to the service that answers),
+**Find local model servers**, a provider from Compa's list with an API key or
+address, or an extension service. Set a default model or a route of fallbacks,
+then use **Test tool calling**: a model that cannot call tools stops the turn
+with a message saying so. Keys and secrets are write-only.
+
+See [Configuration](docs/CONFIGURATION.md#app-model-connections).
 
 ## Use Midden in your AI CLI
 
@@ -95,7 +110,7 @@ for outcomes that call for them; installation does not download those tools.
 |---|---|
 | `midden` core | Discover, read, search, measure, collect and export recorded material from Copilot CLI, Claude Code and OpenCode. It never calls a model. |
 | [Outcome bundle](bundles/README.md) | Investigation, article/tutorial, presentation and long-form guidance, templates and helpers. It is not a runtime. |
-| `midden-ui` app | Conversation, model connection, explicit tool permissions and file previews, using the embedded Compa v1.0.0 kernel. Its dependencies stay outside the core module. |
+| `midden-ui` app | Sessions, evidence, sources and files through the core without a model; an assistant powered by the embedded Compa kernel, with model connections and permission cards for writes and commands. Its dependencies stay outside the core module. |
 
 Use `-Mode core` / `--mode core` to install only the deterministic core, or use
 it directly when you need data rather than AI-assisted production:
@@ -108,7 +123,8 @@ midden collect --view VIEW_ID --record RECORD_ID --out sources --json
 midden collection verify sources --json
 ```
 
-Copy the exact IDs returned by the preceding command. Read
+Copy the exact IDs returned by the preceding command. Each `--json` result
+follows the core's [JSON output contract](docs/CORE.md#json-output). Read
 [Core commands](docs/CORE.md) for bounds, portable collections and source safety.
 
 ## Your files, your decisions
