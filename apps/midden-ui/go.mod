@@ -2,7 +2,10 @@ module github.com/xibodev/midden/apps/midden-ui
 
 go 1.26.6
 
-require github.com/xibodev/compa v1.0.0
+require (
+	github.com/xibodev/compa v1.0.0
+	github.com/xibodev/llmgw-core v1.3.0
+)
 
 require (
 	github.com/adhocore/gronx v1.20.0 // indirect
@@ -29,7 +32,6 @@ require (
 	github.com/segmentio/encoding v0.5.4 // indirect
 	github.com/xibodev/llm-provider-auth v1.0.0 // indirect
 	github.com/xibodev/llm-translate v0.3.0 // indirect
-	github.com/xibodev/llmgw-core v1.3.0 // indirect
 	github.com/yosida95/uritemplate/v3 v3.0.2 // indirect
 	golang.org/x/crypto v0.53.0 // indirect
 	golang.org/x/net v0.56.0 // indirect
