@@ -4,6 +4,8 @@ let root, ctx;
 const view = { state: null, error: "", busy: "", message: "", free: null, local: null, extension: null, flows: new Map(), route: null };
 const FREE_STATUS = { answers_text: ["Answers text", "ok"], connected: ["Lists models, didn't answer", ""], busy: ["Busy (rate limited), try later", "warn"], failed: ["Failed", "warn"] };
 const SOURCE = { free: "free", key: "API key", local: "local", extension: "extension" };
+// Host messages never get to show back a secret the person just typed.
+const redact = (text, secret) => secret ? String(text).split(secret).join("[redacted]") : String(text);
 
 function targets(state) {
   const list = [];
@@ -11,14 +13,14 @@ function targets(state) {
   return list;
 }
 
-async function act(label, work) {
+async function act(label, work, secret = "") {
   view.busy = label; view.message = ""; render();
   try {
     const result = await work();
     if (result?.state) view.state = result.state; else await reload(false);
     ctx.refreshStatus().catch(() => {});
     return result;
-  } catch (reason) { view.message = reason.message; return null; }
+  } catch (reason) { view.message = redact(reason.message, secret); return null; }
   finally { view.busy = ""; render(); }
 }
 
@@ -119,7 +121,7 @@ function connectDialog(entry) {
       key.value = ""; modal.close();
       if (result?.state) view.state = result.state; else await reload(false);
       view.message = `Connected ${entry.label}.`; ctx.refreshStatus().catch(() => {}); render();
-    } catch (reason) { status.textContent = reason.message; save.disabled = false; }
+    } catch (reason) { status.textContent = redact(reason.message, body.apiKey); save.disabled = false; }
   } });
   modal.actions.append(button("Cancel", { onClick: () => modal.close() }), save);
   modal.open(); (entry.requiresBaseUrl ? endpoint : key).focus();
@@ -144,7 +146,7 @@ function extensionSection(state) {
     if (secret.value) body.secret = secret.value;
     const result = await ctx.api("/api/models/extension", "PUT", body);
     secret.value = ""; view.extension = result; return result;
-  }) });
+  }, secret.value) });
   return el("section", { class: "section" }, el("h2", { text: "From an extension service" }),
     el("p", { class: "sub", text: "Connect a separately running service that offers more model providers." }),
     el("div", { class: "filters" }, el("label", { class: "field" }, el("span", { text: "Service address" }), url),
@@ -165,7 +167,7 @@ function extensionProvider(provider) {
     item.append(token, button("Save token", { small: true, onClick: () => act("token", async () => {
       const result = await ctx.api(`/api/models/extension/${encodeURIComponent(provider.instanceId)}/token`, "POST", { token: token.value });
       token.value = ""; provider.ready = true; return result;
-    }) }));
+    }, token.value) }));
   } else if (provider.credential === "oauth") {
     if (!flow) for (const method of provider.signInMethods || []) item.append(button(method === "device" ? "Sign in (device code)" : "Sign in (paste code)", { small: true, onClick: () => startSignIn(provider, method) }));
     else item.append(signInPanel(provider, flow));

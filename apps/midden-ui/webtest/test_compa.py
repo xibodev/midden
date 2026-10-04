@@ -1,6 +1,7 @@
 """Model connection UI checks against the synthetic host, not live inference.
 
-Only openai/anthropic compatible connections are available.
+Connections come from the host roster; the browser does not invent providers.
+Keyless services are not offered as API-key connections.
 No auth endpoint is provided by this fixture.
 """
 
@@ -10,40 +11,32 @@ from test_frontend import BrowserCase
 
 
 class CompaTests(BrowserCase):
-    def model_writes(self):
-        return [call for call in self.host.calls if call[:2] == ("PUT", "/api/model")]
+    def connections(self):
+        return [call[2] for call in self.host.calls if call[:2] == ("POST", "/api/models/instances")]
 
-    def test_released_kernel_name_and_only_supported_provider_choices(self):
+    def test_released_kernel_name_and_runtime_notice(self):
         self.open()
-        expect(self.page.locator("#kernelVersion")).to_have_text("Compa v1.0.0")
-        expect(self.page.locator("#kernelVersion")).not_to_contain_text("candidate")
+        expect(self.page.locator("#versions")).to_contain_text("powered by Compa v1.0.0")
+        expect(self.page.locator("#versions")).not_to_contain_text("candidate")
         expect(self.page.locator("#hostNotice")).to_contain_text("released runtime")
-        self.open_settings()
-        self.assertEqual(self.page.locator("#provider option").evaluate_all(
-            "options => options.map(option => option.value)"), ["openai", "anthropic"])
-        expect(self.page.locator("#provider")).to_contain_text("OpenAI-compatible (API key or local server)")
-        expect(self.page.locator("#provider")).to_contain_text("Anthropic-compatible")
-        expect(self.page.locator("#endpointHelp")).to_contain_text("official provider")
-        expect(self.page.locator("#endpointHelp")).to_contain_text("Local servers may not need an API key")
-        self.screenshot("compa-model-settings.png")
 
     def test_supported_api_key_connections_keep_identity_and_allow_official_endpoint(self):
-        self.open()
-        for provider in ("openai", "anthropic"):
+        self.host.roster.append(dict(id="free_service", label="Free service", defaultEndpoint="https://free.invalid/v1",
+                                     requiresApiKey=False, requiresBaseUrl=False, keyless=True))
+        self.open("#/models")
+        cards = self.page.locator(".prov-card")
+        expect(cards).to_have_count(2)
+        expect(cards.filter(has_text="Free service")).to_have_count(0)
+        for provider, label in (("openai", "OpenAI"), ("anthropic", "Anthropic")):
             with self.subTest(provider=provider):
-                self.host.model.update(provider=provider, model="manual/exact-model", endpoint="",
-                                       credentialRef="stored-api-key-reference", credentialConfigured=True)
-                self.open_settings()
-                expect(self.page.get_by_label("Provider", exact=True)).to_have_value(provider)
-                expect(self.page.get_by_label("Credential reference", exact=True)).to_have_value("stored-api-key-reference")
-                expect(self.page.locator("#providerNotice")).not_to_be_visible()
-                self.page.get_by_label("API key", exact=True).fill("synthetic-key-only")
-                with self.api_response("PUT", "/api/model"):
-                    self.page.get_by_role("button", name="Save settings").click()
-                expect(self.page.locator("#settings")).not_to_be_visible()
-                saved = self.model_writes()[-1][2]
-                self.assertEqual(saved["provider"], provider)
-                self.assertEqual(saved["model"], "manual/exact-model")
-                self.assertEqual(saved["endpoint"], "")
-                self.assertEqual(saved["apiKey"], "synthetic-key-only")
-        self.assertNotIn("synthetic-key-only", self.page.evaluate("JSON.stringify(localStorage)"))
+                cards.filter(has_text=label).get_by_role("button", name="Connect", exact=True).click()
+                dialog = self.page.get_by_role("dialog", name=f"Connect {label}")
+                expect(dialog.get_by_label("Address")).to_have_value(f"https://{provider}.invalid/v1")
+                dialog.get_by_label("API key").fill("synthetic-key-only")
+                with self.api_response("POST", "/api/models/instances"):
+                    dialog.get_by_role("button", name="Connect", exact=True).click()
+                expect(dialog).to_have_count(0)
+                expect(cards.filter(has_text=label)).to_contain_text("connected")
+                self.assertEqual(self.connections()[-1], {"providerKind": provider, "apiKey": "synthetic-key-only"})
+        self.assertNotIn("synthetic-key-only", self.page.evaluate("JSON.stringify([localStorage, sessionStorage])"))
+        self.screenshot("compa-models.png")

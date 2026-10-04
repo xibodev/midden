@@ -255,6 +255,9 @@ body[data-route="assistant"] main { overflow: hidden; padding: 0; display: flex;
 @media (max-width: 960px) {
   .topbar { flex-wrap: wrap; gap: 8px 12px; padding: 8px 12px; }
   .pill, #modelChip { max-width: 100%; }
+  .notice { padding: 6px 12px; gap: 4px; }
+  .notice > span { flex-basis: 100%; min-width: 0; max-height: 3em; overflow: auto; font-size: .8rem; }
+  .host-notice { padding: 7px 12px; max-height: 5.5em; overflow: auto; }
   .layout { display: flex; flex-direction: column; }
   nav.side { flex-direction: row; overflow-x: auto; border-right: 0; border-bottom: 1px solid var(--line); padding: 6px 8px; gap: 2px; flex-shrink: 0; }
   nav.side a { white-space: nowrap; padding: 8px 10px; }
@@ -273,6 +276,7 @@ body[data-route="assistant"] main { overflow: hidden; padding: 0; display: flex;
   .activity { margin: 12px 0 0; padding: 10px 12px; }
   body.has-permissions .composer textarea { height: 48px; min-height: 48px; max-height: 100px; padding: 8px 10px; }
   body.has-permissions #composerHelp { display: none; }
+  body.has-permissions .sessions-pane > :not(.pane-heading) { display: none; }
   input, select { font-size: 16px; }
   .kv { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
