@@ -94,7 +94,7 @@ func reportRisk(threshold core.Risk, quiet bool) int {
 	fmt.Printf("  %s  %s\n", stamp, render.Bold(fmt.Sprintf("%d session(s) need attention", len(at))))
 	for _, s := range at {
 		fmt.Printf("\n    %-9s %-11s %s\n",
-			render.RiskColour(s.Risk()), render.Bytes(s.Bytes), core.Truncate(s.Title, 52))
+			render.RiskColour(s.Risk()), render.Bytes(s.Bytes), core.Truncate(filterText(s.Title), 52))
 		fmt.Printf("    %s\n", render.Dim(s.Dir))
 
 		switch s.Risk() {

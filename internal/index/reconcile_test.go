@@ -548,12 +548,7 @@ func TestScanGenerationIsDurablyMonotonic(t *testing.T) {
 }
 
 func TestEmptyReconcileReportUsesArraysInJSON(t *testing.T) {
-	report := ReconcileReport{
-		GhostSessions:   []SessionKey{},
-		StaleManifests:  []SessionKey{},
-		OrphanManifests: []SessionKey{},
-	}
-	data, err := json.Marshal(report)
+	data, err := json.Marshal(NewReconcileReport())
 	if err != nil {
 		t.Fatal(err)
 	}

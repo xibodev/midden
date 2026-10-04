@@ -1,6 +1,8 @@
 package assay
 
 import (
+	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 )
@@ -88,6 +90,52 @@ func TestManifestHandlesEmpty(t *testing.T) {
 	m := NewManifest("s", "t")
 	if m.Compression() != 0 || m.SignalShare() != 0 || m.EstTokens() != 0 {
 		t.Error("empty manifest should report zeroes, not divide by zero")
+	}
+}
+
+// JSON carries the class label, not the enum ordinal, and reads it back.
+func TestClassEncodesAsLabel(t *testing.T) {
+	for _, class := range []Class{Signal, Exhaust, Artifact, Bookkeeping} {
+		raw, err := json.Marshal(Record{Class: class, Kind: "k"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(string(raw), `"class":"`+class.String()+`"`) {
+			t.Errorf("class %v encoded as %s", class, raw)
+		}
+		var back Record
+		if err = json.Unmarshal(raw, &back); err != nil || back.Class != class {
+			t.Errorf("round trip of %v = %v, %v", class, back.Class, err)
+		}
+	}
+	var r Record
+	if err := json.Unmarshal([]byte(`{"class":"noise"}`), &r); err == nil {
+		t.Error("an unknown class label was accepted")
+	}
+	if _, err := json.Marshal(Record{Class: Class(9)}); err == nil {
+		t.Error("an out-of-range class was encoded")
+	}
+}
+
+// Candidates encode as [] when empty, and unknown times are omitted rather
+// than encoded as the zero time.
+func TestManifestJSONShape(t *testing.T) {
+	raw, err := json.Marshal(NewManifest("s", "copilot"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(raw), `"candidates":[]`) {
+		t.Errorf("empty candidates must encode as []: %s", raw)
+	}
+	if strings.Contains(string(raw), "first_time") || strings.Contains(string(raw), "0001-01-01") {
+		t.Errorf("unknown times must be omitted: %s", raw)
+	}
+	raw, err = json.Marshal(Record{Class: Signal, Kind: "user"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(raw), `"time"`) {
+		t.Errorf("unknown record time must be omitted: %s", raw)
 	}
 }
 

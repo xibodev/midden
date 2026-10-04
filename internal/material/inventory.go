@@ -21,6 +21,31 @@ type Inventory struct {
 	Partial       bool           `json:"partial"`
 }
 
+// listTitleRunes bounds titles in session lists. A title is derived from the
+// first prompt, so it is unbounded prose rather than a label.
+const listTitleRunes = 160
+
+// RedactSession returns s with its free text (title, repository, live name)
+// passed through credential filtering. Identifiers, paths and numbers are
+// unchanged. Filtering is not privacy clearance.
+func RedactSession(s core.Session) core.Session {
+	s.Title = redact.Text(s.Title).Text
+	s.Repo = redact.Text(s.Repo).Text
+	if s.Live != nil {
+		live := *s.Live
+		live.Name = redact.Text(live.Name).Text
+		s.Live = &live
+	}
+	return s
+}
+
+// ListSession is RedactSession with the bounded title used by session lists.
+func ListSession(s core.Session) core.Session {
+	s = RedactSession(s)
+	s.Title = clipText(s.Title, listTitleRunes)
+	return s
+}
+
 func List(roots adapter.Roots, scope core.Scope, offset, limit int) (Inventory, error) {
 	out := Inventory{Sessions: []core.Session{}, StoresRead: []core.Tool{}, Warnings: []string{}, Offset: offset}
 	for _, tool := range scope.Tools {
@@ -75,7 +100,7 @@ func List(roots adapter.Roots, scope core.Scope, offset, limit int) (Inventory, 
 			out.ExcludedNoise++
 			continue
 		}
-		row.Title = clipText(redact.Text(row.Title).Text, 160)
+		row = ListSession(row)
 		filtered = append(filtered, row)
 	}
 	sort.Slice(filtered, func(i, j int) bool {

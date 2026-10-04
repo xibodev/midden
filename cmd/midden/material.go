@@ -265,8 +265,12 @@ func runCollection(args []string, out io.Writer) error {
 		if err != nil {
 			return err
 		}
+		warnings := m.Warnings
+		if warnings == nil {
+			warnings = []string{}
+		}
 		return emitMaterial(out, *asJSON, map[string]any{"path": path, "schema": m.Schema, "record_count": m.RecordCount, "records_digest": m.RecordsDigest,
-			"source_count": len(m.Sources), "asset_count": len(m.Assets), "manifest": filepath.Join(path, "manifest.json"), "warnings": m.Warnings})
+			"source_count": len(m.Sources), "asset_count": len(m.Assets), "manifest": filepath.Join(path, "manifest.json"), "warnings": warnings})
 	case "verify":
 		if *quote != "" {
 			if len(ids) != 1 {

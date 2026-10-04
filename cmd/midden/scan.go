@@ -61,7 +61,7 @@ func cmdScan(args []string) error {
 	// unrelated cache rows. A full, error-free scan is different: it is the
 	// one moment absence from an adapter is proof that an indexed session is
 	// gone. Reconcile there, not on every read.
-	var reconciled index.ReconcileReport
+	reconciled := index.NewReconcileReport()
 	tools := index.AuthoritativeTools(*sc, collected.Complete)
 	if len(tools) > 0 {
 		authoritative := index.SessionsForTools(sessions, tools)
@@ -117,7 +117,7 @@ func cmdScan(args []string) error {
 			}
 			if !*asJSON {
 				fmt.Fprintf(os.Stderr, "\r  assaying %d/%d  %-46s",
-					i+1, len(sessions), core.Truncate(s.Title, 44))
+					i+1, len(sessions), core.Truncate(filterText(s.Title), 44))
 			}
 
 			m, err := a.Assay(s, 200)
@@ -223,12 +223,12 @@ func cmdAssay(args []string) error {
 	if err != nil {
 		return err
 	}
-	if t.Assayed == 0 {
-		return fmt.Errorf("nothing assayed yet — run `midden scan --assay` first")
-	}
-
+	// JSON reports zero assayed sessions as data; the terminal says what to run.
 	if *asJSON {
 		return emitJSON(t)
+	}
+	if t.Assayed == 0 {
+		return fmt.Errorf("nothing assayed yet — run `midden scan --assay` first")
 	}
 	printTotals(t)
 	return nil
@@ -236,10 +236,15 @@ func cmdAssay(args []string) error {
 
 // assayLive classifies without touching the index, for a single session or an
 // ad-hoc scope.
+//
+// One matching session reports its own manifest; several report an aggregate.
+// In JSON mode an empty scope is an empty aggregate, while an exact selector
+// that matches nothing is an error rather than a session with no records.
 func assayLive(sc core.Scope, asJSON bool, top int) error {
 	sessions, errs := adapter.Collect(sc)
 	reportErrs(errs)
-	if len(sessions) == 0 {
+	exact := sc.IDPrefix != "" || len(sc.IDs) > 0
+	if len(sessions) == 0 && (exact || !asJSON) {
 		return fmt.Errorf("no sessions match")
 	}
 
@@ -274,19 +279,30 @@ func assayLive(sc core.Scope, asJSON bool, top int) error {
 		agg.ImageCount += m.ImageCount
 		agg.ImageClusters += m.ImageClusters
 		agg.Candidates = append(agg.Candidates, m.Candidates...)
+		if !m.FirstTime.IsZero() && (agg.FirstTime.IsZero() || m.FirstTime.Before(agg.FirstTime)) {
+			agg.FirstTime = m.FirstTime
+		}
+		if m.LastTime.After(agg.LastTime) {
+			agg.LastTime = m.LastTime
+		}
 	}
 
+	out := agg
+	if len(manifests) == 1 {
+		out = manifests[0]
+	}
+	filterManifest(out)
+
 	if asJSON {
-		return emitJSON(agg)
+		return emitJSON(out)
 	}
 
 	if len(manifests) == 1 {
-		m := manifests[0]
-		fmt.Printf("\n  %s  %s\n", render.Bold(core.Truncate(m.Title, 60)), render.Dim(m.SessionID))
+		fmt.Printf("\n  %s  %s\n", render.Bold(core.Truncate(out.Title, 60)), render.Dim(out.SessionID))
 	} else {
 		fmt.Printf("\n  %s across %d sessions\n", render.Bold("ASSAY"), len(manifests))
 	}
-	printManifest(agg, top)
+	printManifest(out, top)
 	return nil
 }
 

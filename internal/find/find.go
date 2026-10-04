@@ -16,21 +16,24 @@ import (
 	"os"
 	"sort"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/xibodev/midden/internal/core"
+	"github.com/xibodev/midden/internal/redact"
 )
 
 // Hit is one session whose transcript matched.
 type Hit struct {
-	Session core.Session
+	Session core.Session `json:"session"`
 
 	// Matches is how many lines matched, a rough relevance signal: a session
 	// that mentions a topic once is not the same as one built around it.
-	Matches int
+	Matches int `json:"matches"`
 
-	// Excerpt is the first matching line, bounded and single-line, so a caller
-	// can show WHY a session matched rather than asking the user to trust it.
-	Excerpt string
+	// Excerpt is the first matching line, bounded, single-line and
+	// credential-filtered, so a caller can show WHY a session matched rather
+	// than asking the user to trust it.
+	Excerpt string `json:"excerpt"`
 }
 
 // Options bound the scan. Defaults keep an interactive search interactive.
@@ -59,7 +62,14 @@ const (
 	defaultMaxBytes    = 64 << 20
 	defaultMaxHits     = 25
 	excerptLimit       = 160
+	excerptLead        = 60
 	matchCountCeiling  = 50
+
+	// filterMargin is how much text around a match passes credential
+	// filtering before the excerpt is clipped. It is wider than any credential
+	// shape the filter recognises, so a credential crossing the excerpt edge is
+	// replaced whole instead of surviving as an unrecognisable fragment.
+	filterMargin = 8 << 10
 )
 
 func (o Options) withDefaults() Options {
@@ -81,17 +91,18 @@ func (o Options) withDefaults() Options {
 // complete. Scanned and Truncated travel with Hits so the count carries its own
 // denominator, the same reason sessions.list ships excluded_noise.
 type Result struct {
-	Hits []Hit
+	// Hits is never nil, so an empty answer encodes as [].
+	Hits []Hit `json:"hits"`
 
 	// Scanned is how many sessions were actually opened.
-	Scanned int
+	Scanned int `json:"scanned"`
 
 	// Skipped is how many were in scope but not opened, because a bound was
 	// reached. Non-zero means this is a partial answer.
-	Skipped int
+	Skipped int `json:"skipped"`
 
 	// Truncated reports that at least one transcript was read only in part.
-	Truncated bool
+	Truncated bool `json:"truncated"`
 }
 
 // Sessions searches transcript content for a query, newest first.
@@ -101,9 +112,10 @@ type Result struct {
 // most likely is.
 func Sessions(sessions []core.Session, query string, opt Options) Result {
 	opt = opt.withDefaults()
+	out := Result{Hits: []Hit{}}
 	q := strings.ToLower(strings.TrimSpace(query))
 	if q == "" {
-		return Result{}
+		return out
 	}
 
 	ordered := make([]core.Session, len(sessions))
@@ -112,7 +124,6 @@ func Sessions(sessions []core.Session, query string, opt Options) Result {
 		return ordered[i].Updated.After(ordered[j].Updated)
 	})
 
-	var out Result
 	for _, s := range ordered {
 		if len(out.Hits) >= opt.MaxHits || out.Scanned >= opt.MaxSessions {
 			out.Skipped++
@@ -183,31 +194,50 @@ func scan(s core.Session, q string, maxBytes int64) (Hit, bool, error) {
 	return hit, sc.Err() != nil, nil
 }
 
+// jsonEscapes decodes the string escapes of a raw record line, so credential
+// filtering sees text such as KEY="value" as written rather than its encoding.
+var jsonEscapes = strings.NewReplacer(`\\`, `\`, `\"`, `"`, `\/`, `/`, `\n`, " ", `\r`, " ", `\t`, " ")
+
 // excerpt returns a bounded, single-line window around the match, so a caller
 // can show why a session matched without dumping a transcript line.
+//
+// The neighbourhood of the match is decoded and credential-filtered before it
+// is clipped: filtering a clipped excerpt could leave a credential fragment
+// too short to recognise.
 func excerpt(line, q string) string {
 	flat := strings.Join(strings.Fields(line), " ")
-	i := strings.Index(strings.ToLower(flat), q)
-	if i < 0 {
-		if len(flat) > excerptLimit {
-			return flat[:excerptLimit] + "…"
-		}
-		return flat
+	at := strings.Index(strings.ToLower(flat), q)
+	if at < 0 {
+		at = 0
 	}
-	start := i - 60
-	if start < 0 {
-		start = 0
+	lo := runeStart(flat, max(0, at-filterMargin))
+	hi := runeStart(flat, min(len(flat), at+len(q)+filterMargin))
+	window := strings.Join(strings.Fields(jsonEscapes.Replace(flat[lo:hi])), " ")
+	window = redact.Text(window).Text
+
+	pos := strings.Index(strings.ToLower(window), q)
+	if pos < 0 {
+		// The match was inside a filtered credential or an escape sequence;
+		// keep its approximate place.
+		pos = min(at-lo, len(window))
 	}
-	end := start + excerptLimit
-	if end > len(flat) {
-		end = len(flat)
-	}
-	out := flat[start:end]
-	if start > 0 {
+	start := runeStart(window, max(0, pos-excerptLead))
+	end := runeStart(window, min(len(window), start+excerptLimit))
+	out := window[start:end]
+	if lo > 0 || start > 0 {
 		out = "…" + out
 	}
-	if end < len(flat) {
+	if hi < len(flat) || end < len(window) {
 		out += "…"
 	}
 	return out
+}
+
+// runeStart moves i back to a rune boundary, so a cut never splits a
+// multi-byte character.
+func runeStart(s string, i int) int {
+	for i > 0 && i < len(s) && !utf8.RuneStart(s[i]) {
+		i--
+	}
+	return i
 }

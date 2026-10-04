@@ -344,6 +344,7 @@ func cmdShow(args []string) error {
 	if err != nil {
 		return err
 	}
+	s = material.RedactSession(s)
 
 	if *asJSON {
 		return emitJSON(s)
@@ -447,6 +448,9 @@ func cmdDoctor(args []string) error {
 	}
 
 	rep := report{
+		AtRisk:     []core.Session{},
+		DeadDirs:   []core.Session{},
+		Live:       []core.Session{},
 		ByTool:     map[string]int{},
 		ToolBytes:  map[string]int64{},
 		ToolStores: map[string]int64{},
@@ -461,14 +465,15 @@ func cmdDoctor(args []string) error {
 		rep.ByTool[string(s.Tool)]++
 		rep.ToolBytes[string(s.Tool)] += s.Bytes
 
+		listed := material.ListSession(s)
 		if s.Risk() != core.RiskNone {
-			rep.AtRisk = append(rep.AtRisk, s)
+			rep.AtRisk = append(rep.AtRisk, listed)
 		}
 		if !s.DirExists() {
-			rep.DeadDirs = append(rep.DeadDirs, s)
+			rep.DeadDirs = append(rep.DeadDirs, listed)
 		}
 		if s.Live != nil {
-			rep.Live = append(rep.Live, s)
+			rep.Live = append(rep.Live, listed)
 		}
 	}
 	sort.Slice(rep.AtRisk, func(i, j int) bool { return rep.AtRisk[i].Bytes > rep.AtRisk[j].Bytes })
@@ -552,7 +557,7 @@ func findOne(idOrPrefix string) (core.Session, error) {
 	}
 	fmt.Fprintf(os.Stderr, "%q matches %d sessions:\n", idOrPrefix, len(matches))
 	for _, m := range matches {
-		fmt.Fprintf(os.Stderr, "  %s  %s  %s\n", m.Tool, m.ID, core.Truncate(m.Title, 50))
+		fmt.Fprintf(os.Stderr, "  %s  %s  %s\n", m.Tool, m.ID, core.Truncate(filterText(m.Title), 50))
 	}
 	return core.Session{}, fmt.Errorf("ambiguous prefix — use more characters")
 }
