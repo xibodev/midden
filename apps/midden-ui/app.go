@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/xibodev/compa/pkg/config"
+	"github.com/xibodev/compa/pkg/modelservice"
 )
 
 const kernelVersion = "v1.0.0"
@@ -47,12 +48,6 @@ type TurnOutcome struct {
 	Error        string    `json:"error,omitempty"`
 	At           time.Time `json:"at"`
 	MessageIndex int       `json:"messageIndex"`
-}
-type Model struct {
-	Provider      string `json:"provider"`
-	Model         string `json:"model"`
-	Endpoint      string `json:"endpoint"`
-	CredentialRef string `json:"credentialRef,omitempty"`
 }
 type Event struct {
 	Seq          uint64 `json:"seq"`
@@ -90,8 +85,6 @@ type App struct {
 	csrf        string
 	mu          sync.Mutex
 	modelMu     sync.Mutex // serializes model configuration changes; never held with mu across I/O
-	model       Model
-	credential  string
 	sessions    map[string]*Session
 	active      *activeTurn
 	permissions map[string]*permission
@@ -102,6 +95,11 @@ type App struct {
 	projected   string
 	bundles     []BundleInfo
 	wg          sync.WaitGroup
+
+	// modelChanging is set under mu while a model change runs; no turn starts meanwhile.
+	modelChanging bool
+	// freeVerify checks free providers; nil uses Compa's own check.
+	freeVerify modelservice.AnonymousVerifyFunc
 }
 
 func randomID() string {
@@ -148,16 +146,13 @@ func NewApp(opts Options) (*App, error) {
 			return nil, err
 		}
 	}
-	for name, dest := range map[string]any{"model.json": &app.model, "sessions.json": &app.sessions} {
-		raw, err := readBounded(filepath.Join(opts.State, name), 8<<20)
-		if os.IsNotExist(err) {
-			continue
-		}
-		if err != nil {
-			return nil, err
-		}
-		if err = json.Unmarshal(raw, dest); err != nil {
-			return nil, fmt.Errorf("read %s: %w", name, err)
+	raw, err := readBounded(filepath.Join(opts.State, "sessions.json"), 8<<20)
+	if err != nil && !os.IsNotExist(err) {
+		return nil, err
+	}
+	if err == nil {
+		if err = json.Unmarshal(raw, &app.sessions); err != nil {
+			return nil, fmt.Errorf("read sessions.json: %w", err)
 		}
 	}
 	if app.sessions == nil {
@@ -201,6 +196,7 @@ func (a *App) Close() {
 }
 
 func (a *App) Status() map[string]any {
+	model := a.storedModelStatus()
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	active := ""
@@ -209,19 +205,8 @@ func (a *App) Status() map[string]any {
 	}
 	identity := sha256.Sum256([]byte(a.opts.Workspace + "\x00" + a.opts.State))
 	return map[string]any{"workspace": a.opts.Workspace, "workspaceId": hex.EncodeToString(identity[:]), "uiVersion": version, "coreVersion": a.opts.CoreVersion, "kernelName": "Compa", "kernelVersion": kernelVersion,
-		"bundles": a.bundles, "model": a.modelStatusLocked(), "activeTurn": active, "csrfToken": a.csrf,
+		"bundles": a.bundles, "model": model, "activeTurn": active, "csrfToken": a.csrf,
 		"notice": "Compa runtime. Approved shell commands run with your account; this is not an OS sandbox."}
-}
-func (a *App) modelStatusLocked() map[string]any {
-	setupError := ""
-	if a.model.Provider != "" {
-		if err := modelProviderError(a.model.Provider); err != nil {
-			setupError = err.Error()
-		}
-	}
-	return map[string]any{"provider": a.model.Provider, "model": a.model.Model, "endpoint": a.model.Endpoint,
-		"credentialRef": a.model.CredentialRef, "configured": a.model.Model != "" && setupError == "", "credentialConfigured": a.model.CredentialRef != "", "setupError": setupError,
-		"authStatus": "Credentials are checked by the provider when used."}
 }
 func (a *App) NewSession(title string) (Session, error) {
 	a.mu.Lock()
@@ -309,13 +294,13 @@ func (a *App) StartTurn(id, text string) (string, error) {
 		a.mu.Unlock()
 		return "", fmt.Errorf("a turn is already running; stop it or wait")
 	}
-	if a.model.Model == "" {
+	if a.modelChanging {
 		a.mu.Unlock()
-		return "", fmt.Errorf("configure a model before starting a conversation")
+		return "", fmt.Errorf("model settings are being saved; try again when they are done")
 	}
-	if err := modelProviderError(a.model.Provider); err != nil {
+	if !a.storedModelStatus().Configured {
 		a.mu.Unlock()
-		return "", err
+		return "", errors.New(chooseModelMessage)
 	}
 	if a.runtime == nil {
 		runtime, err := newKernel(a)

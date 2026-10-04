@@ -60,7 +60,7 @@ func TestTurnAdmissionReservesTerminalOutcomeSpace(t *testing.T) {
 	}
 	path := filepath.Join(app.opts.State, "sessions.json")
 	before, _ := os.ReadFile(path)
-	app.model = Model{Provider: "openai", Model: "fixture"}
+	storeTestModel(t, app, "http://127.0.0.1:9/v1", "")
 	app.runtime = outcomeEngine{process: func(context.Context, string, string) (string, error) {
 		return "", errors.New("synthetic failure")
 	}}
@@ -82,7 +82,7 @@ func TestConcurrentMetadataCannotConsumePendingOutcomeReserve(t *testing.T) {
 	s, _ := app.NewSession("near limit")
 	padOutcomeHistory(t, app, s.ID, (8<<20)-20000)
 	release := make(chan struct{})
-	app.model = Model{Provider: "openai", Model: "fixture"}
+	storeTestModel(t, app, "http://127.0.0.1:9/v1", "")
 	app.runtime = outcomeEngine{process: func(ctx context.Context, _, _ string) (string, error) {
 		select {
 		case <-release:

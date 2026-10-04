@@ -52,7 +52,7 @@ func TestFailedTurnOutcomeSurvivesRestart(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	app.model = Model{Provider: "openai", Model: "fixture"}
+	storeTestModel(t, app, "http://127.0.0.1:9/v1", "")
 	app.runtime = outcomeEngine{process: func(context.Context, string, string) (string, error) {
 		return "", errors.New("synthetic provider refused the request")
 	}}
@@ -85,7 +85,7 @@ func TestCancelledTurnHasADurableOutcome(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer app.Close()
-	app.model = Model{Provider: "openai", Model: "fixture"}
+	storeTestModel(t, app, "http://127.0.0.1:9/v1", "")
 	app.runtime = outcomeEngine{process: func(ctx context.Context, _, _ string) (string, error) {
 		<-ctx.Done()
 		return "", ctx.Err()

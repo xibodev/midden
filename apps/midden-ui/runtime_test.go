@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/xibodev/compa/pkg/config"
+	"github.com/xibodev/compa/pkg/modelservice"
 )
 
 func kernelApp(t *testing.T) (*App, *httptest.Server, *atomic.Int32) {
@@ -94,12 +95,8 @@ func kernelApp(t *testing.T) (*App, *httptest.Server, *atomic.Int32) {
 		provider.Close()
 		t.Fatal(err)
 	}
-	if err = app.SetModel(ModelInput{Provider: "openai", Model: "fixture", Endpoint: provider.URL}); err != nil {
-		app.Close()
-		provider.Close()
-		t.Fatal(err)
-	}
 	t.Cleanup(func() { app.Close(); provider.Close() })
+	storeTestModel(t, app, provider.URL, "")
 	return app, provider, &calls
 }
 
@@ -194,5 +191,57 @@ func TestDeniedOperationDoesNotWriteTheFile(t *testing.T) {
 	awaitIdle(t, app)
 	if _, err := os.Stat(filepath.Join(app.opts.Workspace, "article.md")); !os.IsNotExist(err) {
 		t.Fatal("denied tool wrote a file")
+	}
+}
+func TestKernelUsesTheStoredModelConfiguration(t *testing.T) {
+	app, _, _ := kernelApp(t)
+	runtime, err := newKernel(app)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runtime.Close()
+	if status := app.Status()["model"].(modelStatus); !status.Configured || status.DefaultModel != "fixture/fixture" || status.Summary != "fixture/fixture" {
+		t.Fatalf("status: %+v", status)
+	}
+	if err := app.putRoute("main", []string{"fixture/fixture"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := app.setDefaultModel("main"); err != nil {
+		t.Fatal(err)
+	}
+	if runtime, err = newKernel(app); err != nil {
+		t.Fatal("kernel did not resolve the stored route", err)
+	}
+	runtime.Close()
+	if status := app.Status()["model"].(modelStatus); !status.Configured || status.Summary != "Route main · 1 model" {
+		t.Fatalf("route status: %+v", status)
+	}
+	if err := app.setDefaultModel(""); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := newKernel(app); err == nil || err.Error() != chooseModelMessage {
+		t.Fatal("kernel started without a default model", err)
+	}
+	s, err := app.NewSession("no model")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := app.StartTurn(s.ID, "Write an article."); err == nil || err.Error() != chooseModelMessage {
+		t.Fatal("turn started without a default model", err)
+	}
+	if err := modelservice.DeleteProviderInstanceCatalog("fixture"); err != nil {
+		t.Fatal(err)
+	}
+	if err := app.updateModelConfig(func(cfg *config.Config) error {
+		cfg.Agents.Defaults.ModelName = "fixture/fixture"
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if status := app.Status()["model"].(modelStatus); status.Configured || !strings.Contains(status.SetupError, "catalog") {
+		t.Fatalf("a default without a model list counted as configured: %+v", status)
+	}
+	if _, err := app.StartTurn(s.ID, "Write an article."); err == nil || err.Error() != chooseModelMessage {
+		t.Fatal("turn started with an unavailable default model", err)
 	}
 }

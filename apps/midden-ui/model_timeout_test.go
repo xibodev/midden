@@ -33,27 +33,27 @@ func TestRuntimeAllowsColdProviderHeadersBeyondSetupDeadline(t *testing.T) {
 		w.Write([]byte(`{"choices":[{"message":{"role":"assistant","content":"cold model ready"},"finish_reason":"stop"}]}`))
 	}))
 	defer service.Close()
-	app, err := NewApp(testOptions(t))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer app.Close()
-	probeDone := make(chan error, 1)
+	app := newTestApp(t)
+	storeTestModel(t, app, service.URL, "")
+	probeDone := make(chan modelCheck, 1)
 	go func() {
-		probeDone <- app.CheckModel(context.Background(), ModelInput{Provider: "openai", Model: "cold-fixture", Endpoint: service.URL})
+		result, err := app.checkModel(context.Background(), "fixture", "fixture")
+		if err != nil {
+			t.Error(err)
+		}
+		probeDone <- result
 	}()
-	model := Model{Provider: "openai", Model: "cold-fixture", Endpoint: service.URL}
-	provider, err := protectedInstanceProvider(modelInstance(model), model.Model, "")
+	provider, err := protectedInstanceProvider(fixtureInstance(service.URL), "fixture", "")
 	if err != nil {
 		t.Fatal(err)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 40*time.Second)
 	defer cancel()
-	reply, err := provider.Chat(ctx, []providers.Message{{Role: "user", Content: "Synthetic cold-start check."}}, nil, model.Model, nil)
+	reply, err := provider.Chat(ctx, []providers.Message{{Role: "user", Content: "Synthetic cold-start check."}}, nil, "fixture", nil)
 	if err != nil || reply == nil || reply.Content != "cold model ready" {
 		t.Fatal("normal inference incorrectly inherited the short setup-probe timeout", err)
 	}
-	if err := <-probeDone; err == nil {
+	if result := <-probeDone; result.Status != "failed" {
 		t.Fatal("setup probe did not retain its bounded deadline")
 	}
 	select {
@@ -71,24 +71,20 @@ func TestModelSetupAndRuntimeRequestsRemainCancellable(t *testing.T) {
 		<-r.Context().Done()
 	}))
 	defer service.Close()
-	app, err := NewApp(testOptions(t))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer app.Close()
-	input := ModelInput{Provider: "openai", Model: "waiting-fixture", Endpoint: service.URL}
+	app := newTestApp(t)
+	storeTestModel(t, app, service.URL, "")
 	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 	defer cancel()
-	if err := app.CheckModel(ctx, input); err == nil {
-		t.Fatal("cancelled setup probe reported success")
+	if result, err := app.checkModel(ctx, "fixture", "fixture"); err != nil || result.Status != "failed" {
+		t.Fatal("cancelled setup probe reported success", err)
 	}
-	provider, err := protectedInstanceProvider(modelInstance(Model{Provider: input.Provider, Model: input.Model, Endpoint: input.Endpoint}), input.Model, "")
+	provider, err := protectedInstanceProvider(fixtureInstance(service.URL), "fixture", "")
 	if err != nil {
 		t.Fatal(err)
 	}
 	runtimeCtx, stop := context.WithTimeout(context.Background(), 50*time.Millisecond)
 	defer stop()
-	if _, err := provider.Chat(runtimeCtx, []providers.Message{{Role: "user", Content: "Wait."}}, nil, input.Model, nil); err == nil || !strings.Contains(err.Error(), "context") {
+	if _, err := provider.Chat(runtimeCtx, []providers.Message{{Role: "user", Content: "Wait."}}, nil, "fixture", nil); err == nil || !strings.Contains(err.Error(), "context") {
 		t.Fatal("runtime did not respect cancellation", err)
 	}
 }
