@@ -82,8 +82,8 @@ th.num, td.num { text-align: right; white-space: nowrap; }
 table.sessions tbody tr { cursor: pointer; }
 table.sessions tbody tr:hover td { background: #f7f9f5; }
 tr.sel td { background: #eef5f0; }
-.tool { display: inline-block; min-width: 28px; padding: 1px 6px; border-radius: 5px; font-size: .72rem; font-weight: 700; text-align: center; color: #fff; background: #6b756f; }
-.tool.cp { background: #4a5d8a; } .tool.cc { background: #8a5a3c; } .tool.oc { background: #3f7a70; }
+.tool-badge { display: inline-block; min-width: 28px; padding: 1px 6px; border-radius: 5px; font-size: .72rem; font-weight: 700; text-align: center; color: #fff; background: #6b756f; }
+.tool-badge.cp { background: #4a5d8a; } .tool-badge.cc { background: #8a5a3c; } .tool-badge.oc { background: #3f7a70; }
 .live { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #2f9e5b; margin-left: 6px; vertical-align: middle; }
 .flag { margin-left: 6px; padding: 0 6px; border-radius: 5px; font-size: .72rem; background: var(--warn-bg); color: var(--warn-ink); border: 1px solid var(--warn-line); }
 .facts { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 4px 12px; font-size: .86rem; margin: 10px 0; }

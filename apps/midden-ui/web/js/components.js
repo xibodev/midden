@@ -28,7 +28,7 @@ export function button(label, { primary = false, small = false, link = false, on
 }
 
 export function toolBadge(tool) {
-  return el("span", { class: `tool ${toolShort[tool]?.toLowerCase() || "unknown"}`, text: toolShort[tool] || "?", attrs: { title: toolNames[tool] || tool, "aria-label": toolNames[tool] || tool } });
+  return el("span", { class: `tool-badge ${toolShort[tool]?.toLowerCase() || "unknown"}`, text: toolShort[tool] || "?", attrs: { title: toolNames[tool] || tool, "aria-label": toolNames[tool] || tool } });
 }
 
 export function chip(text, kind = "") {

@@ -11,6 +11,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"runtime/debug"
 	"sort"
 	"strings"
 	"sync"
@@ -20,7 +21,27 @@ import (
 	"github.com/xibodev/compa/pkg/modelservice"
 )
 
-const kernelVersion = "v1.0.0"
+// fallbackKernelVersion is used when build information doesn't name the
+// embedded Compa release (for example, a workspace build of a local checkout).
+const fallbackKernelVersion = "v1.0.0"
+
+// kernelVersion reports the embedded Compa module version from build info.
+func kernelVersion() string {
+	if info, ok := debug.ReadBuildInfo(); ok {
+		for _, dep := range info.Deps {
+			if dep.Path != "github.com/xibodev/compa" {
+				continue
+			}
+			if dep.Replace != nil && strings.HasPrefix(dep.Replace.Version, "v") {
+				return dep.Replace.Version
+			}
+			if strings.HasPrefix(dep.Version, "v") {
+				return dep.Version
+			}
+		}
+	}
+	return fallbackKernelVersion
+}
 
 var errHistoryLimit = errors.New("conversation history limit reached; use another UI state directory before adding more history")
 
@@ -204,9 +225,9 @@ func (a *App) Status() map[string]any {
 		active = a.active.ID
 	}
 	identity := sha256.Sum256([]byte(a.opts.Workspace + "\x00" + a.opts.State))
-	return map[string]any{"workspace": a.opts.Workspace, "workspaceId": hex.EncodeToString(identity[:]), "uiVersion": version, "coreVersion": a.opts.CoreVersion, "kernelName": "Compa", "kernelVersion": kernelVersion,
+	return map[string]any{"workspace": a.opts.Workspace, "workspaceId": hex.EncodeToString(identity[:]), "uiVersion": version, "coreVersion": a.opts.CoreVersion, "kernelName": "Compa", "kernelVersion": kernelVersion(),
 		"bundles": a.bundles, "model": model, "activeTurn": active, "csrfToken": a.csrf,
-		"notice": "Compa runtime. Approved shell commands run with your account; this is not an OS sandbox."}
+		"notice": "Approved shell commands run with your account; this is not an OS sandbox."}
 }
 func (a *App) NewSession(title string) (Session, error) {
 	a.mu.Lock()

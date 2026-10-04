@@ -18,7 +18,7 @@ class CompaTests(BrowserCase):
         self.open()
         expect(self.page.locator("#versions")).to_contain_text("powered by Compa v1.0.0")
         expect(self.page.locator("#versions")).not_to_contain_text("candidate")
-        expect(self.page.locator("#hostNotice")).to_contain_text("released runtime")
+        expect(self.page.locator("#hostNotice")).to_contain_text("not an OS sandbox")
 
     def test_supported_api_key_connections_keep_identity_and_allow_official_endpoint(self):
         self.host.roster.append(dict(id="free_service", label="Free service", defaultEndpoint="https://free.invalid/v1",

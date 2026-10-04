@@ -224,7 +224,7 @@ class MockHost:
                     host.tokens.add(host.csrf)
                     return self.reply(dict(workspace=host.workspace_name, workspaceId=host.workspace_id, **host.versions,
                         model=host.model, activeTurn=host.active,
-                        notice="Compa v1.0.0 released runtime. Approved shell commands run with your account; this is not an OS sandbox.",
+                        notice="Approved shell commands run with your account; this is not an OS sandbox.",
                         csrfToken=host.csrf, bundles=[
                             dict(name="Investigation", description="Understand source material and its limits."),
                             dict(name="Presentation", description="Create an editable, inspectable presentation.")]))
