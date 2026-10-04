@@ -127,7 +127,15 @@ func prepareKernelWorkspace(state string) (string, error) {
 		return "", err
 	}
 	path := filepath.Join(workspace, "AGENT.md")
-	policy := "---\ntools: [read_file, write_file, edit_file, append_file, list_dir, load_image, exec, midden]\n---\nThis is Midden's private runtime. Outcome guidance comes from the mounted canonical skills. Tool workspaces are supplied by the host.\n"
+	policy := "---\n" +
+		"name: Midden\n" +
+		"description: an assistant that turns recorded AI work into findings, articles, presentations and long-form writing, using the midden tool for session evidence\n" +
+		"tools: [read_file, write_file, edit_file, append_file, list_dir, load_image, exec, midden]\n" +
+		"memory: false\n" +
+		"privateWorkspace: true\n" +
+		"requireTools: true\n" +
+		"---\n" +
+		"This is Midden's private runtime. Outcome guidance comes from the mounted canonical skills. Tool workspaces are supplied by the host.\n"
 	if info, err := os.Lstat(path); err == nil {
 		if !info.Mode().IsRegular() {
 			return "", fmt.Errorf("kernel tool policy must be a regular file")
