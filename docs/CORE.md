@@ -19,6 +19,46 @@ identifiable sessions are included under the same scope/noise rules as larger
 ones; `--all` includes sessions marked as noise. Empty files are ignored, while
 nonempty transcripts that cannot be identified make the inventory partial.
 
+## JSON output
+
+For every command with a `--json` flag, a successful run writes exactly one JSON
+document to stdout. Lists are `[]` when empty, never `null`. An empty store, an
+empty scope, a search without matches or nothing to prune is a successful empty
+result; `ls` fails when no source store in scope is readable at all. A failure,
+including an exact session that does not exist, exits non-zero with a reason on
+stderr and nothing on stdout. `collection verify` is the exception: it prints its
+report and exits 1 when the collection or quotation does not verify.
+
+`?` marks a field that may be absent.
+
+| Command | Result |
+|---|---|
+| `ls` | `{sessions, total, matched, excluded_noise, offset, next_offset?, stores_read, warnings, partial}` |
+| `find TEXT` | `{hits: [{session, matches, excerpt}], scanned, skipped, truncated}` |
+| `show` | one session |
+| `brief` | `{session, goal?, recent, last_assistant?, user_turns, total_records, truncated}`; a turn is `{index, role, text, time}` |
+| `usage` | `{model?, turns, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, reasoning_tokens, aiu?, usd?, duration_ms}` |
+| `doctor` | `{total, tracked_bytes, store_footprint, at_risk, dead_workspaces, live, by_tool, tool_tracked_bytes, tool_store_bytes}` |
+| `scan` | `{indexed, assayed, skipped_unchanged, skipped_too_large, no_transcript, failed, bytes_assayed, reconciled, index_path}` |
+| `assay` | stored totals `{sessions, assayed, bytes, signal, exhaust, artifact, bookkeeping, dup_bytes, images, clusters}`; `assayed` is 0 until `scan --assay` has run |
+| `assay --live`, `--session ID` or `PREFIX` | one session's manifest, or a `(scope)` aggregate for several; each candidate's `class` is `signal`, `exhaust`, `artifact` or `bookkeeping` |
+| `prune` | `[{session, plan, verification?, replaced, error?}]` |
+| `archive` | `[{session, tool, bytes, target}]` |
+| `ops` | `[{uid, op, tool, session_id, before, after, detail, ok, created_at}]` |
+
+A session is `{tool, id, dir, title, repo?, created, updated, turns, bytes, live?,
+noise, transcript_path?}`. Session lists (`ls`, `find`, `doctor`, `prune`) bound
+titles to 160 characters, marked `[clipped]`; `show` and `brief` return the whole
+title. A `find` excerpt is a single-line window around the first matching
+transcript line. `read`, `search`, `assets`, `collect` and `collection` results
+are described below.
+
+Free text passes credential filtering in text and JSON output alike: session
+titles, repository and live names, `find` excerpts, `brief` turns, `assay` titles
+and candidate previews, and record text. A recognised credential becomes an
+actionable placeholder such as `<SECRET — ask operator>`. Identifiers,
+paths and numbers are unchanged. Filtering is not privacy clearance.
+
 ## Pinned reading
 
 ```text

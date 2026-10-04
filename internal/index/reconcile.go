@@ -38,6 +38,15 @@ type SessionKey struct {
 	ID   string    `json:"id"`
 }
 
+// NewReconcileReport returns an empty report whose lists encode as [].
+func NewReconcileReport() ReconcileReport {
+	return ReconcileReport{
+		GhostSessions:   []SessionKey{},
+		StaleManifests:  []SessionKey{},
+		OrphanManifests: []SessionKey{},
+	}
+}
+
 // Total reports how many derived rows reconciliation removed.
 func (r ReconcileReport) Total() int {
 	return len(r.GhostSessions) + r.DuplicateRows + len(r.StaleManifests) + len(r.OrphanManifests)
@@ -88,11 +97,7 @@ func (d *DB) ReconcileAndMark(sessions []core.Session, tools []core.Tool, genera
 }
 
 func (d *DB) reconcile(sessions []core.Session, tools []core.Tool, generation int64, indexedAt time.Time, allRequested bool) (ReconcileReport, error) {
-	report := ReconcileReport{
-		GhostSessions:   []SessionKey{},
-		StaleManifests:  []SessionKey{},
-		OrphanManifests: []SessionKey{},
-	}
+	report := NewReconcileReport()
 
 	present := map[core.Tool]map[string]bool{}
 	for _, s := range sessions {

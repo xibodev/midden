@@ -5,10 +5,12 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/xibodev/midden/internal/adapter"
 	"github.com/xibodev/midden/internal/core"
 	"github.com/xibodev/midden/internal/find"
+	"github.com/xibodev/midden/internal/material"
 	"github.com/xibodev/midden/internal/render"
 )
 
@@ -50,6 +52,10 @@ func cmdFind(args []string) error {
 		MaxSessions: *scanMax,
 		MaxHits:     *limit,
 	})
+	// Hits are a session list: the same filtered, bounded titles as ls.
+	for i := range res.Hits {
+		res.Hits[i].Session = material.ListSession(res.Hits[i].Session)
+	}
 
 	if *asJSON {
 		return emitJSON(res)
@@ -94,6 +100,9 @@ func clipLine(s string, n int) string {
 	flat := strings.Join(strings.Fields(s), " ")
 	if len(flat) <= n {
 		return flat
+	}
+	for n > 0 && !utf8.RuneStart(flat[n]) {
+		n--
 	}
 	return flat[:n] + "…"
 }

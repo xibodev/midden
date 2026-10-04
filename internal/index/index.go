@@ -490,16 +490,16 @@ func (d *DB) ManifestFresh(tool, id string, srcBytes int64, srcMtime time.Time) 
 
 // Totals is the aggregate view used by reports.
 type Totals struct {
-	Sessions int64
-	Assayed  int64
-	Bytes    int64
-	Signal   int64
-	Exhaust  int64
-	Artifact int64
-	Book     int64
-	DupBytes int64
-	Images   int64
-	Clusters int64
+	Sessions int64 `json:"sessions"`
+	Assayed  int64 `json:"assayed"`
+	Bytes    int64 `json:"bytes"`
+	Signal   int64 `json:"signal"`
+	Exhaust  int64 `json:"exhaust"`
+	Artifact int64 `json:"artifact"`
+	Book     int64 `json:"bookkeeping"`
+	DupBytes int64 `json:"dup_bytes"`
+	Images   int64 `json:"images"`
+	Clusters int64 `json:"clusters"`
 }
 
 // Reclaimable is exhaust plus bookkeeping: bytes removable without losing
