@@ -471,9 +471,9 @@ public static class MiddenEnvironmentNotification {
     }
 
     function Assert-ProductFiles([string]$Product, $Files) {
-        $required = if ($Product -eq 'core') { @('midden.exe', 'LICENSE', 'CORE.md') } else {
-            @('midden.exe', 'midden-ui.exe', 'LICENSE', 'NOTICE', 'README.md', 'start.ps1', 'start.sh', 'package-manifest.json',
-              'bundles/README.md', 'bundles/investigation/SKILL.md', 'bundles/article/SKILL.md',
+        $required = if ($Product -eq 'core') { @('midden.exe', 'LICENSE') } else {
+            @('midden.exe', 'midden-ui.exe', 'LICENSE', 'NOTICE', 'start.ps1', 'start.sh', 'package-manifest.json',
+              'bundles/investigation/SKILL.md', 'bundles/article/SKILL.md',
               'bundles/presentation/SKILL.md', 'bundles/long-form/SKILL.md',
               'bundles/midden-shared/sources.md', 'bundles/midden-shared/tools.md')
         }

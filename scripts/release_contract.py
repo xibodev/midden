@@ -164,7 +164,6 @@ def ui_inputs(root, revision):
     inputs = [(source, name) for source, name in bundle_inputs(root, revision) if name.startswith("bundles/")]
     selected = [
         ("LICENSE", "LICENSE"), ("NOTICE", "NOTICE"),
-        ("apps/midden-ui/README.md", "README.md"),
         ("apps/midden-ui/start.ps1", "start.ps1"),
         ("apps/midden-ui/start.sh", "start.sh"),
     ]

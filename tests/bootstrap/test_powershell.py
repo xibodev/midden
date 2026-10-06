@@ -245,7 +245,7 @@ class PowerShellBootstrapTests(unittest.TestCase):
         self.release = self.root / "reviewed release"
         self.release.mkdir()
         self.version = VERSION
-        bundle = {"bundles/README.md": b"Synthetic canonical source index.\n"}
+        bundle = {}
         for outcome in ("investigation", "article", "presentation", "long-form"):
             bundle[f"bundles/{outcome}/SKILL.md"] = (
                 f"---\nname: midden-{outcome}\ndescription: Synthetic guidance.\n---\n"
@@ -263,12 +263,11 @@ class PowerShellBootstrapTests(unittest.TestCase):
             "bundles/article/template.md": b"Synthetic article template.\n",
         })
         self.products = {
-            "core": {"midden.exe": self.probe, "LICENSE": b"Synthetic license.\n",
-                     "CORE.md": b"Synthetic core guide.\n"},
+            "core": {"midden.exe": self.probe, "LICENSE": b"Synthetic license.\n"},
             "ui": {
                 **bundle, "midden.exe": self.probe, "midden-ui.exe": self.probe,
                 "LICENSE": b"Synthetic license.\n", "NOTICE": b"Synthetic notice.\n",
-                "README.md": b"Synthetic UI guide.\n", "start.ps1": b"# Synthetic launcher.\n",
+                "start.ps1": b"# Synthetic launcher.\n",
                 "start.sh": b"# Synthetic launcher.\n",
             },
             "bundle": {
@@ -531,7 +530,7 @@ class PowerShellBootstrapTests(unittest.TestCase):
             with self.subTest(shell=shell):
                 _, install, project, env = self.context(shell)
                 self.run_bootstrap(shell, install, project, env)
-                (install / "README.md").write_text("Keep a synthetic local edit.\n")
+                (install / "NOTICE").write_text("Keep a synthetic local edit.\n")
                 before = snapshot(install)
                 Path(env["MIDDEN_BOOTSTRAP_TEST_LOG"]).unlink()
                 for operation in ("-Verify", "-Upgrade", "-Uninstall"):
@@ -612,13 +611,13 @@ class PowerShellBootstrapTests(unittest.TestCase):
         contexts = [(shell, *self.context(shell)) for shell in SHELLS]
         for shell, _, install, project, env in contexts:
             self.run_bootstrap(shell, install, project, env)
-        self.products["ui"]["README.md"] = b"New synthetic guide.\n"
+        self.products["ui"]["NOTICE"] = b"New synthetic notice.\n"
         self.products["ui"]["midden-ui.exe"] += b"\nsecond synthetic build\n"
         del self.products["ui"]["bundles/article/template.md"]
         self.write_release()
         for shell, _, install, project, env in contexts:
             before = snapshot(install)
-            handle = open_file(str(install / "README.md"), 0x80000000, 3, None, 3, 0x80, None)
+            handle = open_file(str(install / "NOTICE"), 0x80000000, 3, None, 3, 0x80, None)
             self.assertNotEqual(handle, wintypes.HANDLE(-1).value)
             try:
                 for operation in ("-Upgrade", "-Uninstall"):
@@ -1216,7 +1215,7 @@ class PowerShellBootstrapTests(unittest.TestCase):
     def test_unsafe_archive_members_are_refused_even_when_checksums_match(self):
         original = dict(self.products["ui"])
         for name in ("../escape.txt", "C:/escape.txt", "bundles\\escape.txt", "bundles/article/NUL",
-                     "README.md:stream", "bundles/ARTICLE/new.md", "README.md/child"):
+                     "NOTICE:stream", "bundles/ARTICLE/new.md", "NOTICE/child"):
             self.products["ui"] = {**original, name: b"Synthetic unsafe member.\n"}
             self.write_release()
             for shell in SHELLS:

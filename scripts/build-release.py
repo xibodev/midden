@@ -85,9 +85,7 @@ def main():
         temporary = Path(temporary)
         bundle_files = materialize_inputs(ROOT, commit, bundle_files, temporary / "source")
         static_ui_files = materialize_inputs(ROOT, commit, static_ui_files, temporary / "source")
-        static_core_files = materialize_inputs(ROOT, commit, [
-            (ROOT / "LICENSE", "LICENSE"), (ROOT / "docs" / "CORE.md", "CORE.md"),
-        ], temporary / "source")
+        static_core_files = materialize_inputs(ROOT, commit, [(ROOT / "LICENSE", "LICENSE")], temporary / "source")
 
         def archive_product(product, target, files):
             name = archive_name(product, release, target)

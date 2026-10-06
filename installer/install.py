@@ -409,11 +409,11 @@ def verified_distribution(directory: Path) -> Distribution:
         snapshots[name] = data
     core = archive_members(snapshots[core_name], core_name)
     binary_name = "midden.exe" if target.startswith("windows/") else "midden"
-    core_names = {binary_name, "LICENSE", "CORE.md"}
+    core_names = {binary_name, "LICENSE"}
     if has_ui:
         core_names.add("THIRD_PARTY_NOTICES.txt")
     if set(core) != core_names:
-        raise InstallError("Core archive must contain only the native binary, LICENSE and CORE.md")
+        raise InstallError("Core archive must contain only the native binary and LICENSE")
     if digest(core[binary_name]) != core_hashes[target].lower():
         raise InstallError("Core checksum mismatch against build manifest; the binary was not executed")
     bundle = archive_members(snapshots[bundle_name], bundle_name)

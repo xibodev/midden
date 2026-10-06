@@ -199,9 +199,9 @@ def main():
         extension = ".exe" if target.startswith("windows/") else ""
         core, ui = "midden" + extension, "midden-ui" + extension
         if product == "core":
-            assert set(actual) == {core, "LICENSE", "CORE.md", "THIRD_PARTY_NOTICES.txt"}
+            assert set(actual) == {core, "LICENSE", "THIRD_PARTY_NOTICES.txt"}
             assert actual[core] == manifest["core_binaries"][target]
-            verify_static_source(ROOT, args.commit, [(ROOT / "LICENSE", "LICENSE"), (ROOT / "docs" / "CORE.md", "CORE.md")], actual)
+            verify_static_source(ROOT, args.commit, [(ROOT / "LICENSE", "LICENSE")], actual)
             notice = archive_bytes(root / name, "THIRD_PARTY_NOTICES.txt")
             assert b"github.com/xibodev/compa" not in notice and not stray_xibodev_lines(notice), name
         elif product == "bundle":

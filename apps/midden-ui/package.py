@@ -48,8 +48,7 @@ def main():
         target = out.joinpath(*name.parts)
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(source, target)
-    for source, name in ((ROOT / "LICENSE", "LICENSE"), (APP / "README.md", "README.md"),
-                         (APP / "start.ps1", "start.ps1")):
+    for source, name in ((ROOT / "LICENSE", "LICENSE"), (APP / "start.ps1", "start.ps1")):
         shutil.copyfile(source, out / name)
     manifest = {
         "kind": "midden-ui-testing",

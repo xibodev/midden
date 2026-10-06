@@ -118,7 +118,7 @@ jobs:
           flags=(--latest)
           if [[ "$VERSION" == *-* ]]; then flags=(--prerelease); fi
           gh release create "$TAG" "$ASSETS"/* --verify-tag "${flags[@]}" \
-            --title "Midden $TAG" --notes-file docs/RELEASE_NOTES.md
+            --title "Midden $TAG" --generate-notes
           if [[ "$VERSION" != *-* ]] && [ "${{ github.event.repository.private }}" = false ]; then
             gh workflow run pages.yml --repo "$GITHUB_REPOSITORY" --ref main -f tag="$TAG"
           fi

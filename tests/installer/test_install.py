@@ -262,7 +262,6 @@ class InstallerFixture(unittest.TestCase):
         core.mkdir()
         shutil.copy2(self.core, core / BINARY)
         (core / "LICENSE").write_text("Synthetic core license fixture.\n")
-        (core / "CORE.md").write_text("Standalone synthetic core fixture.\n")
         stage = self.root / "bundle zip stage"
         stage.mkdir()
         shutil.copytree(self.bundle, stage / "bundles")
@@ -282,7 +281,7 @@ class InstallerFixture(unittest.TestCase):
         extracted = self.root / "extracted bundle"
         with zipfile.ZipFile(archive) as package:
             package.extractall(extracted)
-        self.assertEqual({path.name for path in core.iterdir()}, {BINARY, "LICENSE", "CORE.md"})
+        self.assertEqual({path.name for path in core.iterdir()}, {BINARY, "LICENSE"})
         self.assertEqual(
             {path.name for path in extracted.iterdir()},
             {"bundles", "installer", "install.ps1", "install.sh", "LICENSE"},
