@@ -285,7 +285,6 @@ class DistributionTests(fixtures.InstallerFixture):
             binary = "midden.exe" if system == "windows" else "midden"
             write_archive(self.distribution / name, [
                 (binary, self.core.read_bytes()), ("LICENSE", b"Synthetic license"),
-                ("CORE.md", b"Synthetic core guide"),
             ])
             names[target] = name
         self.build_manifest["targets"] = list(targets)

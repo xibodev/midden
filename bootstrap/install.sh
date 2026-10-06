@@ -165,10 +165,10 @@ mb_manifest() {
         }
         function layout(p,s) {
             if(p=="core") return (s=="midden" || s=="midden.exe" || s=="LICENSE" ||
-                s=="CORE.md" || s=="THIRD_PARTY_NOTICES.txt")
+                s=="THIRD_PARTY_NOTICES.txt")
             if(p=="ui") return (s ~ /^bundles\// || s=="midden" || s=="midden.exe" ||
                 s=="midden-ui" || s=="midden-ui.exe" || s=="LICENSE" || s=="NOTICE" ||
-                s=="README.md" || s=="start.ps1" || s=="start.sh" || s=="package-manifest.json" ||
+                s=="start.ps1" || s=="start.sh" || s=="package-manifest.json" ||
                 s=="THIRD_PARTY_NOTICES.txt")
             return (s ~ /^(bundles|installer)\// || s=="LICENSE" || s=="install.sh" || s=="install.ps1")
         }
@@ -216,17 +216,17 @@ mb_manifest() {
                 binary="midden"
                 if(targets[key]=="windows/amd64") binary="midden.exe"
                 if(p=="core") {
-                    required=3
+                    required=2
                     if((key SUBSEP "THIRD_PARTY_NOTICES.txt") in files) required++
                     if(counts[key]!=required || !files[key SUBSEP binary] ||
-                        !files[key SUBSEP "LICENSE"] || !files[key SUBSEP "CORE.md"]) exit 1
+                        !files[key SUBSEP "LICENSE"]) exit 1
                 }
                 if(p=="ui") {
                     ui="midden-ui"
                     if(targets[key]=="windows/amd64") ui="midden-ui.exe"
                     if(!files[key SUBSEP binary] || !files[key SUBSEP ui] ||
                         !files[key SUBSEP "LICENSE"] || !files[key SUBSEP "NOTICE"] ||
-                        !files[key SUBSEP "README.md"] || !files[key SUBSEP "start.sh"] ||
+                        !files[key SUBSEP "start.sh"] ||
                         !files[key SUBSEP "start.ps1"] || !files[key SUBSEP "package-manifest.json"]) exit 1
                 }
                 if(p=="bundle" && (!files[key SUBSEP "installer/install.py"] ||
@@ -422,9 +422,9 @@ mb_read_receipt() {
                     meta["host"] !~ /^(copilot|claude|agents)$/ || count<1 || count>4096) exit 1
                 for(name in names) {
                     if(meta["mode"]=="cli" && name!=".midden-bootstrap-cli.py") exit 1
-                    if(meta["mode"]=="core" && name !~ /^(midden|LICENSE|CORE[.]md|THIRD_PARTY_NOTICES[.]txt)$/) exit 1
+                    if(meta["mode"]=="core" && name !~ /^(midden|LICENSE|THIRD_PARTY_NOTICES[.]txt)$/) exit 1
                     if(meta["mode"]=="ui" && name !~ /^bundles\// &&
-                        name !~ /^(midden|midden-ui|LICENSE|NOTICE|README[.]md|start[.]ps1|start[.]sh|package-manifest[.]json|THIRD_PARTY_NOTICES[.]txt)$/) exit 1
+                        name !~ /^(midden|midden-ui|LICENSE|NOTICE|start[.]ps1|start[.]sh|package-manifest[.]json|THIRD_PARTY_NOTICES[.]txt)$/) exit 1
                     parent=name
                     while(sub(/\/[^\/]+$/,"",parent)) if(files[tolower(parent)]) exit 1
                 }

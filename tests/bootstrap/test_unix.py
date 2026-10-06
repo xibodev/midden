@@ -29,7 +29,7 @@ SHELL = os.environ.get("MIDDEN_UNIX_TEST_SHELL") or (
 )
 RECEIPT = ".midden-bootstrap-receipt.tsv"
 BUNDLE_NAMES = (
-    "README.md", "article/SKILL.md", "investigation/SKILL.md",
+    "article/SKILL.md", "investigation/SKILL.md",
     "long-form/SKILL.md", "long-form/templates/epub.yaml",
     "long-form/templates/html.yaml", "midden-shared/tools.md",
     "midden-shared/sources.md", "midden-shared/inspect_html.py",
@@ -147,11 +147,10 @@ exec cat "$MIDDEN_TEST_DIST/${url##*/}"
             'else\n  printf "foreground UI fixture\\n"\nfi\n'
         ).encode()
         self.entries = {
-            "core": [("midden", core), ("LICENSE", b"Synthetic license\n"),
-                     ("CORE.md", b"Synthetic core guide\n")],
+            "core": [("midden", core), ("LICENSE", b"Synthetic license\n")],
             "ui": [("midden", core), ("midden-ui", ui),
                    ("LICENSE", b"Synthetic license\n"), ("NOTICE", b"Synthetic notice\n"),
-                   ("README.md", b"Synthetic UI guide\n"), ("start.ps1", b"# Not executed\n"),
+                   ("start.ps1", b"# Not executed\n"),
                    ("start.sh", b"#!/bin/sh\nexit 99\n")]
             + [("bundles/" + name, ("Synthetic " + name + "\n").encode()) for name in BUNDLE_NAMES],
         }
@@ -387,7 +386,7 @@ exec cat "$MIDDEN_TEST_DIST/${url##*/}"
 
     def test_core_mode_has_no_ui_or_runtime_dependency(self):
         self.run_bootstrap("--mode", "core", "--no-path")
-        self.assertEqual((self.install / "CORE.md").read_bytes(), b"Synthetic core guide\n")
+        self.assertEqual((self.install / "LICENSE").read_bytes(), b"Synthetic license\n")
         self.assertFalse((self.install / "midden-ui").exists())
         self.assertEqual(self.log.read_text().splitlines(), ["core:version"])
         self.run_bootstrap("--mode", "core", "--verify", local=False)
@@ -433,7 +432,7 @@ exec cat "$MIDDEN_TEST_DIST/${url##*/}"
                 archive.addfile(info, io.BytesIO(data))
         self.seal()
         self.run_bootstrap("--mode", "core", "--no-path")
-        self.assertEqual((self.install / "CORE.md").read_bytes(), b"Synthetic core guide\n")
+        self.assertEqual((self.install / "LICENSE").read_bytes(), b"Synthetic license\n")
         self.run_bootstrap("--uninstall", local=False)
 
     def test_dry_run_validates_without_writing_home_or_running_payloads(self):
@@ -760,7 +759,7 @@ exit "$status"
 
     def test_owned_modified_files_block_verify_upgrade_and_uninstall(self):
         self.run_bootstrap("--no-path", "--no-launch")
-        (self.install / "README.md").write_text("user change", encoding="utf-8")
+        (self.install / "NOTICE").write_text("user change", encoding="utf-8")
         before = self.snapshot()
         for operation in ("--verify", "--upgrade", "--uninstall"):
             with self.subTest(operation=operation):
