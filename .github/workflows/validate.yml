@@ -96,7 +96,20 @@ jobs:
         with:
           python-version: '3.12'
       - name: Install declared rendering dependency on the disposable runner
-        run: sudo apt-get update -qq && sudo apt-get install -y -qq pandoc
+        # This usually takes under a minute, but apt on the runner has stalled
+        # silently until the job's limit, so each try is limited and retried.
+        run: |
+          for attempt in 1 2 3; do
+            if ! timeout 90 sudo apt-get update -qq; then
+              echo "::warning::apt-get update did not finish (try $attempt)"
+            elif timeout 150 sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq pandoc; then
+              exit 0
+            else
+              echo "::warning::apt-get install pandoc did not finish (try $attempt)"
+              sudo dpkg --configure -a || true
+            fi
+          done
+          exit 1
       - name: Install declared HTML inspection dependency
         run: |
           python -m pip install playwright==1.63.0
