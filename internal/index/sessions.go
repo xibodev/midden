@@ -16,10 +16,10 @@ import (
 // This exists because re-deriving the list from the source stores is
 // expensive: it means opening a 200 MB+ SQLite file and peeking inside every
 // transcript on disk to recover its working directory and title. That is
-// acceptable once, during a scan. Doing it on every request made the web UI
-// appear to hang — which is precisely the failure the index was built to
-// prevent, and which went unnoticed because the CLI always passed a narrow
-// scope while the UI did not.
+// acceptable once, during a scan. Doing it on every request made a full
+// listing appear to hang - which is precisely the failure the index was built
+// to prevent, and which went unnoticed because the commands tested always
+// passed a narrow scope.
 func (d *DB) Sessions(sc core.Scope) ([]core.Session, error) {
 	var (
 		where []string

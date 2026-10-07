@@ -8,7 +8,7 @@ import (
 
 // Free text that core prints passes the same credential filter in text and
 // JSON output; identifiers, paths and numbers are left alone. Whole texts are
-// filtered before the CLI clips them for display, so the CLI never cuts a
+// filtered before midden clips them for display, so midden never cuts a
 // credential into an unrecognisable fragment.
 
 func filterText(s string) string { return redact.Text(s).Text }

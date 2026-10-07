@@ -16,8 +16,8 @@ func processAlive(pid int) bool {
 	return processAliveSince(pid, time.Time{})
 }
 
-// shellQuote quotes a string for the host shell so instructions containing
-// spaces or quotes survive being pasted into a terminal.
+// shellQuote quotes a string for this computer's shell so instructions
+// containing spaces or quotes survive being pasted into a terminal.
 func shellQuote(s string) string {
 	if s == "" {
 		return `""`
@@ -29,8 +29,8 @@ func shellQuote(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }
 
-// CdCmd returns the shell command that walks to a directory, in the host
-// shell's dialect.
+// CdCmd returns the shell command that walks to a directory, in the dialect
+// of this computer's shell.
 func CdCmd(dir string) string {
 	if isWindows() {
 		return "Set-Location " + shellQuote(dir)

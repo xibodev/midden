@@ -123,8 +123,9 @@ EXAMPLES
   midden collection export sources --format markdown --out source-notes.md
 
 Use each command's --help for scope, source roots and output bounds.
-Core never invokes a model. The separate outcome bundle guides an existing AI
-CLI and operator; the host writes, renders, inspects and delivers working files.
+Core never calls a model. The Midden Bundle's skills teach the AI CLI you
+already use to run Core; that harness writes, renders, checks and delivers the
+work.
 `)
 }
 

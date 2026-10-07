@@ -91,7 +91,7 @@ func cmdScan(args []string) error {
 
 		for i, s := range sessions {
 			// File-backed tools may have an indexed session with no
-			// transcript on disk: the CLI recorded metadata but the event log
+			// transcript on disk: the AI CLI recorded metadata but the event log
 			// was never written or has been cleaned up. That is normal, not a
 			// failure.
 			if s.Tool != core.ToolOpencode {

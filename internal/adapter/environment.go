@@ -6,7 +6,7 @@ import (
 )
 
 // Explicit source environment configuration is a closed set. It never changes
-// the AI host's own home, authentication or conversation storage.
+// an AI CLI's own home, authentication or conversation storage.
 func EnvironmentRoots() Roots {
 	roots := Roots{
 		Copilot:  strings.TrimSpace(os.Getenv("MIDDEN_COPILOT_ROOT")),

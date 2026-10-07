@@ -293,7 +293,7 @@ func (a *App) serveExtensionConnect(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// An omitted secret reuses the stored one only for the service it was
-	// saved for, so a changed URL never carries it to another host.
+	// saved for, so a changed URL never carries it to another server.
 	secret := ""
 	if input.Secret != nil {
 		secret = strings.TrimSpace(*input.Secret)
