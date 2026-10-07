@@ -4,11 +4,50 @@ import re
 import subprocess
 
 
-ROOT_FILES = {"LICENSE", "install.ps1", "install.sh"}
-BUNDLE_SUFFIXES = {".md", ".py", ".ps1", ".sh", ".json", ".yaml", ".yml", ".css", ".svg", ".png", ".lua"}
-TARGETS = ("windows/amd64", "linux/amd64", "linux/arm64", "darwin/amd64", "darwin/arm64")
+BUNDLE_SUFFIXES = {".md", ".py", ".json", ".yaml", ".yml", ".css", ".svg", ".png", ".lua"}
+TARGETS = ("windows/amd64", "windows/arm64", "linux/amd64", "linux/arm64", "darwin/amd64", "darwin/arm64")
+PRODUCTS = ("core", "bundle", "app")
+INSTALLERS = ("install.ps1", "install.sh")
+MANIFEST_FORMAT = "midden-release-v2"
 HASH = re.compile(r"[0-9a-f]{64}")
 COMMIT = re.compile(r"[0-9a-f]{40}(?:[0-9a-f]{24})?")
+# Source folders under bundles/ and the skill folder each one becomes when installed.
+SKILL_FOLDERS = {
+    "investigation": "midden-investigation", "article": "midden-article",
+    "presentation": "midden-presentation", "long-form": "midden-long-form",
+    "midden-shared": "midden-shared",
+}
+# The app mode fetches Pandoc from its own release; Midden does not redistribute it.
+PANDOC_VERSION = "3.12"
+PANDOC_RELEASE = f"https://github.com/jgm/pandoc/releases/download/{PANDOC_VERSION}/"
+_PANDOC_WINDOWS = ("pandoc-3.12-windows-x86_64.zip",
+                   "2a77ebc2517d13e95056e76b1cd5b574cfe958ac61aa6058117d80c22ca19b79",
+                   (("pandoc-3.12/pandoc.exe", "app/tools/pandoc.exe"),
+                    ("pandoc-3.12/COPYING.rtf", "app/tools/COPYING.rtf"),
+                    ("pandoc-3.12/COPYRIGHT.txt", "app/tools/COPYRIGHT.txt")))
+PANDOC = {
+    # Windows on Arm runs the x64 build; Pandoc publishes no Windows arm64 build.
+    "windows/amd64": _PANDOC_WINDOWS,
+    "windows/arm64": _PANDOC_WINDOWS,
+    "linux/amd64": ("pandoc-3.12-linux-amd64.tar.gz",
+                    "67d7d011fed8c8543306022b985b9b2499ab9b74818df91d8727c7e9ebc5ba06",
+                    (("pandoc-3.12/bin/pandoc", "app/tools/pandoc"),)),
+    "linux/arm64": ("pandoc-3.12-linux-arm64.tar.gz",
+                    "6cefcf7100e23a99447c26f89d1ff5b253f3407fcef99a9e27ae06f3ed16cb82",
+                    (("pandoc-3.12/bin/pandoc", "app/tools/pandoc"),)),
+    "darwin/amd64": ("pandoc-3.12-x86_64-macOS.zip",
+                     "18577f9460c3dc5d2651ad3bab37d513bc2034a5a777fbe18fa0a5acf2e936ea",
+                     (("pandoc-3.12-x86_64/bin/pandoc", "app/tools/pandoc"),)),
+    "darwin/arm64": ("pandoc-3.12-arm64-macOS.zip",
+                     "f148ca09c9f36594db527a9fc988ad736290ce428f79594c50208cd1ec58b3c0",
+                     (("pandoc-3.12-arm64/bin/pandoc", "app/tools/pandoc"),)),
+}
+PANDOC_NOTICE = (
+    "\nFetched at installation, not distributed with Midden:\n"
+    f"Pandoc {PANDOC_VERSION} \u2014 https://github.com/jgm/pandoc \u2014 GPL-2.0-or-later. "
+    "The installer's app mode downloads it from Pandoc's own release, checks its SHA-256 "
+    "and keeps it in app/tools for the app's agent.\n"
+)
 # xibodev components (the team's own modules) are named in one line each; their texts are not reproduced.
 XIBODEV_PREFIX = "github.com/xibodev/"
 XIBODEV_NAMES = {"github.com/xibodev/compa": "Compa"}
@@ -53,7 +92,7 @@ def archive_name(product, version, target):
         if target != "universal":
             raise ValueError("Bundle target must be universal")
         return f"midden-bundle_{version}.zip"
-    if product not in ("core", "ui") or target not in TARGETS:
+    if product not in ("core", "app") or target not in TARGETS:
         raise ValueError("Unsupported release product or target")
     suffix = ".zip" if target.startswith("windows/") else ".tar.gz"
     return f"midden-{product}_{version}_{target.replace('/', '_')}{suffix}"
@@ -70,22 +109,33 @@ def validate_member_set(names):
                 raise ValueError("An archive file conflicts with a parent directory")
 
 
-def release_tsv(version, commit, entries):
+def pandoc_records(targets):
+    """The fetch/take records that pin Pandoc for each native target."""
+    records = []
+    for target in targets:
+        asset, digest, members = PANDOC[target]
+        records.append(("fetch", "pandoc", target, PANDOC_RELEASE + asset, digest))
+        records.extend(("take", "pandoc", target, member, destination) for member, destination in members)
+    return records
+
+
+def release_tsv(version, commit, entries, pins=()):
     release_version(version)
     if not COMMIT.fullmatch(commit):
         raise ValueError("Invalid release source commit")
-    lines = ["format\tmidden-release-v1", f"version\t{version}", f"commit\t{commit}"]
+    lines = [f"format\t{MANIFEST_FORMAT}", f"version\t{version}", f"commit\t{commit}"]
     for product, target, archive, files in entries:
         lines.append("\t".join(("archive", product, target, archive)))
         for name, digest in sorted(files.items()):
             lines.append("\t".join(("file", product, target, name, digest)))
+    lines.extend("\t".join(record) for record in pins)
     text = "\n".join(lines) + "\n"
     parse_release_tsv(text)
     return text
 
 
 def parse_release_tsv(text):
-    result = {"archives": {}, "files": {}}
+    result = {"archives": {}, "files": {}, "fetch": {}, "take": {}}
     seen_archives = set()
     folded_files = {}
     for line in text.splitlines():
@@ -115,9 +165,24 @@ def parse_release_tsv(text):
                 raise ValueError("Unknown archive, duplicate member or invalid digest")
             result["files"][key][name] = digest
             folded_files[key].add(name.casefold())
+        elif len(parts) == 5 and parts[0] == "fetch":
+            _, tool, target, url, digest = parts
+            if (tool != "pandoc" or target not in TARGETS or target in result["fetch"] or not HASH.fullmatch(digest)
+                    or not url.startswith(PANDOC_RELEASE) or not re.fullmatch(r"[A-Za-z0-9._-]+", url[len(PANDOC_RELEASE):])):
+                raise ValueError("Invalid pinned renderer download")
+            result["fetch"][target] = (url, digest)
+            result["take"][target] = {}
+        elif len(parts) == 5 and parts[0] == "take":
+            _, tool, target, member, destination = parts
+            if (tool != "pandoc" or target not in result["fetch"] or member in result["take"][target]
+                    or not destination.startswith("app/tools/")):
+                raise ValueError("Invalid pinned renderer member")
+            safe_member(member)
+            safe_member(destination)
+            result["take"][target][member] = destination
         else:
             raise ValueError("Invalid release manifest record")
-    if result.get("format") != "midden-release-v1" or not COMMIT.fullmatch(result.get("commit", "")):
+    if result.get("format") != MANIFEST_FORMAT or not COMMIT.fullmatch(result.get("commit", "")):
         raise ValueError("Invalid manifest format or source commit")
     release_version(result.get("version"))
     if not result["archives"]:
@@ -126,10 +191,15 @@ def parse_release_tsv(text):
         if name != archive_name(key[0], result["version"], key[1]) or not result["files"][key]:
             raise ValueError("Archive identity or file inventory is invalid")
         validate_member_set(result["files"][key])
+    for target, members in result["take"].items():
+        if not members:
+            raise ValueError("A pinned renderer download installs no files")
+        validate_member_set(members.values())
     return result
 
 
 def bundle_inputs(root, revision):
+    """The reviewed skill files, named as they are installed: skills/midden-*/..."""
     root = Path(root).resolve()
     commit = subprocess.check_output(
         ["git", "-C", str(root), "rev-parse", "--verify", revision + "^{commit}"],
@@ -138,19 +208,23 @@ def bundle_inputs(root, revision):
     if not re.fullmatch(r"[0-9a-f]{40,64}", commit):
         raise RuntimeError("Release source revision did not resolve to a commit")
     raw = subprocess.check_output(
-        ["git", "-C", str(root), "ls-tree", "-r", "-z", "--name-only", commit, "--",
-         "LICENSE", "install.ps1", "install.sh", "bundles", "installer"],
+        ["git", "-C", str(root), "ls-tree", "-r", "-z", "--name-only", commit, "--", "LICENSE", "bundles"],
     )
     names = sorted(name.decode("utf-8") for name in raw.split(b"\0") if name)
-    if not ROOT_FILES <= set(names):
+    if "LICENSE" not in names:
         raise RuntimeError("Required distribution files are absent from the source commit")
+    inputs = [(root / "LICENSE", "skills/midden-shared/LICENSE")]
     for name in names:
+        if name == "LICENSE":
+            continue
         path = PurePosixPath(name)
-        if name not in ROOT_FILES and (
-            path.parts[0] not in {"bundles", "installer"} or path.suffix not in BUNDLE_SUFFIXES
-        ):
+        if len(path.parts) < 3 or path.parts[1] not in SKILL_FOLDERS or path.suffix not in BUNDLE_SUFFIXES:
             raise RuntimeError(f"Unexpected tracked bundle file: {name}")
-    return [(root.joinpath(*PurePosixPath(name).parts), name) for name in names]
+        installed = PurePosixPath("skills", SKILL_FOLDERS[path.parts[1]], *path.parts[2:]).as_posix()
+        inputs.append((root.joinpath(*path.parts), installed))
+    if {PurePosixPath(name).parts[1] for _, name in inputs} != set(SKILL_FOLDERS.values()):
+        raise RuntimeError("The bundle must contain every Midden skill folder")
+    return inputs
 
 
 def verify_bundle_members(names, expected):
@@ -159,15 +233,11 @@ def verify_bundle_members(names, expected):
         raise RuntimeError("Bundle members differ from the exact reviewed source-commit inputs")
 
 
-def ui_inputs(root, revision):
+def app_inputs(root, revision):
+    """The app's static files: its license and notice, under app/."""
     root = Path(root).resolve()
-    inputs = [(source, name) for source, name in bundle_inputs(root, revision) if name.startswith("bundles/")]
-    selected = [
-        ("LICENSE", "LICENSE"), ("NOTICE", "NOTICE"),
-        ("apps/midden-ui/start.ps1", "start.ps1"),
-        ("apps/midden-ui/start.sh", "start.sh"),
-    ]
-    for source, name in selected:
+    inputs = []
+    for source, name in (("LICENSE", "app/LICENSE"), ("NOTICE", "app/NOTICE")):
         subprocess.run(["git", "-C", str(root), "cat-file", "-e", f"{revision}:{source}"],
                        check=True, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
         inputs.append((root.joinpath(*PurePosixPath(source).parts), name))

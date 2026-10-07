@@ -1,4 +1,4 @@
-name: Validate Compa UI host
+name: Validate the App
 on:
   workflow_call:
   workflow_dispatch:
@@ -7,7 +7,7 @@ permissions:
   contents: read
 
 jobs:
-  host:
+  app:
     strategy:
       fail-fast: false
       matrix:
@@ -25,9 +25,10 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - name: Independent host contracts
+      - name: The App's Go contracts
         run: |
           Push-Location apps/midden-ui
+          $env:GOWORK = 'off'
           go test ./... -count=1 -timeout=600s
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           go vet ./...
@@ -39,7 +40,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python -m playwright install --with-deps chromium --only-shell
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-      - name: Browser operator contracts
+      - name: Browser contracts
         run: |
           python -B -m unittest discover -s apps/midden-ui/webtest -q
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
