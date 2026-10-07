@@ -17,7 +17,9 @@ import urllib.request
 import zipfile
 
 sys.dont_write_bytecode = True
-from release_contract import COMMIT, TARGETS, archive_name, bundle_inputs, git_blob_bytes, parse_release_tsv, release_version, safe_member, stray_xibodev_lines, ui_inputs, validate_member_set
+from release_contract import (COMMIT, INSTALLERS, PANDOC_NOTICE, PRODUCTS, TARGETS, app_inputs, archive_name,
+                              bundle_inputs, git_blob_bytes, pandoc_records, parse_release_tsv, release_version,
+                              safe_member, stray_xibodev_lines, validate_member_set)
 
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -97,9 +99,9 @@ def verify_static_source(root, commit, inputs, actual):
 
 def ui_smoke(binary, version, stage, env):
     output = subprocess.check_output([str(binary), "--version"], env=env, text=True, timeout=15)
-    assert output.strip() == "midden-ui " + version, "UI version mismatch"
+    assert output.strip() == "midden-ui " + version, "App version mismatch"
     data = stage / "user-data"
-    assert not data.exists(), "passive UI version probe wrote user state"
+    assert not data.exists(), "passive app version probe wrote user state"
     process = subprocess.Popen([str(binary), "--no-open", "--listen", "127.0.0.1:0"],
                                cwd=stage, env=env, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
     lines = queue.Queue()
@@ -169,13 +171,13 @@ def main():
     assert manifest["commit"] == args.commit, "source revision mismatch"
     if args.tag:
         assert args.tag == "v" + manifest["version"], "tag/version mismatch"
-    assert manifest["products"] == ["core", "bundle", "ui"]
+    assert manifest["products"] == list(PRODUCTS)
     targets = manifest["targets"]
     assert targets and len(set(targets)) == len(targets) and all(t in TARGETS for t in targets)
-    expected_archives = {archive_name(p, manifest["version"], t) for p in ("core", "ui") for t in targets}
+    expected_archives = {archive_name(p, manifest["version"], t) for p in ("core", "app") for t in targets}
     expected_archives.add(archive_name("bundle", manifest["version"], "universal"))
     assert set(manifest["archives"]) == expected_archives and len(manifest["archives"]) == len(expected_archives)
-    assert manifest["installers"] == ["install.ps1", "install.sh"]
+    assert manifest["installers"] == list(INSTALLERS)
     expected = expected_archives | set(manifest["installers"]) | {"build-manifest.json", "manifest.tsv"}
     checksums = {}
     for line in (root / "SHA256SUMS").read_text(encoding="utf-8").splitlines():
@@ -190,14 +192,21 @@ def main():
     tsv = parse_release_tsv((root / "manifest.tsv").read_text(encoding="utf-8"))
     assert tsv["version"] == manifest["version"] and tsv["commit"] == args.commit
     assert set(tsv["archives"].values()) == expected_archives
-    bundle_names = {name for _, name in bundle_inputs(ROOT, args.commit)}
-    ui_names = {name for _, name in ui_inputs(ROOT, args.commit)}
+    pins = {(record[2], record[0]): [] for record in pandoc_records(targets)}
+    for record in pandoc_records(targets):
+        pins[(record[2], record[0])].append(record[3:])
+    for target in targets:
+        assert [tsv["fetch"][target]] == pins[(target, "fetch")], "Pandoc pin differs from the reviewed contract: " + target
+        assert sorted(tsv["take"][target].items()) == sorted(pins[(target, "take")]), "Pandoc members differ: " + target
+    assert set(tsv["fetch"]) == set(targets)
+    bundle = bundle_inputs(ROOT, args.commit)
+    static_app = app_inputs(ROOT, args.commit)
     for key, name in tsv["archives"].items():
         product, target = key
         actual = archive_inventory(root / name)
         assert actual == tsv["files"][key], "archive bytes differ from manifest: " + name
         extension = ".exe" if target.startswith("windows/") else ""
-        core, ui = "midden" + extension, "midden-ui" + extension
+        core, app = "midden" + extension, "midden-ui" + extension
         if product == "core":
             assert set(actual) == {core, "LICENSE", "THIRD_PARTY_NOTICES.txt"}
             assert actual[core] == manifest["core_binaries"][target]
@@ -205,24 +214,17 @@ def main():
             notice = archive_bytes(root / name, "THIRD_PARTY_NOTICES.txt")
             assert b"github.com/xibodev/compa" not in notice and not stray_xibodev_lines(notice), name
         elif product == "bundle":
-            assert set(actual) == bundle_names
-            verify_static_source(ROOT, args.commit, bundle_inputs(ROOT, args.commit), actual)
+            assert set(actual) == {name for _, name in bundle}
+            verify_static_source(ROOT, args.commit, bundle, actual)
         else:
-            assert set(actual) == ui_names | {core, ui, "THIRD_PARTY_NOTICES.txt", "package-manifest.json"}
-            assert actual[core] == manifest["core_binaries"][target]
-            assert actual[ui] == manifest["ui_binaries"][target]
-            verify_static_source(ROOT, args.commit, ui_inputs(ROOT, args.commit), actual)
-            package = json.loads(archive_bytes(root / name, "package-manifest.json"))
-            assert package["kind"] == "midden-ui-release" and package["version"] == manifest["version"]
-            assert package["platform"] == target and package["source_commit"] == args.commit
-            assert package["kernel"] == "github.com/xibodev/compa v1.0.0"
-            assert package["files"] == {k: v for k, v in actual.items() if k != "package-manifest.json"}
-            notice = archive_bytes(root / name, "THIRD_PARTY_NOTICES.txt")
-            assert COMPA_NOTICE in notice and not stray_xibodev_lines(notice), "UI notices must name Compa in one line: " + name
-            core_notice = archive_bytes(root / archive_name("core", manifest["version"], target), "THIRD_PARTY_NOTICES.txt")
-            assert core_notice in notice, "UI product omitted its bundled core's notices"
+            assert set(actual) == {name for _, name in static_app} | {app, "app/THIRD_PARTY_NOTICES.txt"}
+            assert actual[app] == manifest["app_binaries"][target]
+            verify_static_source(ROOT, args.commit, static_app, actual)
+            notice = archive_bytes(root / name, "app/THIRD_PARTY_NOTICES.txt")
+            assert COMPA_NOTICE in notice and not stray_xibodev_lines(notice), "App notices must name Compa in one line: " + name
+            assert notice.endswith(PANDOC_NOTICE.encode("utf-8")), "App notices must name the Pandoc it fetches: " + name
     for name in manifest["installers"]:
-        assert (root / name).read_bytes() == git_blob_bytes(ROOT, args.commit, ROOT / "bootstrap" / name)
+        assert (root / name).read_bytes() == git_blob_bytes(ROOT, args.commit, ROOT / name)
     if args.smoke:
         system = {"Windows": "windows", "Linux": "linux", "Darwin": "darwin"}[platform.system()]
         arch = "arm64" if platform.machine().lower() in {"arm64", "aarch64"} else "amd64"
@@ -236,26 +238,21 @@ def main():
                        MIDDEN_CLAUDE_ROOT=str(stage / "sources" / "claude"),
                        MIDDEN_COPILOT_ROOT=str(stage / "sources" / "copilot"),
                        MIDDEN_OPENCODE_DB=str(stage / "sources" / "opencode.db"))
-            core_root, ui_root, bundle_root = stage / "core", stage / "ui", stage / "bundle"
-            for product, destination in (("core", core_root), ("ui", ui_root), ("bundle", bundle_root)):
-                extract_verified(root / archive_name(product, manifest["version"], "universal" if product == "bundle" else target), destination)
-            binary = core_root / ("midden.exe" if system == "windows" else "midden")
+            # The installer combines the three products in one folder; so does this check.
+            programs = stage / "programs"
+            for product in PRODUCTS:
+                extract_verified(root / archive_name(product, manifest["version"],
+                                                     "universal" if product == "bundle" else target), programs)
+            binary = programs / ("midden.exe" if system == "windows" else "midden")
             binary.chmod(0o755)
             assert subprocess.check_output([str(binary), "version"], env=env, text=True).strip() == "midden " + manifest["version"]
             subprocess.run([str(binary), "help"], env=env, check=True, stdout=subprocess.DEVNULL)
             assert not (stage / "core-state").exists(), "passive core probe wrote state"
-            ui = ui_root / ("midden-ui.exe" if system == "windows" else "midden-ui")
-            ui.chmod(0o755)
-            ui_smoke(ui, manifest["version"], stage, env)
-            project = stage / "project"
-            project.mkdir()
-            installer = bundle_root / "installer" / "install.py"
-            common = [sys.executable, "-B", str(installer), "--project", str(project)]
-            subprocess.run(common + ["--distribution-dir", str(root)], env=env, check=True)
-            subprocess.run(common + ["--verify"], env=env, check=True)
-            subprocess.run(common + ["--uninstall"], env=env, check=True)
-    print("PASS: exact release source, all product/member hashes, license inventories" +
-          (", native core/UI startup and actual CLI-bundle installation" if args.smoke else ""))
+            app = programs / ("midden-ui.exe" if system == "windows" else "midden-ui")
+            app.chmod(0o755)
+            ui_smoke(app, manifest["version"], stage, env)
+    print("PASS: exact release source, all product/member hashes, license inventories, Pandoc pins" +
+          (", native core and app startup" if args.smoke else ""))
 
 
 if __name__ == "__main__":

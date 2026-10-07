@@ -47,11 +47,31 @@ func TestDefaultLaunchUsesSiblingComponentsAndSeparateUserData(t *testing.T) {
 		t.Fatalf("default launch did not separate writable data from installation: %+v", opts)
 	}
 	realBinary, _ := filepath.EvalSymlinks(binary)
-	if opts.Core != filepath.Join(filepath.Dir(realBinary), core) || opts.Bundle != filepath.Join(filepath.Dir(realBinary), "bundles") {
+	if opts.Core != filepath.Join(filepath.Dir(realBinary), core) || opts.Bundle != filepath.Join(filepath.Dir(realBinary), "skills") {
 		t.Fatal("default launch would resolve stale components from PATH or cwd")
 	}
 	if _, err := os.Stat(data); !os.IsNotExist(err) {
 		t.Fatal("path resolution unexpectedly created data")
+	}
+}
+
+func TestAppToolsComeFirstOnlyWhenInstalled(t *testing.T) {
+	root := t.TempDir()
+	binary := filepath.Join(root, "midden-ui")
+	if err := os.WriteFile(binary, []byte("synthetic"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", "person-path")
+	if err := prependAppTools(binary); err != nil || os.Getenv("PATH") != "person-path" {
+		t.Fatalf("a missing app/tools folder changed PATH: %q %v", os.Getenv("PATH"), err)
+	}
+	tools := filepath.Join(root, "app", "tools")
+	if err := os.MkdirAll(tools, 0700); err != nil {
+		t.Fatal(err)
+	}
+	realTools, _ := filepath.EvalSymlinks(tools)
+	if err := prependAppTools(binary); err != nil || os.Getenv("PATH") != realTools+string(os.PathListSeparator)+"person-path" {
+		t.Fatalf("app/tools is not first on PATH: %q %v", os.Getenv("PATH"), err)
 	}
 }
 

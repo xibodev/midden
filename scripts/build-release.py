@@ -1,4 +1,4 @@
-"""Build reviewed core, canonical bundle and self-contained UI release products."""
+"""Build the reviewed core, bundle and app release files: one product per file."""
 import argparse
 import hashlib
 import json
@@ -12,7 +12,9 @@ import tempfile
 import zipfile
 
 sys.dont_write_bytecode = True
-from release_contract import TARGETS, archive_name, bundle_inputs, dependency_notices, git_blob_bytes, materialize_inputs, release_tsv, release_version, ui_inputs, validate_member_set
+from release_contract import (INSTALLERS, PANDOC_NOTICE, PRODUCTS, TARGETS, app_inputs, archive_name, bundle_inputs,
+                              dependency_notices, git_blob_bytes, materialize_inputs, pandoc_records, release_tsv,
+                              release_version, validate_member_set)
 
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -76,15 +78,15 @@ def main():
     if any(args.out.iterdir()):
         raise SystemExit("Output directory must be empty")
     bundle_files = bundle_inputs(ROOT, commit)
-    static_ui_files = ui_inputs(ROOT, commit)
-    for name in ("install.ps1", "install.sh"):
-        run("git", "cat-file", "-e", f"{commit}:bootstrap/{name}")
+    static_app_files = app_inputs(ROOT, commit)
+    for name in INSTALLERS:
+        run("git", "cat-file", "-e", f"{commit}:{name}")
     archives, entries = [], []
-    core_digests, ui_digests = {}, {}
+    core_digests, app_digests = {}, {}
     with tempfile.TemporaryDirectory(prefix="midden-release-") as temporary:
         temporary = Path(temporary)
         bundle_files = materialize_inputs(ROOT, commit, bundle_files, temporary / "source")
-        static_ui_files = materialize_inputs(ROOT, commit, static_ui_files, temporary / "source")
+        static_app_files = materialize_inputs(ROOT, commit, static_app_files, temporary / "source")
         static_core_files = materialize_inputs(ROOT, commit, [(ROOT / "LICENSE", "LICENSE")], temporary / "source")
 
         def archive_product(product, target, files):
@@ -97,52 +99,45 @@ def main():
             system, arch = target.split("/")
             suffix = ".exe" if system == "windows" else ""
             core = temporary / ("midden" + suffix)
-            ui = temporary / ("midden-ui" + suffix)
+            app = temporary / ("midden-ui" + suffix)
             env = dict(os.environ, GOOS=system, GOARCH=arch, CGO_ENABLED="0", GOWORK="off")
             for cwd, binary, package, symbol in (
                 (ROOT, core, "./cmd/midden", "github.com/xibodev/midden/internal/core.Version"),
-                (APP, ui, ".", "main.version"),
+                (APP, app, ".", "main.version"),
             ):
                 subprocess.run(["go", "build", "-mod=readonly", "-trimpath",
                                 f"-ldflags=-s -w -X {symbol}={release}", "-o", str(binary), package],
                                cwd=cwd, env=env, check=True)
                 binary.chmod(0o755)
-            core_digests[target], ui_digests[target] = digest(core), digest(ui)
+            core_digests[target], app_digests[target] = digest(core), digest(app)
             core_notice = temporary / "core-notices.txt"
             core_notice.write_bytes(dependency_notices(ROOT, "./cmd/midden", env))
             archive_product("core", target, [
                 (core, core.name), *static_core_files, (core_notice, "THIRD_PARTY_NOTICES.txt"),
             ])
-            ui_notice = temporary / "ui-notices.txt"
-            ui_notice.write_bytes(b"Included Midden core executable:\n" + core_notice.read_bytes() +
-                                  b"\nIncluded Midden UI executable:\n" + dependency_notices(APP, ".", env))
-            ui_files = [(core, core.name), (ui, ui.name), *static_ui_files,
-                        (ui_notice, "THIRD_PARTY_NOTICES.txt")]
-            package_manifest = temporary / "package-manifest.json"
-            package_manifest.write_text(json.dumps({
-                "kind": "midden-ui-release", "version": release, "platform": target,
-                "source_commit": commit, "kernel": "github.com/xibodev/compa v1.0.0",
-                "files": {relative: digest(source) for source, relative in ui_files},
-            }, indent=2) + "\n", encoding="utf-8")
-            archive_product("ui", target, [*ui_files, (package_manifest, "package-manifest.json")])
+            app_notice = temporary / "app-notices.txt"
+            app_notice.write_bytes(dependency_notices(APP, ".", env) + PANDOC_NOTICE.encode("utf-8"))
+            archive_product("app", target, [
+                (app, app.name), *static_app_files, (app_notice, "app/THIRD_PARTY_NOTICES.txt"),
+            ])
         archive_product("bundle", "universal", bundle_files)
-    installers = ["install.ps1", "install.sh"]
-    for name in installers:
-        (args.out / name).write_bytes(git_blob_bytes(ROOT, commit, ROOT / "bootstrap" / name))
+    for name in INSTALLERS:
+        (args.out / name).write_bytes(git_blob_bytes(ROOT, commit, ROOT / name))
     manifest = {
         "version": release, "commit": commit, "go": run("go", "version"),
-        "targets": args.targets, "products": ["core", "bundle", "ui"],
-        "core_binaries": core_digests, "ui_binaries": ui_digests,
-        "archives": archives, "installers": installers,
+        "targets": args.targets, "products": list(PRODUCTS),
+        "core_binaries": core_digests, "app_binaries": app_digests,
+        "archives": archives, "installers": list(INSTALLERS),
     }
-    (args.out / "build-manifest.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
-    (args.out / "manifest.tsv").write_text(release_tsv(release, commit, entries), encoding="utf-8")
-    names = archives + installers + ["build-manifest.json", "manifest.tsv"]
+    (args.out / "build-manifest.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8", newline="\n")
+    (args.out / "manifest.tsv").write_text(
+        release_tsv(release, commit, entries, pandoc_records(args.targets)), encoding="utf-8", newline="\n")
+    names = archives + list(INSTALLERS) + ["build-manifest.json", "manifest.tsv"]
     (args.out / "SHA256SUMS").write_text(
-        "".join(digest(args.out / name) + "  " + name + "\n" for name in sorted(names)), encoding="utf-8")
+        "".join(digest(args.out / name) + "  " + name + "\n" for name in sorted(names)), encoding="utf-8", newline="\n")
     if run("git", "status", "--porcelain"):
         raise SystemExit("Source tree changed while packaging; these artifacts must not be published")
-    print(f"Built Midden {release}: core, bundle and UI for {', '.join(args.targets)}")
+    print(f"Built Midden {release}: core, bundle and app for {', '.join(args.targets)}")
 
 
 if __name__ == "__main__":

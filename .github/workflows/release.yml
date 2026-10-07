@@ -25,8 +25,8 @@ concurrency:
 jobs:
   validate:
     uses: ./.github/workflows/validate.yml
-  ui:
-    uses: ./.github/workflows/ui-host.yml
+  app:
+    uses: ./.github/workflows/app.yml
   build:
     runs-on: ubuntu-latest
     timeout-minutes: 45
@@ -72,7 +72,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [windows-latest, ubuntu-latest, ubuntu-24.04-arm, macos-15-intel, macos-15]
+        os: [windows-latest, windows-11-arm, ubuntu-latest, ubuntu-24.04-arm, macos-15-intel, macos-15]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 20
     steps:
@@ -88,11 +88,11 @@ jobs:
         env:
           VERSION: ${{ needs.build.outputs.version }}
         run: python -B scripts/verify-release.py --directory "${{ runner.temp }}/release" --tag "v${{ needs.build.outputs.version }}" --commit "${{ github.sha }}" --smoke
-      - name: Consumer bootstrap lifecycle
+      - name: Install, update, verify and remove each product with the published installers
         run: python -B scripts/smoke-bootstrap.py --directory "${{ runner.temp }}/release"
   publish:
     if: github.event_name == 'push' || inputs.publish
-    needs: [validate, ui, build, smoke]
+    needs: [validate, app, build, smoke]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:

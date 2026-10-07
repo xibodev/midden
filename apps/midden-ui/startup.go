@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
@@ -61,7 +62,7 @@ func resolveLaunchPaths(opts Options, executable, dataRoot string) (Options, boo
 		opts.Core = filepath.Join(filepath.Dir(executable), name)
 	}
 	if opts.Bundle == "" {
-		opts.Bundle = filepath.Join(filepath.Dir(executable), "bundles")
+		opts.Bundle = filepath.Join(filepath.Dir(executable), "skills")
 	}
 	for _, path := range []*string{&opts.Workspace, &opts.State, &opts.Core, &opts.Bundle} {
 		*path, err = filepath.Abs(*path)
@@ -70,6 +71,23 @@ func resolveLaunchPaths(opts Options, executable, dataRoot string) (Options, boo
 		}
 	}
 	return opts, createWorkspace, nil
+}
+
+// prependAppTools puts the installed app/tools folder, when it exists, first on
+// this process's PATH, which the agent's shell inherits. The person's PATH is unchanged.
+func prependAppTools(executable string) error {
+	executable, err := filepath.EvalSymlinks(executable)
+	if err != nil {
+		return fmt.Errorf("resolve installed executable: %w", err)
+	}
+	tools := filepath.Join(filepath.Dir(executable), "app", "tools")
+	if info, err := os.Stat(tools); err != nil || !info.IsDir() {
+		if err != nil && !os.IsNotExist(err) {
+			return err
+		}
+		return nil
+	}
+	return os.Setenv("PATH", tools+string(os.PathListSeparator)+os.Getenv("PATH"))
 }
 
 func openBrowser(address string) error {

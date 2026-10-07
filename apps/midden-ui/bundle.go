@@ -26,6 +26,13 @@ func mountBundle(source, state string) (string, []BundleInfo, error) {
 		root = filepath.Join(root, "bundles")
 	}
 	mapping := map[string]string{"investigation": "midden-investigation", "article": "midden-article", "presentation": "midden-presentation", "long-form": "midden-long-form", "midden-shared": "midden-shared"}
+	// An installed skills folder is already laid out under the skill names.
+	if info, err := os.Stat(filepath.Join(root, "midden-investigation")); err == nil && info.IsDir() {
+		mapping = map[string]string{}
+		for _, name := range []string{"midden-investigation", "midden-article", "midden-presentation", "midden-long-form", "midden-shared"} {
+			mapping[name] = name
+		}
+	}
 	hash := sha256.New()
 	expected := map[string][32]byte{}
 	err = filepath.WalkDir(root, func(path string, entry fs.DirEntry, walkErr error) error {

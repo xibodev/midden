@@ -40,7 +40,7 @@ func runArgs(args []string, output io.Writer) error {
 	flags.StringVar(&opts.Workspace, "workspace", "", "working directory (defaults to per-user Midden data)")
 	flags.StringVar(&opts.State, "state", "", "isolated UI/kernel state directory")
 	flags.StringVar(&opts.Core, "core", "", "Midden core executable (defaults to the sibling binary)")
-	flags.StringVar(&opts.Bundle, "bundle", "", "bundle directory (defaults to sibling bundles)")
+	flags.StringVar(&opts.Bundle, "bundle", "", "skills directory (defaults to the sibling skills folder)")
 	listen := flags.String("listen", "127.0.0.1:18890", "loopback listen address")
 	noOpen := flags.Bool("no-open", false, "do not open the browser automatically")
 	showVersion := flags.Bool("version", false, "print the UI release version without opening state")
@@ -114,6 +114,10 @@ func runArgs(args []string, output io.Writer) error {
 		}
 	}
 	if err = os.Setenv(config.EnvHome, filepath.Join(opts.State, "kernel")); err != nil {
+		return err
+	}
+	// The installer keeps the App's own Pandoc in app/tools; the agent's shell finds it first.
+	if err = prependAppTools(executable); err != nil {
 		return err
 	}
 	// The kernel's identity names the Compa release that powers Midden.
