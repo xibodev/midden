@@ -19,8 +19,8 @@ func classifyCoreArgs(args []string) (coreEffect, error) {
 	return call.effect(), nil
 }
 
-// effect applies the agent-door table. Any --out writes the workspace; every
-// workspace write needs --out, so help (which never runs the command) is
+// effect applies the effect table. Any --out writes the person's files; every
+// write to them needs --out, so help (which never runs the command) is
 // read-only otherwise.
 func (c coreCall) effect() coreEffect {
 	if c.has("--out") {

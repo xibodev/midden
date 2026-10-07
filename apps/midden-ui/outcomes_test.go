@@ -75,7 +75,7 @@ func TestFailedTurnOutcomeSurvivesRestart(t *testing.T) {
 	}
 	history, _ := reopened.Session(s.ID)
 	if len(history.Messages) != 1 || history.Messages[0].Role != "user" {
-		t.Fatal("host failure must not masquerade as assistant-authored prose")
+		t.Fatal("a failed turn must not masquerade as assistant-authored prose")
 	}
 }
 

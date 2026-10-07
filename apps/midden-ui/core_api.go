@@ -22,7 +22,7 @@ import (
 )
 
 const (
-	// coreRequestTimeout bounds one core call made through the person's door.
+	// coreRequestTimeout bounds one Core call made for the App's screens.
 	coreRequestTimeout = 5 * time.Minute
 	collectionDepth    = 5
 	collectionLimit    = 100
@@ -146,7 +146,7 @@ func (a *App) runCoreRequest(w http.ResponseWriter, r *http.Request, request cor
 	case err == nil || request.verdict && out.ExitCode == 1:
 		switch {
 		case out.StdoutClipped:
-			apiError(w, http.StatusUnprocessableEntity, "the core result exceeds the host's 64 KiB limit; narrow the request")
+			apiError(w, http.StatusUnprocessableEntity, "the result exceeds the App's 64 KiB limit; narrow the request")
 		case json.Valid([]byte(out.Stdout)):
 			w.Header().Set("Content-Type", "application/json")
 			w.Write([]byte(out.Stdout))

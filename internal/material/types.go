@@ -1,4 +1,5 @@
-// Package material provides deterministic, host-independent session data tools.
+// Package material provides deterministic session data tools that work the
+// same in every harness.
 package material
 
 import (

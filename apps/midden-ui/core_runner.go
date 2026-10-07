@@ -18,7 +18,7 @@ const (
 	coreMaxArgBytes = 32768
 )
 
-// coreSlots bounds concurrent core processes started through either door.
+// coreSlots bounds the Core processes the App runs at once.
 var coreSlots = make(chan struct{}, 8)
 
 // coreOutput is one finished core call. ExitCode is -1 when the process did
@@ -89,7 +89,7 @@ var (
 	coreValueFlags = map[string]bool{"--tool": true, "--session": true, "--query": true, "--record": true, "--view": true, "--limit": true,
 		"--offset": true, "--chars": true, "--before": true, "--after": true, "--format": true, "--out": true, "--days": true,
 		"--workspace": true, "--repo": true, "--top": true, "--turns": true, "--clip": true, "--scan": true, "--quote": true}
-	coreHostFlags = map[string]bool{"--state": true, "--copilot-root": true, "--claude-root": true, "--opencode-db": true, "--sources-only": true}
+	coreAppFlags = map[string]bool{"--state": true, "--copilot-root": true, "--claude-root": true, "--opencode-db": true, "--sources-only": true}
 )
 
 // coreCall is a parsed core argument list.
@@ -120,7 +120,7 @@ func parseCoreArgs(args []string) (coreCall, error) {
 	}
 	call := coreCall{command: args[0], flags: map[string][]string{}}
 	if !coreCommands[call.command] {
-		return coreCall{}, fmt.Errorf("command is not available through the data-only host tool")
+		return coreCall{}, fmt.Errorf("this command is not available in the App")
 	}
 	rest := args[1:]
 	if call.command == "collection" {
@@ -144,8 +144,8 @@ func parseCoreArgs(args []string) (coreCall, error) {
 		name, value, attached := strings.Cut(arg, "=")
 		name = "--" + strings.TrimLeft(name, "-")
 		switch {
-		case coreHostFlags[name]:
-			return coreCall{}, fmt.Errorf("source/state bindings are controlled by the host")
+		case coreAppFlags[name]:
+			return coreCall{}, fmt.Errorf("the App sets where session records and Core's state are")
 		case coreSwitches[name] && !(attached && name == "--h"):
 		case coreValueFlags[name]:
 			if !attached {
@@ -163,9 +163,9 @@ func parseCoreArgs(args []string) (coreCall, error) {
 	return call, nil
 }
 
-// validateCoreArgs is the one validator for both doors: allowlisted commands
-// and flags, host-owned bindings, collection paths confined to the workspace
-// and new output destinations inside it.
+// validateCoreArgs is the App's validator for Core calls: allowlisted commands
+// and flags, settings the App owns, collection paths confined to the person's
+// files and new output destinations among them.
 func (a *App) validateCoreArgs(args []string) error {
 	call, err := parseCoreArgs(args)
 	if err != nil {
