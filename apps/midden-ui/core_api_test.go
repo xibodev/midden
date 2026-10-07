@@ -91,8 +91,7 @@ func coreApp(t *testing.T) *App {
 	store := filepath.Join(root, "sources", "claude")
 	project := filepath.Join(store, "projects", "synthetic-work")
 	recorded := filepath.Join(root, "recorded-workspace")
-	workspace := filepath.Join(root, "workspace")
-	for _, dir := range []string{project, recorded, workspace} {
+	for _, dir := range []string{project, recorded} {
 		if err := os.MkdirAll(dir, 0700); err != nil {
 			t.Fatal(err)
 		}
@@ -110,8 +109,8 @@ func coreApp(t *testing.T) *App {
 		"Continue the synthetic importer validation.",
 		"Chunk boundaries now keep record identity.",
 	})
-	app, err := NewApp(Options{Workspace: workspace, State: filepath.Join(root, "state"), Core: core,
-		SourceEnv: map[string]string{"MIDDEN_CLAUDE_ROOT": store}})
+	app, err := NewApp(Options{Data: filepath.Join(root, "data"), Core: core,
+		SourceEnv: map[string]string{"MIDDEN_CLAUDE_ROOT": store}, CoreEnv: map[string]string{"MIDDEN_HOME": filepath.Join(root, "core-state")}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -164,7 +163,7 @@ func callCore(t *testing.T, app *App, method, target string, body any) coreReply
 		request.Header.Set("X-Midden-CSRF", app.csrf)
 	}
 	response := httptest.NewRecorder()
-	app.ServeHTTP(response, request)
+	app.ServeHTTP(response, keyed(app, request))
 	return coreReply{response.Code, response.Header(), response.Body.Bytes()}
 }
 
@@ -263,11 +262,11 @@ func TestPersonDoorReadsSessionsAndPinsViews(t *testing.T) {
 	if assets := expectCore(t, app, "GET", "/api/core/views/"+view+"/assets?offset=0&limit=10", nil, 200); assets["asset_count"] != float64(0) || assets["view_id"] != view {
 		t.Fatalf("assets: %v", assets)
 	}
-	pinned, _ := filepath.Glob(filepath.Join(app.opts.State, "core", "views", "v-*.json"))
+	pinned, _ := filepath.Glob(filepath.Join(app.opts.CoreEnv["MIDDEN_HOME"], "views", "v-*.json"))
 	if len(pinned) < 3 {
 		t.Fatalf("views were not pinned in the core cache: %v", pinned)
 	}
-	if entries, _ := os.ReadDir(app.opts.Workspace); len(entries) != 0 {
+	if entries, _ := os.ReadDir(app.paths.Files); len(entries) != 0 {
 		t.Fatalf("reads changed the workspace: %v", entries)
 	}
 }
@@ -291,7 +290,7 @@ func TestPersonDoorCollectsListsAndVerifiesSources(t *testing.T) {
 		t.Fatalf("existing destination: %v", taken)
 	}
 
-	manifest, err := os.ReadFile(filepath.Join(app.opts.Workspace, "sources", "all", "manifest.json"))
+	manifest, err := os.ReadFile(filepath.Join(app.paths.Files, "sources", "all", "manifest.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -303,7 +302,7 @@ func TestPersonDoorCollectsListsAndVerifiesSources(t *testing.T) {
 		"sessions/copy/manifest.json":    manifest,
 		"notes/manifest.json":            []byte(`{"schema":"another/v1"}`),
 	} {
-		path := filepath.Join(app.opts.Workspace, filepath.FromSlash(rel))
+		path := filepath.Join(app.paths.Files, filepath.FromSlash(rel))
 		if err = os.MkdirAll(filepath.Dir(path), 0700); err != nil {
 			t.Fatal(err)
 		}
@@ -318,7 +317,8 @@ func TestPersonDoorCollectsListsAndVerifiesSources(t *testing.T) {
 		}
 		paths = append(paths, fmt.Sprint(info["path"]))
 	}
-	if want := []string{"deep/b/c/d/e", "sources/all", "sources/selected"}; !slices.Equal(paths, want) {
+	// The kernel's own history sits outside the person's files, so a folder of theirs may be named sessions.
+	if want := []string{"deep/b/c/d/e", "sessions/copy", "sources/all", "sources/selected"}; !slices.Equal(paths, want) {
 		t.Fatalf("collections %v, want %v", paths, want)
 	}
 
@@ -349,7 +349,7 @@ func TestPersonDoorCollectsListsAndVerifiesSources(t *testing.T) {
 	if exported["path"] != "notes/selected.md" || exported["format"] != "markdown" {
 		t.Fatalf("export: %v", exported)
 	}
-	notes, err := os.ReadFile(filepath.Join(app.opts.Workspace, "notes", "selected.md"))
+	notes, err := os.ReadFile(filepath.Join(app.paths.Files, "notes", "selected.md"))
 	if err != nil || !strings.Contains(string(notes), "zero is a value") {
 		t.Fatalf("export file: %v %s", err, notes)
 	}
@@ -359,7 +359,7 @@ func TestPersonDoorCollectsListsAndVerifiesSources(t *testing.T) {
 	}
 
 	// A damaged collection still returns its verification report.
-	damaged, err := os.OpenFile(filepath.Join(app.opts.Workspace, "sources", "all", "records.jsonl"), os.O_APPEND|os.O_WRONLY, 0)
+	damaged, err := os.OpenFile(filepath.Join(app.paths.Files, "sources", "all", "records.jsonl"), os.O_APPEND|os.O_WRONLY, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -368,22 +368,6 @@ func TestPersonDoorCollectsListsAndVerifiesSources(t *testing.T) {
 	report := expectCore(t, app, "POST", "/api/core/collection/verify", map[string]any{"path": "sources/all"}, 200)
 	if report["valid"] != false || len(report["problems"].([]any)) == 0 {
 		t.Fatalf("damaged collection report: %v", report)
-	}
-}
-
-func TestAgentDoorRunsTheSameCore(t *testing.T) {
-	app := coreApp(t)
-	tool := coreTool{app}
-	result := tool.Execute(context.Background(), map[string]any{"args": []any{"ls", "--all", "--json"}})
-	if result.IsError || !strings.Contains(result.ForLLM, fixtureSession) {
-		t.Fatalf("agent listing failed: %s", result.ForLLM)
-	}
-	result = tool.Execute(context.Background(), map[string]any{"args": []any{"show", "--tool", "claude", "--session", "missing", "--json"}})
-	if !result.IsError || !strings.Contains(result.ForLLM, "Midden failed") {
-		t.Fatalf("core failure not reported to the agent: %s", result.ForLLM)
-	}
-	if result = tool.Execute(context.Background(), map[string]any{"args": []any{"prune"}}); !result.IsError {
-		t.Fatal("agent ran a maintenance command")
 	}
 }
 
@@ -400,7 +384,7 @@ func TestPersonDoorWritesRequireTheSessionToken(t *testing.T) {
 				request.Header.Set("X-Midden-CSRF", token)
 			}
 			response := httptest.NewRecorder()
-			app.ServeHTTP(response, request)
+			app.ServeHTTP(response, keyed(app, request))
 			if response.Code != http.StatusForbidden || !strings.Contains(response.Body.String(), "CSRF") {
 				t.Fatalf("POST %s with token %q: %d %s", target, token, response.Code, response.Body)
 			}
@@ -516,21 +500,16 @@ func TestPersonDoorRejectsBadInputsBeforeRunningTheCore(t *testing.T) {
 	}
 }
 
-func TestPersonDoorRejectsWritesOutsideTheWorkspace(t *testing.T) {
-	opts := testOptions(t)
-	opts.State = filepath.Join(opts.Workspace, "host-state")
-	app, err := NewApp(opts)
-	if err != nil {
+func TestPersonDoorRejectsWritesOutsideTheFiles(t *testing.T) {
+	app := newTestApp(t)
+	files := app.paths.Files
+	if err := os.MkdirAll(filepath.Join(files, "taken"), 0700); err != nil {
 		t.Fatal(err)
 	}
-	defer app.Close()
-	if err = os.MkdirAll(filepath.Join(opts.Workspace, "taken"), 0700); err != nil {
-		t.Fatal(err)
-	}
-	outside := filepath.Join(filepath.Dir(opts.Workspace), "outside")
+	outside := filepath.Join(filepath.Dir(files), "outside")
 	view := "v-" + strings.Repeat("0", 64)
-	destinations := []string{"../outside", outside, filepath.ToSlash(outside), "taken", "host-state/collection", ".midden/collection", "sessions/collection", "notes/../../outside"}
-	if err = os.Symlink(filepath.Dir(opts.Workspace), filepath.Join(opts.Workspace, "link")); err == nil {
+	destinations := []string{"../outside", outside, filepath.ToSlash(outside), "taken", ".midden/collection", "../sessions/collection", "notes/../../outside"}
+	if err := os.Symlink(filepath.Dir(files), filepath.Join(files, "link")); err == nil {
 		destinations = append(destinations, "link/outside")
 	}
 	for _, out := range destinations {
@@ -547,23 +526,18 @@ func TestPersonDoorRejectsWritesOutsideTheWorkspace(t *testing.T) {
 			}
 		}
 	}
-	if _, err = os.Lstat(outside); !os.IsNotExist(err) {
-		t.Fatal("a write escaped the workspace")
+	if _, err := os.Lstat(outside); !os.IsNotExist(err) {
+		t.Fatal("a write escaped the person's files")
 	}
 }
 
-func TestCollectionWalkSkipsHostStateAndHiddenTrees(t *testing.T) {
-	opts := testOptions(t)
-	opts.State = filepath.Join(opts.Workspace, "host-state")
-	app, err := NewApp(opts)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer app.Close()
+func TestCollectionWalkSkipsHiddenTrees(t *testing.T) {
+	app := newTestApp(t)
+	var err error
 	manifest := []byte(`{"schema":"midden.collection/v1","record_file":"records.jsonl"}`)
-	for _, rel := range []string{"a/manifest.json", "host-state/b/manifest.json", ".git/c/manifest.json", "node_modules/d/manifest.json",
-		"sessions/e/manifest.json", "f/g/h/i/j/manifest.json", "k/l/m/n/o/p/manifest.json", "a/nested/manifest.json"} {
-		path := filepath.Join(opts.Workspace, filepath.FromSlash(rel))
+	for _, rel := range []string{"a/manifest.json", ".git/c/manifest.json", "node_modules/d/manifest.json",
+		"f/g/h/i/j/manifest.json", "k/l/m/n/o/p/manifest.json", "a/nested/manifest.json"} {
+		path := filepath.Join(app.paths.Files, filepath.FromSlash(rel))
 		if err = os.MkdirAll(filepath.Dir(path), 0700); err != nil {
 			t.Fatal(err)
 		}
@@ -579,7 +553,7 @@ func TestCollectionWalkSkipsHostStateAndHiddenTrees(t *testing.T) {
 		t.Fatalf("collections %v, want %v", found, want)
 	}
 	for i := range collectionLimit + 5 {
-		path := filepath.Join(opts.Workspace, "many", fmt.Sprintf("c%03d", i), "manifest.json")
+		path := filepath.Join(app.paths.Files, "many", fmt.Sprintf("c%03d", i), "manifest.json")
 		if err = os.MkdirAll(filepath.Dir(path), 0700); err != nil {
 			t.Fatal(err)
 		}

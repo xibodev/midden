@@ -1,6 +1,6 @@
 """Model connection UI checks against the synthetic host, not live inference.
 
-Connections come from the host roster; the browser does not invent providers.
+Connections come from the roster Midden reports; the browser does not invent providers.
 Keyless services are not offered as API-key connections.
 No auth endpoint is provided by this fixture.
 """
@@ -16,9 +16,9 @@ class CompaTests(BrowserCase):
 
     def test_released_kernel_name_and_runtime_notice(self):
         self.open()
-        expect(self.page.locator("#versions")).to_contain_text("powered by Compa v1.0.0")
+        expect(self.page.locator("#versions")).to_contain_text("powered by Compa 3.0.0")
         expect(self.page.locator("#versions")).not_to_contain_text("candidate")
-        expect(self.page.locator("#hostNotice")).to_contain_text("not an OS sandbox")
+        expect(self.page.locator("#appNotice")).to_contain_text("not an OS sandbox")
 
     def test_supported_api_key_connections_keep_identity_and_allow_official_endpoint(self):
         self.host.roster.append(dict(id="free_service", label="Free service", defaultEndpoint="https://free.invalid/v1",

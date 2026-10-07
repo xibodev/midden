@@ -38,7 +38,7 @@ function error(message, target = "notice") {
 const clearError = target => { $(target).hidden = true; if (target === "filesError") $("previewError").hidden = true; };
 const run = (action, target = "notice") => action().catch(reason => error(reason, target));
 const list = (data, key) => {
-  if (!Array.isArray(data?.[key])) throw new Error(`Host returned an invalid ${key} list.`);
+  if (!Array.isArray(data?.[key])) throw new Error(`Midden returned an invalid ${key} list.`);
   return data[key];
 };
 function draft(id = state.current, workspace = state.workspaceId) {
@@ -117,7 +117,7 @@ function bindWorkspace(id) {
   return true;
 }
 async function request(path, method = "GET", body, signal) {
-  if (method !== "GET" && !state.csrf) throw new Error("Host has not supplied a CSRF token. Refresh the host before trying again.");
+  if (method !== "GET" && !state.csrf) throw new Error("Midden has not supplied a CSRF token. Reload Midden before trying again.");
   const headers = method === "GET" ? {} : { "X-Midden-CSRF": state.csrf };
   if (body !== undefined) headers["Content-Type"] = "application/json";
   const response = await fetch(path, { method, headers, credentials: "same-origin", cache: "no-store",
@@ -125,7 +125,7 @@ async function request(path, method = "GET", body, signal) {
     signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(30000)]) : AbortSignal.timeout(30000) });
   if (!response.ok) {
     let failure;
-    try { failure = await response.json(); } catch { throw new Error(`HTTP ${response.status}: host returned a non-JSON error.`); }
+    try { failure = await response.json(); } catch { throw new Error(`HTTP ${response.status}: Midden returned a non-JSON error.`); }
     throw new Error(typeof failure.error === "string" ? failure.error : `HTTP ${response.status}: request failed.`);
   }
   return response;
@@ -153,8 +153,8 @@ function controls() {
   $("stop").disabled = state.canceling || !state.csrf;
   $("turnStatus").textContent = state.active ? (state.canceling ? "Stopping..." : pending(entry(state.active.sessionId)).length ? "Permission needed" :
     state.active.sessionId && state.active.sessionId !== state.current ? "Running in another conversation" : "Working...") :
-    state.booting ? "Loading workspace..." : state.creating ? "Creating conversation..." : state.sending ? "Starting turn..." : item.loading ? "Loading conversation..." : item.error ? "Conversation unavailable" : state.modelSetupError ? "Model setup needed" : !state.modelConfigured ? "Set up model to send" : state.csrf ? "Ready" : "Host not loaded";
-  if (state.interrupted) $("turnStatus").textContent = state.source?.readyState === EventSource.CLOSED ? "Live updates stopped. Refresh host to reconnect." :
+    state.booting ? "Loading workspace..." : state.creating ? "Creating conversation..." : state.sending ? "Starting turn..." : item.loading ? "Loading conversation..." : item.error ? "Conversation unavailable" : state.modelSetupError ? "Model setup needed" : !state.modelConfigured ? "Set up model to send" : state.csrf ? "Ready" : "Midden not loaded";
+  if (state.interrupted) $("turnStatus").textContent = state.source?.readyState === EventSource.CLOSED ? "Live updates stopped. Reload Midden to reconnect." :
     `Live updates interrupted. ${state.active ? "Stop is available." : "Reconnecting..."}`;
   $("activeSession").hidden = !state.active?.sessionId || state.active.sessionId === state.current;
   $("setupModel").hidden = !state.csrf || state.modelConfigured;
@@ -177,8 +177,8 @@ async function loadStatus() {
   const version = ++state.statusRequest, revision = state.revision;
   const data = await api("/api/status");
   if (version !== state.statusRequest) return;
-  if (typeof data?.csrfToken !== "string" || !data.csrfToken || !data.model || typeof data.workspaceId !== "string" || !data.workspaceId) throw new Error("Incomplete host status. A stable workspace ID, model status and CSRF token are required.");
-  const bundles = list(data, "bundles");
+  if (typeof data?.csrfToken !== "string" || !data.csrfToken || !data.model || typeof data.workspaceId !== "string" || !data.workspaceId) throw new Error("Incomplete status from Midden. A stable workspace ID, model status and CSRF token are required.");
+  const skills = list(data, "skills");
   const changed = bindWorkspace(data.workspaceId);
   if (state.csrf && state.csrf !== data.csrfToken) { state.seq = 0; state.completed.clear(); }
   state.csrf = data.csrfToken;
@@ -187,13 +187,13 @@ async function loadStatus() {
   $("workspace").title = data.workspace;
   const coreVersion = String(data.coreVersion || "").replace(/^midden\s+/i, "");
   $("versions").textContent = `Midden ${data.uiVersion || "(version not reported)"} · powered by ${data.kernelName || "Compa"} ${data.kernelVersion || ""} · core ${coreVersion || "not reported"}`;
-  $("hostNotice").textContent = typeof data.notice === "string" ? data.notice : "";
-  $("hostNotice").hidden = !$("hostNotice").textContent;
+  $("appNotice").textContent = typeof data.notice === "string" ? data.notice : "";
+  $("appNotice").hidden = !$("appNotice").textContent;
   renderModel(data.model);
-  $("bundles").replaceChildren(...bundles.map(bundle => {
-    const li = node("li"); li.append(node("strong", "", bundle.name), node("p", "quiet", bundle.description)); return li;
+  $("skills").replaceChildren(...skills.map(skill => {
+    const li = node("li"); li.append(node("strong", "", skill.name), node("p", "quiet", skill.description)); return li;
   }));
-  if (!bundles.length) $("bundles").append(node("li", "quiet", "No outcome guidance reported by the host."));
+  if (!skills.length) $("skills").append(node("li", "quiet", "No skills reported by Midden."));
   if (changed || revision === state.revision) {
     const next = active(data.activeTurn, state.active?.sessionId);
     if (next?.turnId !== state.active?.turnId) state.canceling = false;
@@ -262,7 +262,7 @@ function renderChat() {
     for (const outcome of item.outcomes.filter(value => value.messageIndex === index && value.status !== "completed")) {
       const evidence = node("aside", "turn-outcome"); evidence.setAttribute("role", "note");
       evidence.dataset.status = outcome.status;
-      evidence.append(node("strong", "", `Host status: ${outcome.status[0].toUpperCase()}${outcome.status.slice(1)}`), node("small", "", date(outcome.at)));
+      evidence.append(node("strong", "", `Turn status: ${outcome.status[0].toUpperCase()}${outcome.status.slice(1)}`), node("small", "", date(outcome.at)));
       if (outcome.error) evidence.append(node("p", "", outcome.error));
       article.append(evidence);
     }
@@ -270,7 +270,7 @@ function renderChat() {
   }));
   const uncoveredError = item.turnError && !item.outcomes.some(outcome => outcome.turnId === item.turnError.turnId);
   $("sessionError").hidden = !uncoveredError;
-  $("sessionError").textContent = uncoveredError ? `Host turn error: ${item.turnError.text}` : "";
+  $("sessionError").textContent = uncoveredError ? `Turn error: ${item.turnError.text}` : "";
   $("welcome").hidden = hasMessages || item.loading || !!item.error;
   $("sessionLoading").hidden = item.loaded || (!item.loading && !item.error);
   $("sessionLoading").textContent = item.error || "Loading conversation...";
@@ -288,7 +288,7 @@ async function loadSession(id) {
     if (version !== item.request || scope !== state.scope) return;
     const messages = list(data, "messages"), outcomes = data.outcomes === undefined ? [] : list(data, "outcomes");
     if (outcomes.some(outcome => !["running", "completed", "failed", "cancelled", "interrupted"].includes(outcome.status) ||
-        !Number.isInteger(outcome.messageIndex) || messages[outcome.messageIndex]?.role !== "user" || !outcome.turnId)) throw new Error("Host returned an invalid turn outcome.");
+        !Number.isInteger(outcome.messageIndex) || messages[outcome.messageIndex]?.role !== "user" || !outcome.turnId)) throw new Error("Midden returned an invalid turn outcome.");
     item.messages = messages; item.outcomes = outcomes; item.loaded = true;
     outcomes.filter(outcome => outcome.status !== "running").forEach(outcome => state.completed.add(outcome.turnId));
     if (state.active && state.completed.has(state.active.turnId)) { state.active = null; state.canceling = false; }
@@ -315,7 +315,7 @@ async function createSession() {
   const scope = state.scope;
   const data = await api("/api/sessions", "POST", {});
   if (scope !== state.scope) return null;
-  if (!data?.id) throw new Error("The host did not return a conversation ID.");
+  if (!data?.id) throw new Error("Midden did not return a conversation ID.");
   if (!state.sessions.some(session => session.id === data.id)) state.sessions.unshift(data);
   entry(data.id).loaded = true;
   return data.id;
@@ -369,7 +369,7 @@ async function send() {
     }
     const item = entry(id), before = item.messages.length, savedDraft = draft(id, workspace);
     const data = await api(`/api/sessions/${encodeURIComponent(id)}/turn`, "POST", { message: text });
-    if (!data?.turnId) throw new Error("The host did not return a turn ID. Refresh before retrying to avoid a duplicate turn.");
+    if (!data?.turnId) throw new Error("Midden did not return a turn ID. Reload before retrying to avoid a duplicate turn.");
     clearMatchingDraft(savedDraft, typed);
     if (sourceDraft) clearMatchingDraft(sourceDraft, typed);
     if (scope !== state.scope) return;
@@ -503,19 +503,19 @@ async function stop() {
   catch (reason) { state.canceling = false; controls(); throw reason; }
 }
 function receive(event) {
-  if (!Number.isFinite(event.seq) || typeof event.type !== "string") throw new Error("Malformed live event. Refresh the host to resynchronize.");
+  if (!Number.isFinite(event.seq) || typeof event.type !== "string") throw new Error("Malformed live event. Reload Midden to resynchronize.");
   if (event.seq <= state.seq) return;
   state.seq = event.seq;
   if (event.type === "status") { run(async () => { if (await loadStatus()) await refreshWorkspace(); }); return; }
   if (event.type === "files_changed") { run(loadFiles, "filesError"); bus.emit("files-changed"); return; }
   if (state.completed.has(event.turnId) && event.type !== "permission_result") return;
   if (!event.sessionId || !event.turnId) {
-    if (event.type === "error") { error(event.error || event.text || "Host error."); return; }
+    if (event.type === "error") { error(event.error || event.text || "Midden error."); return; }
     throw new Error("Live turn event is missing its conversation or turn ID.");
   }
   const item = entry(event.sessionId);
   const otherTurn = state.active && state.active.turnId !== event.turnId;
-  // Historical replays must not replace the host-reported active turn.
+  // Historical replays must not replace the active turn Midden reported.
   if (otherTurn && ["delta", "message", "permission"].includes(event.type)) return;
   if (!otherTurn && ["delta", "message", "tool", "permission"].includes(event.type)) {
     if (item.live && item.live.turnId !== event.turnId) { item.live = null; if (event.sessionId === state.current) renderLive(); }
@@ -567,7 +567,7 @@ function connect() {
     if (scope !== state.scope) return;
     state.connected = false; state.interrupted = true; $("connection").textContent = "Live updates interrupted. Reconnecting; Stop is still available.";
     if (source.readyState === EventSource.CLOSED) {
-      $("connection").textContent = "Live event stream closed. Refresh host to reconnect.";
+      $("connection").textContent = "Live event stream closed. Reload Midden to reconnect.";
       error($("connection").textContent);
     }
     $("connection").classList.remove("connected"); controls();
@@ -619,12 +619,12 @@ async function selectFile(path) {
   try {
     const data = await api(`/api/file?path=${encodeURIComponent(path)}`);
     if (version !== state.fileRequest) return;
-    if (typeof data?.content !== "string") throw new Error("The host did not return text content. You can still download this file.");
+    if (typeof data?.content !== "string") throw new Error("Midden did not return text content. You can still download this file.");
     $("fileContent").textContent = data.content; $("fileHash").textContent = data.sha256 || "Fingerprint not reported";
     const html = /\.html?$/i.test(path) || file?.kind === "html";
     if (html) {
       const url = `/preview?path=${encodeURIComponent(path)}`;
-      // Check host errors before letting an isolated frame render the artifact.
+      // Check for errors before letting an isolated frame render the artifact.
       await (await request(url)).arrayBuffer();
       if (version !== state.fileRequest) return;
       $("fileFrame").src = url; $("fileFrame").hidden = false; $("fileContent").hidden = true;
@@ -743,7 +743,7 @@ $("stop").addEventListener("click", () => run(stop));
 $("activeSession").addEventListener("click", () => { if (state.active?.sessionId) run(() => choose(state.active.sessionId)); });
 $("refreshSessions").addEventListener("click", () => run(loadSessions));
 $("refreshFiles").addEventListener("click", () => run(loadFiles, "filesError"));
-$("retryHost").addEventListener("click", () => { clearError("notice"); run(refresh); });
+$("retryApp").addEventListener("click", () => { clearError("notice"); run(refresh); });
 $("dismissNotice").addEventListener("click", () => clearError("notice"));
 $("setupModel").addEventListener("click", () => ctx.navigate("#/models"));
 $("contextPreviewToggle").addEventListener("click", () => { state.contextOpen = !state.contextOpen; renderContext(); });

@@ -85,7 +85,7 @@ class MockHost:
         self.csrf = "synthetic-csrf"
         self.tokens = {self.csrf}
         self.replay = []
-        self.versions = dict(uiVersion="test-ui", coreVersion="test-core", kernelName="Compa", kernelVersion="v1.0.0")
+        self.versions = dict(uiVersion="test-ui", coreVersion="test-core", kernelName="Compa", kernelVersion="3.0.0")
         self.model = dict(configured=True, defaultModel="synthetic/synthetic-model",
                           summary="synthetic/synthetic-model", setupError="")
         self.roster = [dict(id=kind, label=label, defaultEndpoint=f"https://{kind}.invalid/v1",
@@ -224,8 +224,8 @@ class MockHost:
                     host.tokens.add(host.csrf)
                     return self.reply(dict(workspace=host.workspace_name, workspaceId=host.workspace_id, **host.versions,
                         model=host.model, activeTurn=host.active,
-                        notice="Approved shell commands run with your account; this is not an OS sandbox.",
-                        csrfToken=host.csrf, bundles=[
+                        notice="The assistant runs commands with your account; this is not an OS sandbox.",
+                        csrfToken=host.csrf, skills=[
                             dict(name="Investigation", description="Understand source material and its limits."),
                             dict(name="Presentation", description="Create an editable, inspectable presentation.")]))
                 if path == "/api/sessions":
@@ -436,10 +436,10 @@ class FrontendTests(BrowserCase):
     def test_boot_history_new_conversation_and_draft_preservation(self):
         self.open()
         expect(self.page.locator("#workspace")).to_have_text("Synthetic workspace")
-        expect(self.page.locator("#versions")).to_contain_text("Compa v1.0.0")
-        expect(self.page.locator("#hostNotice")).to_be_visible()
-        expect(self.page.locator("#hostNotice")).to_contain_text("this is not an OS sandbox")
-        expect(self.page.locator("#bundles")).to_contain_text("Understand source material")
+        expect(self.page.locator("#versions")).to_contain_text("Compa 3.0.0")
+        expect(self.page.locator("#appNotice")).to_be_visible()
+        expect(self.page.locator("#appNotice")).to_contain_text("this is not an OS sandbox")
+        expect(self.page.locator("#skills")).to_contain_text("Understand source material")
         expect(self.page.locator("#fileList button")).to_have_count(2)
         self.screenshot("desktop.png")
         self.page.get_by_label("Message", exact=True).fill("Keep my unsent thought.")
@@ -698,7 +698,7 @@ class FrontendTests(BrowserCase):
         expect(self.page.locator("#notice")).to_contain_text("Conversation could not be read")
         expect(self.page.get_by_label("Message", exact=True)).to_be_disabled()
         del self.host.failures["GET", "/api/sessions/s1"]
-        self.page.get_by_role("button", name="Refresh host").click()
+        self.page.get_by_role("button", name="Reload Midden").click()
         expect(self.page.get_by_label("Message", exact=True)).to_be_enabled()
 
     def test_permission_and_kernel_errors_are_visible_and_recoverable(self):
@@ -715,16 +715,16 @@ class FrontendTests(BrowserCase):
         expect(self.page.locator("#turnStatus")).to_contain_text("Ready")
 
     def test_host_and_closed_event_stream_failures_offer_a_working_retry(self):
-        self.host.failures["GET", "/api/status"] = "Host not ready"
+        self.host.failures["GET", "/api/status"] = "Midden not ready"
         self.page.goto(self.url + "/#/assistant")
-        expect(self.page.locator("#notice")).to_contain_text("Host not ready")
+        expect(self.page.locator("#notice")).to_contain_text("Midden not ready")
         expect(self.page.get_by_label("Message", exact=True)).to_be_disabled()
         del self.host.failures["GET", "/api/status"]
         self.page.route("**/api/events", lambda route: route.fulfill(status=204))
-        self.page.get_by_role("button", name="Refresh host").click()
+        self.page.get_by_role("button", name="Reload Midden").click()
         expect(self.page.locator("#notice")).to_contain_text("Live event stream closed")
         self.page.unroute("**/api/events")
-        self.page.get_by_role("button", name="Refresh host").click()
+        self.page.get_by_role("button", name="Reload Midden").click()
         expect(self.page.locator("#connection")).to_have_text("Live updates connected")
 
     def test_file_and_status_events_refresh_an_open_artifact_and_model_summary(self):

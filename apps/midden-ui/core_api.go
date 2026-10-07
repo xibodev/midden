@@ -71,9 +71,8 @@ var coreRoutes = map[string]coreRoute{
 	"collection/merge":   {http.MethodPost, effectWritesWorkspace, (*App).coreMergeCollections},
 }
 
-// serveCore is the person's door to the deterministic core: routes under
-// /api/core/ run the same core binary and validator as the agent's midden
-// tool, without a model or an approval card.
+// serveCore runs Core for the App's screens: routes under /api/core/ run the
+// installed midden with validated arguments, without a model.
 func (a *App) serveCore(w http.ResponseWriter, r *http.Request) {
 	name, id := coreRouteName(strings.TrimPrefix(r.URL.Path, "/api/core/"))
 	if name == "collections" {
@@ -152,7 +151,7 @@ func (a *App) runCoreRequest(w http.ResponseWriter, r *http.Request, request cor
 			w.Header().Set("Content-Type", "application/json")
 			w.Write([]byte(out.Stdout))
 			if effect == effectWritesWorkspace && err == nil {
-				// Every view that lists workspace files refreshes, as after an agent turn.
+				// Every view that lists the person's files refreshes, as after an assistant turn.
 				a.emit(Event{Type: "files_changed"})
 			}
 		case err != nil:
@@ -749,25 +748,25 @@ func (a *App) inspectCollection(ctx context.Context, rel string) json.RawMessage
 	return json.RawMessage(out.Stdout)
 }
 
-// findCollections walks the workspace for collection manifests, skipping
-// hidden directories, host state, node_modules and sessions.
+// findCollections walks the person's files for collection manifests,
+// skipping hidden directories and node_modules.
 func (a *App) findCollections(ctx context.Context) ([]string, error) {
 	found := []string{}
-	err := filepath.WalkDir(a.opts.Workspace, func(path string, entry fs.DirEntry, err error) error {
+	err := filepath.WalkDir(a.paths.Files, func(path string, entry fs.DirEntry, err error) error {
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
-		if path == a.opts.Workspace {
+		if path == a.paths.Files {
 			return err
 		}
 		if err != nil || !entry.IsDir() {
 			return nil
 		}
 		name := entry.Name()
-		if strings.HasPrefix(name, ".") || name == "node_modules" || name == "sessions" || containsPath(a.opts.State, path) {
+		if strings.HasPrefix(name, ".") || name == "node_modules" {
 			return filepath.SkipDir
 		}
-		rel, err := filepath.Rel(a.opts.Workspace, path)
+		rel, err := filepath.Rel(a.paths.Files, path)
 		if err != nil {
 			return filepath.SkipDir
 		}

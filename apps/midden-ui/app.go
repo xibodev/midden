@@ -11,44 +11,29 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
-	"runtime/debug"
 	"sort"
 	"strings"
 	"sync"
 	"time"
-
-	"github.com/xibodev/compa/pkg/config"
-	"github.com/xibodev/compa/pkg/modelservice"
 )
 
-// fallbackKernelVersion is used when build information doesn't name the
-// embedded Compa release (for example, a workspace build of a local checkout).
-const fallbackKernelVersion = "v1.0.0"
+var errHistoryLimit = errors.New("conversation history limit reached; remove conversations before adding more history")
 
-// kernelVersion reports the embedded Compa module version from build info.
-func kernelVersion() string {
-	if info, ok := debug.ReadBuildInfo(); ok {
-		for _, dep := range info.Deps {
-			if dep.Path != "github.com/xibodev/compa" {
-				continue
-			}
-			if dep.Replace != nil && strings.HasPrefix(dep.Replace.Version, "v") {
-				return dep.Replace.Version
-			}
-			if strings.HasPrefix(dep.Version, "v") {
-				return dep.Version
-			}
-		}
-	}
-	return fallbackKernelVersion
-}
-
-var errHistoryLimit = errors.New("conversation history limit reached; use another UI state directory before adding more history")
+// sandboxNotice says what the assistant's commands can reach.
+const sandboxNotice = "The assistant runs commands with your account; this is not an OS sandbox."
 
 type Options struct {
-	Workspace, State, Core, CoreVersion, Bundle string
-	SourceEnv                                   map[string]string
-	Frontend                                    fs.FS
+	Data          string // the App's data root
+	Core          string // the midden executable
+	CoreVersion   string
+	Skills        string // the installed skills
+	Kernel        string // compa-kernel; empty when it is not installed
+	KernelVersion string
+	Install       string            // the programs folder
+	Tools         string            // the App's own programs, such as Pandoc; empty when absent
+	SourceEnv     map[string]string // the session record roots Core reads, as set when the App started
+	CoreEnv       map[string]string // more settings for Core, such as a separate state in tests
+	Frontend      fs.FS
 }
 type Message struct {
 	Role    string    `json:"role"`
@@ -97,13 +82,17 @@ type activeTurn struct {
 	ID, SessionID string
 	cancel        context.CancelFunc
 }
+
+// engine runs one turn of a conversation and returns the assistant's reply.
 type engine interface {
-	Process(context.Context, string, string) (string, error)
-	Close()
+	Process(ctx context.Context, sessionID, turnID, text string) (string, error)
 }
+
 type App struct {
 	opts        Options
-	csrf        string
+	paths       appPaths
+	notice      string
+	csrf, key   string
 	mu          sync.Mutex
 	modelMu     sync.Mutex // serializes model configuration changes; never held with mu across I/O
 	sessions    map[string]*Session
@@ -113,14 +102,12 @@ type App struct {
 	seq         uint64
 	watchers    map[chan Event]bool
 	runtime     engine
-	projected   string
-	bundles     []BundleInfo
+	kernel      *kernelProcess
+	skills      []skillInfo
 	wg          sync.WaitGroup
 
 	// modelChanging is set under mu while a model change runs; no turn starts meanwhile.
 	modelChanging bool
-	// freeVerify checks free providers; nil uses Compa's own check.
-	freeVerify modelservice.AnonymousVerifyFunc
 }
 
 func randomID() string {
@@ -132,42 +119,30 @@ func randomID() string {
 }
 
 func NewApp(opts Options) (*App, error) {
-	if !filepath.IsAbs(opts.Workspace) || !filepath.IsAbs(opts.State) {
-		return nil, fmt.Errorf("workspace and state paths must be absolute")
+	if !filepath.IsAbs(opts.Data) {
+		return nil, fmt.Errorf("the data folder must be an absolute path")
 	}
-	workspace, err := filepath.EvalSymlinks(opts.Workspace)
+	data, err := resolvedDestination(opts.Data)
 	if err != nil {
 		return nil, err
 	}
-	opts.Workspace = workspace
-	opts.State, err = resolvedDestination(opts.State)
-	if err != nil {
-		return nil, err
-	}
-	info, err := os.Stat(workspace)
-	if err != nil || !info.IsDir() {
-		return nil, fmt.Errorf("workspace must be an existing directory")
-	}
-	if opts.Workspace == filepath.Clean(opts.State) {
-		return nil, fmt.Errorf("state must not be the workspace root")
-	}
+	opts.Data = data
 	if err := protectSourceStores(opts); err != nil {
 		return nil, err
 	}
-	if err := os.Setenv(config.EnvHome, filepath.Join(opts.State, "kernel")); err != nil {
+	paths, notice, err := prepareData(opts.Data)
+	if err != nil {
 		return nil, err
 	}
-	if err = os.MkdirAll(opts.State, 0700); err != nil {
+	if paths.Files, err = filepath.EvalSymlinks(paths.Files); err != nil {
 		return nil, err
 	}
-	app := &App{opts: opts, csrf: randomID(), sessions: map[string]*Session{}, permissions: map[string]*permission{}, watchers: map[chan Event]bool{}, bundles: []BundleInfo{}}
-	if opts.Bundle != "" {
-		app.projected, app.bundles, err = mountBundle(opts.Bundle, opts.State)
-		if err != nil {
-			return nil, err
-		}
+	if err := writeAgentInstructions(paths.Workspace); err != nil {
+		return nil, fmt.Errorf("write the assistant's instructions: %w", err)
 	}
-	raw, err := readBounded(filepath.Join(opts.State, "sessions.json"), 8<<20)
+	app := &App{opts: opts, paths: paths, notice: notice, csrf: randomID(), key: randomID(), sessions: map[string]*Session{},
+		permissions: map[string]*permission{}, watchers: map[chan Event]bool{}, skills: listSkills(opts.Skills)}
+	raw, err := readBounded(filepath.Join(paths.App, "sessions.json"), 8<<20)
 	if err != nil && !os.IsNotExist(err) {
 		return nil, err
 	}
@@ -187,7 +162,7 @@ func NewApp(opts Options) (*App, error) {
 		for i := range s.Outcomes {
 			if s.Outcomes[i].Status == "running" {
 				s.Outcomes[i].Status = "interrupted"
-				s.Outcomes[i].Error = "The host stopped before this turn finished. Files already written were not undone; review them before retrying."
+				s.Outcomes[i].Error = "Midden stopped before this turn finished. Files already written were not undone; review them before retrying."
 				s.Outcomes[i].At = time.Now().UTC()
 				recovered = true
 			}
@@ -201,39 +176,64 @@ func NewApp(opts Options) (*App, error) {
 	return app, nil
 }
 
+// attachKernel runs the App's turns on kernel.
+func (a *App) attachKernel(kernel *kernelProcess) {
+	chat := newKernelChat(a, kernel)
+	kernel.observer = chat
+	a.mu.Lock()
+	a.kernel, a.runtime = kernel, chat
+	a.mu.Unlock()
+}
+
+// kernelSetup is how this App runs its kernel.
+func (a *App) kernelSetup(self string) kernelSetup {
+	return kernelSetup{Executable: a.opts.Kernel, Home: a.paths.Kernel, Workspace: a.paths.Workspace, Skills: a.opts.Skills,
+		Tools: a.opts.Tools, Install: a.opts.Install, Hook: []string{self, "kernel-hook"}, Log: filepath.Join(a.paths.App, "kernel.log")}
+}
+
 func (a *App) Close() {
 	a.mu.Lock()
 	if a.active != nil {
 		a.active.cancel()
 	}
+	kernel := a.kernel
 	a.mu.Unlock()
 	a.wg.Wait()
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	if a.runtime != nil {
-		a.runtime.Close()
-		a.runtime = nil
+	if kernel != nil {
+		kernel.Close()
 	}
 }
 
 func (a *App) Status() map[string]any {
 	model := a.storedModelStatus()
+	kernel := map[string]string{"state": "missing", "error": "compa-kernel is not installed with this App"}
+	if a.kernel != nil {
+		state, failure := a.kernel.status()
+		kernel = map[string]string{"state": state, "error": failure}
+	}
+	notices := []string{sandboxNotice}
+	if a.notice != "" {
+		notices = append(notices, a.notice)
+	}
+	if kernel["error"] != "" {
+		notices = append(notices, "The assistant is not running: "+kernel["error"])
+	}
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	active := ""
 	if a.active != nil {
 		active = a.active.ID
 	}
-	identity := sha256.Sum256([]byte(a.opts.Workspace + "\x00" + a.opts.State))
-	return map[string]any{"workspace": a.opts.Workspace, "workspaceId": hex.EncodeToString(identity[:]), "uiVersion": version, "coreVersion": a.opts.CoreVersion, "kernelName": "Compa", "kernelVersion": kernelVersion(),
-		"bundles": a.bundles, "model": model, "activeTurn": active, "csrfToken": a.csrf,
-		"notice": "Approved shell commands run with your account; this is not an OS sandbox."}
+	identity := sha256.Sum256([]byte(a.paths.Files))
+	return map[string]any{"workspace": a.paths.Files, "workspaceId": hex.EncodeToString(identity[:]), "uiVersion": version,
+		"coreVersion": a.opts.CoreVersion, "kernelName": "Compa", "kernelVersion": a.opts.KernelVersion, "kernel": kernel,
+		"skills": a.skills, "model": model, "activeTurn": active, "csrfToken": a.csrf, "notice": strings.Join(notices, " ")}
 }
 func (a *App) NewSession(title string) (Session, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	if len(a.sessions) >= 200 {
-		return Session{}, fmt.Errorf("workspace session limit reached")
+		return Session{}, fmt.Errorf("conversation limit reached")
 	}
 	title = strings.TrimSpace(title)
 	if title == "" {
@@ -278,6 +278,9 @@ func (a *App) Session(id string) (Session, error) {
 	}
 	return copy, nil
 }
+
+// saveSessionsLocked writes the App's own transcript of its conversations;
+// the kernel keeps its own history for the model.
 func (a *App) saveSessionsLocked() error {
 	raw, err := json.MarshalIndent(a.sessions, "", "  ")
 	if err != nil {
@@ -298,7 +301,7 @@ func (a *App) saveSessionsLocked() error {
 	if remaining < 0 {
 		return errHistoryLimit
 	}
-	return writeJSON(filepath.Join(a.opts.State, "sessions.json"), a.sessions)
+	return writeJSON(filepath.Join(a.paths.App, "sessions.json"), a.sessions)
 }
 
 func (a *App) StartTurn(id, text string) (string, error) {
@@ -319,17 +322,13 @@ func (a *App) StartTurn(id, text string) (string, error) {
 		a.mu.Unlock()
 		return "", fmt.Errorf("model settings are being changed or checked; try again when that is done")
 	}
+	if a.runtime == nil {
+		a.mu.Unlock()
+		return "", errors.New("the assistant is not available: compa-kernel is not installed with this App")
+	}
 	if !a.storedModelStatus().Configured {
 		a.mu.Unlock()
 		return "", errors.New(chooseModelMessage)
-	}
-	if a.runtime == nil {
-		runtime, err := newKernel(a)
-		if err != nil {
-			a.mu.Unlock()
-			return "", err
-		}
-		a.runtime = runtime
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	turn := &activeTurn{ID: randomID(), SessionID: id, cancel: cancel}
@@ -357,7 +356,10 @@ func (a *App) StartTurn(id, text string) (string, error) {
 	go func() {
 		defer a.wg.Done()
 		defer cancel()
-		result, err := runtime.Process(ctx, text, id)
+		result, err := runtime.Process(ctx, id, turn.ID, text)
+		if err != nil && !errors.Is(err, context.Canceled) {
+			err = errors.New(a.withoutSecrets(err.Error()))
+		}
 		a.mu.Lock()
 		outcome := &s.Outcomes[outcomeIndex]
 		outcome.At = time.Now().UTC()
@@ -430,6 +432,35 @@ func (a *App) emit(event Event) {
 		}
 	}
 }
+
+// askPermission shows the person a permission card for a tool call the
+// kernel's approval policy asks about, and returns their answer. The kernel
+// stops waiting after timeout, and the card stops waiting with it.
+func (a *App) askPermission(ctx context.Context, sessionID, turnID, tool string, arguments any, timeout time.Duration) (bool, string) {
+	pending := &permission{ID: randomID(), Tool: tool, Arguments: arguments, decision: make(chan bool, 1)}
+	a.mu.Lock()
+	a.permissions[pending.ID] = pending
+	a.mu.Unlock()
+	defer func() { a.mu.Lock(); delete(a.permissions, pending.ID); a.mu.Unlock() }()
+	a.emit(Event{Type: "permission", SessionID: sessionID, TurnID: turnID, Tool: tool, Arguments: arguments, PermissionID: pending.ID})
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+	allow, reason := false, ""
+	select {
+	case allow = <-pending.decision:
+		reason = "Denied by the person; do not retry it another way"
+		if allow {
+			reason = "Allowed once by the person"
+		}
+	case <-ctx.Done():
+		reason = "The turn ended before the person answered"
+	case <-timer.C:
+		reason = "The person did not answer in time"
+	}
+	a.emit(Event{Type: "permission_result", SessionID: sessionID, TurnID: turnID, PermissionID: pending.ID, Allow: &allow})
+	return allow, reason
+}
+
 func (a *App) Decide(id string, allow bool) error {
 	a.mu.Lock()
 	pending := a.permissions[id]
@@ -444,6 +475,29 @@ func (a *App) Decide(id string, allow bool) error {
 		return fmt.Errorf("permission request already answered")
 	}
 }
+
+// withoutSecrets removes the keys and tokens of the kernel's auth store from
+// text, such as an error that repeats what a provider was sent.
+func (a *App) withoutSecrets(text string) string {
+	credentials, err := kernelAuth(a.paths.Kernel).read()
+	if err != nil {
+		return text
+	}
+	secrets := []string{}
+	for _, raw := range credentials {
+		var credential authCredential
+		if json.Unmarshal(raw, &credential) != nil {
+			continue
+		}
+		for _, secret := range []string{credential.AccessToken, credential.RefreshToken, credential.IDToken} {
+			if len(strings.TrimSpace(secret)) >= 8 {
+				secrets = append(secrets, secret)
+			}
+		}
+	}
+	return redact(text, secrets...)
+}
+
 func clip(text string, n int) string {
 	r := []rune(text)
 	if len(r) > n {
@@ -477,26 +531,5 @@ func writeJSON(path string, value any) error {
 	if err != nil {
 		return err
 	}
-	tmp, err := os.CreateTemp(filepath.Dir(path), ".write-")
-	if err != nil {
-		return err
-	}
-	name := tmp.Name()
-	defer os.Remove(name)
-	if err = tmp.Chmod(0600); err != nil {
-		tmp.Close()
-		return err
-	}
-	if _, err = tmp.Write(append(raw, '\n')); err != nil {
-		tmp.Close()
-		return err
-	}
-	if err = tmp.Sync(); err != nil {
-		tmp.Close()
-		return err
-	}
-	if err = tmp.Close(); err != nil {
-		return err
-	}
-	return os.Rename(name, path)
+	return replaceFile(path, append(raw, '\n'))
 }

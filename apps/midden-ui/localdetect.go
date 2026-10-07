@@ -13,8 +13,6 @@ import (
 	"strings"
 	"sync"
 	"time"
-
-	"github.com/xibodev/compa/pkg/config"
 )
 
 // localProbeTimeout bounds each probe, so detection answers within it.
@@ -180,17 +178,17 @@ func localLoopbackURL(raw string) bool {
 
 // localConnectedInstance returns the provider instance that already reaches
 // the server at endpoint, preferring an enabled one, or "".
-func localConnectedInstance(cfg *config.Config, endpoint string) string {
+func localConnectedInstance(cfg *kernelConfig, endpoint string) string {
 	want := localOrigin(endpoint)
 	if want == "" {
 		return ""
 	}
 	match := ""
-	for _, instance := range cfg.ProviderInstances {
-		if instance == nil || strings.EqualFold(instance.Adapter, config.ProviderAdapterExtension) || localOrigin(instance.Endpoint) != want {
+	for _, instance := range cfg.Instances {
+		if strings.EqualFold(instance.Adapter, adapterExtension) || localOrigin(instance.Endpoint) != want {
 			continue
 		}
-		if instance.State == config.ProviderInstanceStateEnabled {
+		if instance.State == instanceEnabled {
 			return instance.ID
 		}
 		if match == "" {

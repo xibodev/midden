@@ -2,26 +2,22 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
-	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
-
-	"github.com/xibodev/compa/pkg/auth"
-	"github.com/xibodev/compa/pkg/config"
-	"github.com/xibodev/compa/pkg/modelservice"
 )
 
 // fixtureInstance is a synthetic OpenAI-compatible connection at endpoint.
-func fixtureInstance(endpoint string) *config.ProviderInstanceConfig {
-	return &config.ProviderInstanceConfig{ID: "fixture", ProviderKind: "custom_openai", Adapter: config.ProviderAdapterOpenAICompatible,
-		Protocol: "openai", Endpoint: endpoint, State: config.ProviderInstanceStateEnabled}
+func fixtureInstance(endpoint string) *providerInstance {
+	return &providerInstance{ID: "fixture", ProviderKind: "custom_openai", Adapter: adapterOpenAI,
+		Protocol: "openai", Endpoint: endpoint, State: instanceEnabled}
 }
 
 // storeTestModel stores fixtureInstance(endpoint), with key when given, and its
@@ -32,16 +28,16 @@ func storeTestModel(t *testing.T, app *App, endpoint, key string) {
 	if key != "" {
 		instance.AuthConnectionRef = "credential:" + credentialKey(instance.ID)
 	}
-	err := app.changeModelConfig(func(cfg *config.Config, undo *modelUndo) error {
-		cfg.ProviderInstances = slices.DeleteFunc(cfg.ProviderInstances, func(existing *config.ProviderInstanceConfig) bool {
-			return existing != nil && existing.ID == instance.ID
-		})
-		cfg.ProviderInstances = append(cfg.ProviderInstances, instance)
-		cfg.Agents.Defaults.ModelName = instance.ID + "/fixture"
-		if err := storeCredential(instance, key, undo); err != nil {
-			return err
+	err := app.changeModelConfig(context.Background(), func(cfg *kernelConfig, undo *modelUndo) error {
+		cfg.Instances = slices.DeleteFunc(cfg.Instances, func(existing *providerInstance) bool { return existing.ID == instance.ID })
+		cfg.Instances = append(cfg.Instances, instance)
+		cfg.SetDefaultModel(instance.ID + "/fixture")
+		if key != "" {
+			if err := app.storeCredential(credentialKey(instance.ID), &authCredential{AccessToken: key, AuthMethod: apiKeyAuthMethod}, undo); err != nil {
+				return err
+			}
 		}
-		return saveCatalog(instance, []modelservice.CatalogModel{{ID: "fixture"}}, undo)
+		return app.saveCatalog(instance, []catalogModel{{ID: "fixture"}}, undo)
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -118,7 +114,7 @@ func callModels(t *testing.T, app *App, method, path string, body any) modelRepl
 	r := httptest.NewRequest(method, "http://127.0.0.1:18890"+path, reader)
 	r.Header.Set("X-Midden-CSRF", app.csrf)
 	w := httptest.NewRecorder()
-	app.ServeHTTP(w, r)
+	app.ServeHTTP(w, keyed(app, r))
 	reply := modelReply{code: w.Code, raw: w.Body.String()}
 	if err := json.Unmarshal(w.Body.Bytes(), &reply); err != nil {
 		t.Fatalf("%s %s: %v: %s", method, path, err, reply.raw)
@@ -126,29 +122,25 @@ func callModels(t *testing.T, app *App, method, path string, body any) modelRepl
 	return reply
 }
 
-func TestModelCredentialUsesOnlyTheIsolatedHostStore(t *testing.T) {
-	t.Setenv(config.EnvHome, t.TempDir())
+func TestModelCredentialStaysInTheKernelsAuthStore(t *testing.T) {
 	app := newTestApp(t)
 	storeTestModel(t, app, "https://example.invalid/v1", "synthetic-credential-value")
-	if _, err := os.Stat(filepath.Join(app.opts.State, "kernel", "auth.json")); err != nil {
-		t.Fatal("credential did not use isolated host store", err)
-	}
-	raw, err := os.ReadFile(app.modelConfigPath())
+	raw, err := os.ReadFile(kernelConfigPath(app.paths.Kernel))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if strings.Contains(string(raw), "synthetic-credential-value") {
 		t.Fatal("credential leaked into nonsecret model settings")
 	}
-	credential, err := auth.GetCredential(credentialKey("fixture"))
-	if err != nil || credential == nil || credential.AccessToken != "synthetic-credential-value" {
+	if secret, err := resolveCredentialRef(app.paths.Kernel, "credential:"+credentialKey("fixture")); err != nil || secret != "synthetic-credential-value" {
 		t.Fatal("stored reference not usable", err)
 	}
 }
-func TestConfiguredSourceStoreCannotBeUsedAsHostWorkspace(t *testing.T) {
+
+func TestConfiguredSourceStoreCannotHoldTheAppData(t *testing.T) {
 	opts := testOptions(t)
-	opts.SourceEnv = map[string]string{"MIDDEN_CLAUDE_ROOT": opts.Workspace}
+	opts.SourceEnv = map[string]string{"MIDDEN_CLAUDE_ROOT": opts.Data}
 	if _, err := NewApp(opts); err == nil {
-		t.Fatal("source store accepted as an editable workspace")
+		t.Fatal("a session record store was accepted as the App's data folder")
 	}
 }

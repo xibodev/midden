@@ -139,7 +139,7 @@ function mergeDialog(info) {
   modal.open();
 }
 
-// Integrity checks are POSTs: on a direct load they wait for the host status that carries the CSRF token.
+// Integrity checks are POSTs: on a direct load they wait for the status that carries the CSRF token.
 function autoVerify(request) {
   if (!ctx.status()) { const off = ctx.bus.on("status", () => { off(); if (request === view.request) autoVerify(request); }); return; }
   for (const info of view.collections || []) if (!view.verify.has(info.path) && info.record_count <= AUTO_VERIFY_LIMIT) verify(info);

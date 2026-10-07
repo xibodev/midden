@@ -1,13 +1,12 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
+	"net/http"
 	"path/filepath"
-
-	"github.com/xibodev/compa/pkg/config"
 )
 
 // errModelBusy refuses model changes while a turn runs.
@@ -16,32 +15,8 @@ var errModelBusy = errors.New("stop the active turn before changing model settin
 // errNoModelChange ends a change that found nothing to save.
 var errNoModelChange = errors.New("no model change")
 
-// modelConfigPath is the kernel configuration that stores model connections in
-// Compa's own format, so the embedded kernel reads exactly what setup wrote.
-func (a *App) modelConfigPath() string {
-	return filepath.Join(a.opts.State, "kernel", "config.json")
-}
-
-// loadModelConfig reads the stored model configuration, or Compa's defaults
-// when none has been saved yet. Saves replace files atomically, so readers
-// need no lock; a.modelMu serializes changes.
-func (a *App) loadModelConfig() (*config.Config, error) {
-	if config.GetHome() != filepath.Join(a.opts.State, "kernel") {
-		return nil, fmt.Errorf("kernel state binding changed; run one workspace per UI process")
-	}
-	path := a.modelConfigPath()
-	if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
-		return config.DefaultConfig(), nil
-	}
-	cfg, err := config.LoadConfig(path)
-	if err != nil {
-		return nil, fmt.Errorf("read model configuration: %w", err)
-	}
-	return cfg, nil
-}
-
 // modelUndo collects the steps that reverse a change's effects outside
-// config.json, such as stored keys, catalogs and check results.
+// config.json, such as stored keys, model lists and check results.
 type modelUndo []func()
 
 func (u *modelUndo) add(step func()) { *u = append(*u, step) }
@@ -52,38 +27,43 @@ func (u modelUndo) run() {
 	}
 }
 
-// updateModelConfig applies change to the stored model configuration and saves
-// it under the model lock. A failed change saves nothing. Changes are refused
-// while a turn runs; a saved change retires the kernel so the next turn uses
-// the new connections.
-func (a *App) updateModelConfig(change func(*config.Config) error) error {
-	return a.changeModelConfig(func(cfg *config.Config, _ *modelUndo) error { return change(cfg) })
+// loadModelConfig reads the kernel's settings. Saves replace the file whole,
+// so a read needs no lock; a.modelMu serializes Midden's changes.
+func (a *App) loadModelConfig() (*kernelConfig, error) {
+	return loadKernelConfig(a.paths.Kernel)
 }
 
-// changeModelConfig is updateModelConfig for changes with effects outside
-// config.json: their undo steps run, still under the lock, when the change
-// fails or cannot be saved. A change returning errNoModelChange saves nothing
-// and keeps the kernel. Turns cannot start while a change runs.
-func (a *App) changeModelConfig(change func(*config.Config, *modelUndo) error) error {
-	a.modelMu.Lock()
-	defer a.modelMu.Unlock()
+// admitModelChange marks a model change running, so no turn starts meanwhile;
+// release ends it. Callers hold a.modelMu.
+func (a *App) admitModelChange(busy error) (release func(), err error) {
 	a.mu.Lock()
+	defer a.mu.Unlock()
 	if a.active != nil {
-		a.mu.Unlock()
-		return errModelBusy
+		return nil, busy
 	}
 	a.modelChanging = true
-	a.mu.Unlock()
-	saved := false
-	defer func() {
-		a.mu.Lock()
-		defer a.mu.Unlock()
-		a.modelChanging = false
-		if saved && a.runtime != nil {
-			a.runtime.Close()
-			a.runtime = nil
-		}
-	}()
+	return func() { a.mu.Lock(); a.modelChanging = false; a.mu.Unlock() }, nil
+}
+
+// updateModelConfig is changeModelConfig for a change with no effects outside
+// config.json.
+func (a *App) updateModelConfig(ctx context.Context, change func(*kernelConfig) error) error {
+	return a.changeModelConfig(ctx, func(cfg *kernelConfig, _ *modelUndo) error { return change(cfg) })
+}
+
+// changeModelConfig applies change to the kernel's settings and saves them;
+// a failed change saves nothing and runs its undo steps. A change returning
+// errNoModelChange saves nothing. A saved change reaches the running kernel
+// through /reload. Turns cannot start while a change runs, and a change
+// cannot start during a turn.
+func (a *App) changeModelConfig(ctx context.Context, change func(*kernelConfig, *modelUndo) error) error {
+	a.modelMu.Lock()
+	defer a.modelMu.Unlock()
+	release, err := a.admitModelChange(errModelBusy)
+	if err != nil {
+		return err
+	}
+	defer release()
 	cfg, err := a.loadModelConfig()
 	if err != nil {
 		return err
@@ -94,7 +74,12 @@ func (a *App) changeModelConfig(change func(*config.Config, *modelUndo) error) e
 		return nil
 	}
 	if err == nil {
-		if err = config.SaveConfig(a.modelConfigPath(), cfg); err != nil {
+		if invalid := validateModelSettings(cfg); invalid != nil {
+			err = modelFailure(http.StatusBadRequest, "%v", invalid)
+		}
+	}
+	if err == nil {
+		if err = saveKernelConfig(a.paths.Kernel, cfg); err != nil && !errors.Is(err, errSettingsChanged) {
 			err = fmt.Errorf("save model configuration: %w", err)
 		}
 	}
@@ -102,7 +87,17 @@ func (a *App) changeModelConfig(change func(*config.Config, *modelUndo) error) e
 		undo.run()
 		return err
 	}
-	saved = true
+	return a.reloadKernel(ctx)
+}
+
+// reloadKernel makes the running kernel read its settings again.
+func (a *App) reloadKernel(ctx context.Context) error {
+	if a.kernel == nil {
+		return nil
+	}
+	if err := a.kernel.reload(ctx); err != nil {
+		return fmt.Errorf("the settings were saved, but the assistant could not load them: %w", err)
+	}
 	return nil
 }
 
@@ -117,7 +112,7 @@ type modelCheck struct {
 type modelChecks map[string]map[string]modelCheck
 
 func (a *App) modelChecksPath() string {
-	return filepath.Join(a.opts.State, "model-checks.json")
+	return filepath.Join(a.paths.App, "model-checks.json")
 }
 
 // loadModelChecks reads the stored check results. They are advisory, so an
@@ -155,5 +150,64 @@ func (a *App) forgetModelChecks(id string, undo *modelUndo) error {
 		checks[id] = previous
 		_ = a.saveModelChecks(checks)
 	})
+	return nil
+}
+
+// storeCredential stores a key under name as part of a change.
+func (a *App) storeCredential(name string, credential *authCredential, undo *modelUndo) error {
+	store := kernelAuth(a.paths.Kernel)
+	previous, err := store.get(name)
+	if err != nil {
+		return err
+	}
+	if err := store.set(name, credential); err != nil {
+		return fmt.Errorf("store the key: %w", err)
+	}
+	undo.add(func() { _ = store.set(name, previous) })
+	return nil
+}
+
+// dropCredential deletes a stored key as part of a change.
+func (a *App) dropCredential(name string, undo *modelUndo) error {
+	store := kernelAuth(a.paths.Kernel)
+	previous, err := store.get(name)
+	if err != nil || previous == nil {
+		return err
+	}
+	if err := store.remove(name); err != nil {
+		return fmt.Errorf("delete the stored key: %w", err)
+	}
+	undo.add(func() { _ = store.set(name, previous) })
+	return nil
+}
+
+// keepCatalogs registers the restore of the saved model lists as they are.
+func (a *App) keepCatalogs(undo *modelUndo) error {
+	previous, err := readCatalogEntries(a.paths.Kernel)
+	if err != nil {
+		return err
+	}
+	undo.add(func() {
+		_ = updateCatalogs(a.paths.Kernel, func(entries map[string]json.RawMessage) error {
+			for key := range entries {
+				delete(entries, key)
+			}
+			for key, value := range previous {
+				entries[key] = value
+			}
+			return nil
+		})
+	})
+	return nil
+}
+
+// saveCatalog saves an instance's model list as part of a change.
+func (a *App) saveCatalog(instance *providerInstance, models []catalogModel, undo *modelUndo) error {
+	if err := a.keepCatalogs(undo); err != nil {
+		return err
+	}
+	if err := saveInstanceCatalog(a.paths.Kernel, instance, models); err != nil {
+		return fmt.Errorf("save the model list: %w", err)
+	}
 	return nil
 }

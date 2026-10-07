@@ -25,8 +25,11 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - name: The App's Go contracts
+      - name: The App's Go contracts, with the pinned compa-kernel
         run: |
+          $kernel = python -B scripts/fetch-compa.py --out (Join-Path $env:RUNNER_TEMP 'compa') | Select-Object -First 1
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $env:MIDDEN_TEST_KERNEL = $kernel
           Push-Location apps/midden-ui
           $env:GOWORK = 'off'
           go test ./... -count=1 -timeout=600s

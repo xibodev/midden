@@ -1,7 +1,12 @@
 """Release inputs are reviewed Git objects, not everything in local folders."""
+import hashlib
+import json
 from pathlib import Path, PurePosixPath
 import re
 import subprocess
+import tarfile
+import urllib.request
+import zipfile
 
 
 BUNDLE_SUFFIXES = {".md", ".py", ".json", ".yaml", ".yml", ".css", ".svg", ".png", ".lua"}
@@ -48,6 +53,80 @@ PANDOC_NOTICE = (
     "The installer's app mode downloads it from Pandoc's own release, checks its SHA-256 "
     "and keeps it in app/tools for the app's agent.\n"
 )
+# The App ships compa-kernel unchanged from Compa's own release, checked against these digests:
+# each archive's, as Compa's SHA256SUMS lists it, and each file Midden takes from it.
+COMPA_VERSION = "3.0.0"
+COMPA_RELEASE = f"https://github.com/xibodev/compa/releases/download/v{COMPA_VERSION}/"
+COMPA_ARCHIVES = {
+    "windows/amd64": ("compa_3.0.0_windows_amd64.zip", "a765593c2aeb2a6dca381b261a00d6b18c75a1b4ad81a098c671fe3f770c9ecb",
+                      "6fc1b7b7603e85eba4617ad81612298f95e00ac5b4e66ffb1a7354821e4f334d"),
+    "windows/arm64": ("compa_3.0.0_windows_arm64.zip", "7bd1ecafe3fd9d1bc1db240b2a218915fd06847431ba5bbeba7fdc12a145b872",
+                      "4b6e646dae818c946d6196f457aaadf8acdf002fa8184efe10d0385913c7bf54"),
+    "linux/amd64": ("compa_3.0.0_linux_amd64.tar.gz", "0382fd08f56ff751ad2edcaf6001475b30d975508f55281947acac1b51eee5ee",
+                    "63ef9127fc32d56b2205d1de76f388fa35b640519ccc0fe047e2faea4237856b"),
+    "linux/arm64": ("compa_3.0.0_linux_arm64.tar.gz", "ed8ad9a7fa309f70e16e78afca9278b3df7b0b45f0cdbbc512711d38596aa4ad",
+                    "f9513342772d0add26f2dcadf92bd60cc74ba6a0770450498db0f012f928f49c"),
+    "darwin/amd64": ("compa_3.0.0_darwin_amd64.tar.gz", "f9cd602025abd4810c1863fdfdfdb8ea519f3376440cf0a23eb6828da27281a6",
+                     "56423e4fd2e22ccacd8a5bff1de05b60da5ce83bc8f70179a6a74ed67f5876b3"),
+    "darwin/arm64": ("compa_3.0.0_darwin_arm64.tar.gz", "7061f127203b73a155baed1c45a434ac5e2d82f90ae3f534311e35ec53a59da5",
+                     "872d1ba6413e524af5ab47df90852696d19849ee6b456ff7ce8a65d700d9e791"),
+}
+COMPA_TEXTS = (("LICENSE", "app/compa/LICENSE", "b8329fedd3025e2d099a0c539eaa21b346905253bd2f5169badb3adb8afa6197"),
+               ("NOTICE", "app/compa/NOTICE", "5fc15c83b3aa4678b173073dca8561c6eeb1cdf78623936ffcc7aceb1e907195"))
+COMPA_NOTICE = (
+    "\nShipped unchanged from Compa's own release, with its LICENSE and NOTICE in app/compa:\n"
+    "Compa \u2014 https://github.com/xibodev/compa \u2014 MIT License\n"
+    f"app/compa-kernel is compa-kernel {COMPA_VERSION}. The licenses of the modules compiled into it are above.\n"
+)
+
+
+def compa_members(target):
+    """(member, destination, SHA-256) of each file the app takes from Compa's release for target."""
+    suffix = ".exe" if target.startswith("windows/") else ""
+    kernel = (f"compa-kernel{suffix}", f"app/compa-kernel{suffix}", COMPA_ARCHIVES[target][2])
+    return (kernel, *COMPA_TEXTS)
+
+
+def compa_archive(target, downloads):
+    """Compa's release archive for target, fetched once into downloads and checked against its pin."""
+    asset, expected, _ = COMPA_ARCHIVES[target]
+    path = Path(downloads) / asset
+    if not path.is_file():
+        partial = Path(downloads) / (asset + ".part")
+        with urllib.request.urlopen(COMPA_RELEASE + asset, timeout=120) as response, partial.open("wb") as out:
+            for block in iter(lambda: response.read(1024 * 1024), b""):
+                out.write(block)
+        partial.replace(path)
+    actual = hashlib.sha256()
+    with path.open("rb") as source:
+        for block in iter(lambda: source.read(1024 * 1024), b""):
+            actual.update(block)
+    if actual.hexdigest() != expected:
+        raise RuntimeError(f"{asset} differs from the pinned Compa release")
+    return path
+
+
+def take_compa(target, downloads, destination):
+    """[(path, archive name)] of the files the app takes from Compa's release for target, each checked against its pin."""
+    archive_path = compa_archive(target, downloads)
+    destination = Path(destination)
+    destination.mkdir(parents=True, exist_ok=True)
+    taken = []
+    with (zipfile.ZipFile(archive_path) if archive_path.suffix == ".zip" else tarfile.open(archive_path)) as archive:
+        for member, name, expected in compa_members(target):
+            if isinstance(archive, zipfile.ZipFile):
+                data = archive.read(member)
+            else:
+                with archive.extractfile(member) as stream:
+                    data = stream.read()
+            if hashlib.sha256(data).hexdigest() != expected:
+                raise RuntimeError(f"{member} in {archive_path.name} differs from its pin")
+            path = destination / name.rsplit("/", 1)[-1]
+            path.write_bytes(data)
+            path.chmod(0o755 if name.startswith("app/compa-kernel") else 0o644)
+            taken.append((path, name))
+    return taken
+
 # xibodev components (the team's own modules) are named in one line each; their texts are not reproduced.
 XIBODEV_PREFIX = "github.com/xibodev/"
 XIBODEV_NAMES = {"github.com/xibodev/compa": "Compa"}
@@ -276,9 +355,47 @@ def materialize_inputs(root, revision, files, destination):
     return result
 
 
-def dependency_notices(cwd, package, env):
-    """Collect license/notice texts only from the production dependency graph."""
-    return format_notices(dependency_modules(cwd, package, env))
+def dependency_notices(cwd, package, env, extra=()):
+    """Collect license/notice texts only from the production dependency graph, plus extra modules."""
+    return format_notices(dependency_modules(cwd, package, env) | set(extra))
+
+
+def binary_modules(binary, env, workdir):
+    """(module path, version, source directory) for each module a Go binary records in its build information.
+
+    Each module's source is fetched with go mod download and must match the go.sum line the binary records,
+    so the notices name exactly what was compiled in.
+    """
+    env = {key: value for key, value in env.items() if key != "GOFLAGS"}
+    info = subprocess.check_output(["go", "version", "-m", str(binary)], env=env, text=True)
+    deps = []
+    for line in info.splitlines()[1:]:
+        fields = line.strip().split("\t")
+        if fields[0] == "dep" and len(fields) >= 3:
+            deps.append((fields[1], fields[2], fields[3] if len(fields) > 3 else ""))
+        elif fields[0] == "=>" and len(fields) >= 3 and deps:
+            deps[-1] = (fields[1], fields[2], fields[3] if len(fields) > 3 else "")
+    if not deps:
+        raise RuntimeError(f"{Path(binary).name} records no compiled modules")
+    output = subprocess.check_output(["go", "mod", "download", "-json", *[f"{path}@{version}" for path, version, _ in deps]],
+                                     cwd=workdir, env=env, text=True)
+    decoder, index, found = json.JSONDecoder(), 0, {}
+    while True:
+        while index < len(output) and output[index].isspace():
+            index += 1
+        if index >= len(output):
+            break
+        record, index = decoder.raw_decode(output, index)
+        found[(record.get("Path"), record.get("Version"))] = record
+    modules = set()
+    for path, version, recorded in deps:
+        record = found.get((path, version), {})
+        if record.get("Error") or not record.get("Dir"):
+            raise RuntimeError(f"Could not fetch the source of {path}@{version}: {record.get('Error', 'missing')}")
+        if recorded and record.get("Sum") != recorded:
+            raise RuntimeError(f"The source of {path}@{version} differs from what {Path(binary).name} records")
+        modules.add((path, version, record["Dir"]))
+    return modules
 
 
 def dependency_modules(cwd, package, env):

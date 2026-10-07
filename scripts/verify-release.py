@@ -1,29 +1,31 @@
 """Verify release provenance, exact archive inventories and hashes; optionally run native products."""
 import argparse
 import hashlib
+import http.cookiejar
 import json
 import os
 from pathlib import Path
 import platform
 import queue
 import re
+import signal
 import subprocess
 import sys
 import tarfile
 import tempfile
 import threading
 import time
+import urllib.error
 import urllib.request
 import zipfile
 
 sys.dont_write_bytecode = True
-from release_contract import (COMMIT, INSTALLERS, PANDOC_NOTICE, PRODUCTS, TARGETS, app_inputs, archive_name,
-                              bundle_inputs, git_blob_bytes, pandoc_records, parse_release_tsv, release_version,
-                              safe_member, stray_xibodev_lines, validate_member_set)
+from release_contract import (COMMIT, COMPA_NOTICE, COMPA_VERSION, INSTALLERS, PANDOC_NOTICE, PRODUCTS, TARGETS, XIBODEV_PREFIX,
+                              app_inputs, archive_name, bundle_inputs, compa_members, git_blob_bytes, pandoc_records,
+                              parse_release_tsv, release_version, safe_member, stray_xibodev_lines, validate_member_set)
 
 
 ROOT = Path(__file__).resolve().parent.parent
-COMPA_NOTICE = "\nCompa \u2014 https://github.com/xibodev/compa \u2014 ".encode("utf-8")
 
 
 def stream_digest(stream):
@@ -97,13 +99,46 @@ def verify_static_source(root, commit, inputs, actual):
             raise ValueError("Static release member differs from the claimed source commit: " + name)
 
 
+def verify_kernel_notices(kernel, notice, temporary):
+    """Every module compiled into compa-kernel, after replacements, is named in the app's notices."""
+    path = Path(temporary) / "compa-kernel-check"
+    path.write_bytes(kernel)
+    info = subprocess.check_output(["go", "version", "-m", str(path)], text=True)
+    compiled = []
+    for line in info.splitlines()[1:]:
+        fields = line.strip().split("\t")
+        if fields[0] == "dep" and len(fields) >= 3:
+            compiled.append((fields[1], fields[2]))
+        elif fields[0] == "=>" and len(fields) >= 3 and compiled:
+            compiled[-1] = (fields[1], fields[2])
+    assert compiled, "compa-kernel records no compiled modules"
+    for module, version in compiled:
+        named = (f"https://{'/'.join(module.split('/')[:3])}" if module.startswith(XIBODEV_PREFIX) else f"{module} {version}")
+        assert named.encode("utf-8") in notice, "App notices omit a module compiled into compa-kernel: " + module
+
+
+def process_alive(pid):
+    if platform.system() == "Windows":
+        output = subprocess.run(["tasklist", "/FI", f"PID eq {pid}", "/NH"], capture_output=True, text=True).stdout
+        return str(pid) in output
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
 def ui_smoke(binary, version, stage, env):
     output = subprocess.check_output([str(binary), "--version"], env=env, text=True, timeout=15)
     assert output.strip() == "midden-ui " + version, "App version mismatch"
     data = stage / "user-data"
     assert not data.exists(), "passive app version probe wrote user state"
+    windows = platform.system() == "Windows"
     process = subprocess.Popen([str(binary), "--no-open", "--listen", "127.0.0.1:0"],
-                               cwd=stage, env=env, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+                               cwd=stage, env=env, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                               creationflags=subprocess.CREATE_NEW_PROCESS_GROUP if windows else 0)
     lines = queue.Queue()
     transcript = []
 
@@ -113,6 +148,7 @@ def ui_smoke(binary, version, stage, env):
 
     reader = threading.Thread(target=read, daemon=True)
     reader.start()
+    kernel_pid = None
     try:
         address = None
         deadline = time.monotonic() + 30
@@ -124,34 +160,55 @@ def ui_smoke(binary, version, stage, env):
                     break
                 continue
             transcript.append(line)
-            match = re.search(r"Midden UI [^:]+: (http://127\.0\.0\.1:[0-9]+)", line)
+            match = re.search(r"Midden App \S+: (http://127\.0\.0\.1:[0-9]+)(/\?key=[0-9a-f]{32})\s*$", line)
             if match:
-                address = match.group(1)
+                address, launch = match.group(1), match.group(1) + match.group(2)
                 break
-        assert address, "UI did not start: " + "".join(transcript)
-        with urllib.request.urlopen(address + "/api/status", timeout=10) as response:
-            status = json.load(response)
+        assert address, "App did not start: " + "".join(transcript)
+        try:
+            urllib.request.urlopen(address + "/api/status", timeout=10)
+            raise AssertionError("the App answered without its launch key")
+        except urllib.error.HTTPError as error:
+            assert error.code == 401, "unexpected answer without the launch key: " + str(error.code)
+        browser = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
+        with browser.open(launch, timeout=10) as response:
+            assert b"<title>Midden</title>" in response.read(), "the launch address did not open the app shell"
+        deadline = time.monotonic() + 60
+        while True:
+            with browser.open(address + "/api/status", timeout=10) as response:
+                status = json.load(response)
+            if status["kernel"]["state"] != "starting" or time.monotonic() > deadline:
+                break
+            time.sleep(0.5)
         assert status["uiVersion"] == version and status["coreVersion"] == "midden " + version
-        assert status["kernelName"] == "Compa" and status["kernelVersion"] == "v1.0.0"
-        assert not status["model"]["configured"] and len(status["bundles"]) == 4
+        assert status["kernelName"] == "Compa" and status["kernelVersion"] == COMPA_VERSION
+        assert status["kernel"]["state"] == "ready", "compa-kernel did not start: " + json.dumps(status["kernel"])
+        assert not status["model"]["configured"] and len(status["skills"]) == 4
         workspace = Path(status["workspace"]).resolve()
-        assert binary.parent.resolve() not in workspace.parents, "workspace is inside installed binaries"
-        with urllib.request.urlopen(address + "/", timeout=10) as response:
-            assert b"<title>Midden</title>" in response.read(), "UI did not serve its app shell"
-        with urllib.request.urlopen(address + "/app.js", timeout=10) as response:
+        assert binary.parent.resolve() not in workspace.parents, "the person's files are inside installed binaries"
+        kernels = list(data.glob("*/kernel/.compa.pid"))
+        assert len(kernels) == 1, "compa-kernel wrote no pid file in the App's kernel folder"
+        kernel_pid = json.loads(kernels[0].read_text(encoding="utf-8"))["pid"]
+        with browser.open(address + "/app.js", timeout=10) as response:
             modules = re.findall(rb'from "(/js/[a-z0-9-]+\.js)"', response.read())
         for module in modules:
-            with urllib.request.urlopen(address + module.decode("ascii"), timeout=10) as response:
+            with browser.open(address + module.decode("ascii"), timeout=10) as response:
                 assert response.headers.get_content_type() == "text/javascript", module
     finally:
-        process.terminate()
+        process.send_signal(signal.CTRL_BREAK_EVENT) if windows else process.terminate()
         try:
-            process.wait(timeout=10)
+            process.wait(timeout=20)
         except subprocess.TimeoutExpired:
             process.kill()
             process.wait(timeout=5)
         process.stdout.close()
         reader.join(timeout=2)
+    if kernel_pid is not None:
+        deadline = time.monotonic() + 15
+        while process_alive(kernel_pid) and time.monotonic() < deadline:
+            time.sleep(0.3)
+        assert not process_alive(kernel_pid), "compa-kernel outlived the App"
+    assert not (stage / "home" / ".compa").exists(), "the App touched the person's own Compa home"
 
 
 def main():
@@ -217,12 +274,19 @@ def main():
             assert set(actual) == {name for _, name in bundle}
             verify_static_source(ROOT, args.commit, bundle, actual)
         else:
-            assert set(actual) == {name for _, name in static_app} | {app, "app/THIRD_PARTY_NOTICES.txt"}
+            compa = compa_members(target)
+            assert set(actual) == ({name for _, name in static_app} | {app, "app/THIRD_PARTY_NOTICES.txt"} |
+                                   {name for _, name, _ in compa}), "app inventory differs: " + name
             assert actual[app] == manifest["app_binaries"][target]
+            for _, member, expected in compa:
+                assert actual[member] == expected, "Compa file differs from the pinned release: " + member
             verify_static_source(ROOT, args.commit, static_app, actual)
             notice = archive_bytes(root / name, "app/THIRD_PARTY_NOTICES.txt")
-            assert COMPA_NOTICE in notice and not stray_xibodev_lines(notice), "App notices must name Compa in one line: " + name
-            assert notice.endswith(PANDOC_NOTICE.encode("utf-8")), "App notices must name the Pandoc it fetches: " + name
+            assert not stray_xibodev_lines(notice), "App notices may name xibodev components only in one line each: " + name
+            assert notice.endswith((COMPA_NOTICE + PANDOC_NOTICE).encode("utf-8")), \
+                "App notices must name the shipped Compa and the Pandoc the installer fetches: " + name
+            with tempfile.TemporaryDirectory(prefix="midden-kernel-") as temporary:
+                verify_kernel_notices(archive_bytes(root / name, compa[0][1]), notice, temporary)
     for name in manifest["installers"]:
         assert (root / name).read_bytes() == git_blob_bytes(ROOT, args.commit, ROOT / name)
     if args.smoke:
@@ -250,9 +314,10 @@ def main():
             assert not (stage / "core-state").exists(), "passive core probe wrote state"
             app = programs / ("midden-ui.exe" if system == "windows" else "midden-ui")
             app.chmod(0o755)
+            (programs / "app" / ("compa-kernel.exe" if system == "windows" else "compa-kernel")).chmod(0o755)
             ui_smoke(app, manifest["version"], stage, env)
-    print("PASS: exact release source, all product/member hashes, license inventories, Pandoc pins" +
-          (", native core and app startup" if args.smoke else ""))
+    print("PASS: exact release source, all product/member hashes, license inventories, Pandoc and Compa pins" +
+          (", native core and app startup with its kernel" if args.smoke else ""))
 
 
 if __name__ == "__main__":

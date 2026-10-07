@@ -87,13 +87,13 @@ class ShellTests(BrowserCase):
     def test_footer_reports_versions_and_live_updates(self):
         self.open()
         footer = self.page.locator("footer")
-        expect(footer.locator("#versions")).to_have_text("Midden test-ui · powered by Compa v1.0.0 · core test-core")
+        expect(footer.locator("#versions")).to_have_text("Midden test-ui · powered by Compa 3.0.0 · core test-core")
         expect(footer.locator("#connection")).to_have_text("Live updates connected")
         self.host.versions.update(uiVersion="", coreVersion="midden v9.9.9")
         with self.api_response("GET", "/api/status"):
             self.host.emit("status")
         expect(footer.locator("#versions")).to_have_text(
-            "Midden (version not reported) · powered by Compa v1.0.0 · core v9.9.9")
+            "Midden (version not reported) · powered by Compa 3.0.0 · core v9.9.9")
 
     def test_deep_links_open_a_file_and_a_conversation(self):
         self.open("#/files/sample.html")

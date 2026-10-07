@@ -97,14 +97,8 @@ func TestCoreEffectsRejectUnparseableArguments(t *testing.T) {
 }
 
 func TestSharedValidatorChecksDestinationsAndCollectionPaths(t *testing.T) {
-	opts := testOptions(t)
-	opts.State = filepath.Join(opts.Workspace, "host-state")
-	app, err := NewApp(opts)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer app.Close()
-	if err = os.MkdirAll(filepath.Join(opts.Workspace, "taken"), 0700); err != nil {
+	app := newTestApp(t)
+	if err := os.MkdirAll(filepath.Join(app.paths.Files, "taken"), 0700); err != nil {
 		t.Fatal(err)
 	}
 	for _, args := range [][]string{
@@ -123,8 +117,8 @@ func TestSharedValidatorChecksDestinationsAndCollectionPaths(t *testing.T) {
 		{"collect", "--view", "v", "--out", "../outside"},
 		{"collect", "--view", "v", "--out", filepath.Join(t.TempDir(), "elsewhere")},
 		{"read", "--view", "v", "--out", ".git/view.json"},
-		{"read", "--view", "v", "--out", "sessions/view.json"},
-		{"read", "--view", "v", "--out", "host-state/view.json"},
+		{"read", "--view", "v", "--out", "../sessions/view.json"},
+		{"read", "--view", "v", "--out", "../AGENT.md"},
 		{"read", "--view", "v", "--out="},
 		{"collection", "inspect", "../outside"},
 		{"collection", "merge", "a", ".hidden", "--out", "merged"},

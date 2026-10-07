@@ -7,44 +7,37 @@ import (
 	"testing"
 )
 
-func TestCoreWrapperRejectsSeparatorAndUnknownFlagBypasses(t *testing.T) {
-	app, err := NewApp(testOptions(t))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer app.Close()
-	tool := coreTool{app}
+func TestCoreValidatorRejectsSeparatorAndUnknownFlagBypasses(t *testing.T) {
+	app := newTestApp(t)
 	for _, args := range [][]string{{"collection", "inspect", "--", "../outside"}, {"read", "--", "--state=outside"}, {"read", "--unknown", "--state=outside"}} {
-		if tool.validate(args) == nil {
+		if app.validateCoreArgs(args) == nil {
 			t.Fatalf("unsafe selector accepted: %v", args)
 		}
 	}
 }
-func TestCustomStateDirectoryCannotBeReadOrOverwrittenAsAnArtifact(t *testing.T) {
-	opts := testOptions(t)
-	opts.State = filepath.Join(opts.Workspace, "host-data")
-	app, err := NewApp(opts)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer app.Close()
+
+func TestKernelSettingsAreNotThePersonsFiles(t *testing.T) {
+	app := newTestApp(t)
 	storeTestModel(t, app, "https://example.invalid/v1", "synthetic-credential")
-	if _, err = app.ReadFile("host-data/kernel/auth.json"); err == nil {
-		t.Fatal("custom state credential exposed")
+	for _, name := range []string{"../../kernel/auth.json", "../../kernel/config.json", "../../app/sessions.json"} {
+		if _, err := app.ReadFile(name); err == nil {
+			t.Fatalf("%s was readable as a file", name)
+		}
+		if app.writePath(name) == nil {
+			t.Fatalf("%s was accepted as an output", name)
+		}
 	}
 	files, err := app.Files()
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, f := range files {
-		if strings.HasPrefix(f.Path, "host-data/") {
-			t.Fatal("custom state listed as a deliverable")
+		if strings.Contains(f.Path, "auth.json") || strings.Contains(f.Path, "AGENT.md") {
+			t.Fatal("the App's own state was listed as a file", f.Path)
 		}
 	}
-	if app.toolPath("host-data/kernel/config.json", true) == nil {
-		t.Fatal("generic tool allowed overwriting model state")
-	}
 }
+
 func TestSessionSaveDoesNotWriteAnUnreadableAggregate(t *testing.T) {
 	opts := testOptions(t)
 	app, err := NewApp(opts)
@@ -68,7 +61,7 @@ func TestSessionSaveDoesNotWriteAnUnreadableAggregate(t *testing.T) {
 		t.Fatal("last loadable state was lost", err)
 	}
 	reopened.Close()
-	if _, err = os.Stat(filepath.Join(opts.State, "sessions.json")); err != nil {
+	if _, err = os.Stat(filepath.Join(opts.Data, "app", "sessions.json")); err != nil {
 		t.Fatal(err)
 	}
 }

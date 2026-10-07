@@ -22,10 +22,6 @@ import (
 	core "github.com/xibodev/llmgw-core"
 	"github.com/xibodev/llmgw-core/extension"
 	"github.com/xibodev/llmgw-core/oauthflow"
-
-	"github.com/xibodev/compa/pkg/auth"
-	"github.com/xibodev/compa/pkg/config"
-	"github.com/xibodev/compa/pkg/modelservice"
 )
 
 const (
@@ -84,35 +80,34 @@ func extensionFail(status int, format string, args ...any) error {
 // writeExtensionError answers err with its status; any other error is a
 // refused model setting change, such as one during a running turn. Secrets a
 // service may have echoed are removed.
-func writeExtensionError(w http.ResponseWriter, err error, secrets ...string) {
+func (a *App) writeExtensionError(w http.ResponseWriter, err error, secrets ...string) {
 	status := http.StatusConflict
 	var failure *extensionError
-	if errors.As(err, &failure) {
+	var refused modelRequestError
+	switch {
+	case errors.As(err, &failure):
 		status = failure.status
+	case errors.As(err, &refused):
+		status = refused.status
 	}
-	apiError(w, status, extensionRedact(err.Error(), secrets...))
+	apiError(w, status, a.extensionRedact(err.Error(), secrets...))
 }
 
 // extensionRedact removes the given secrets and the stored service secret
 // from text.
-func extensionRedact(text string, secrets ...string) string {
-	if stored, err := extensionDaemonSecret(); err == nil {
+func (a *App) extensionRedact(text string, secrets ...string) string {
+	if stored, err := extensionDaemonSecret(a.paths.Kernel); err == nil {
 		secrets = append(secrets, stored)
 	}
-	for _, secret := range secrets {
-		if secret = strings.TrimSpace(secret); secret != "" {
-			text = strings.ReplaceAll(text, secret, "[redacted]")
-		}
-	}
-	return text
+	return redact(text, secrets...)
 }
 
 // extensionStoredSecrets returns the secrets stored under keys, for
 // redaction.
-func extensionStoredSecrets(keys ...string) []string {
+func (a *App) extensionStoredSecrets(keys ...string) []string {
 	var secrets []string
 	for _, key := range keys {
-		if credential, err := auth.GetCredential(key); err == nil && credential != nil {
+		if credential, err := kernelAuth(a.paths.Kernel).get(key); err == nil && credential != nil {
 			secrets = append(secrets, credential.AccessToken, credential.RefreshToken, credential.IDToken)
 		}
 	}
@@ -160,7 +155,7 @@ func extensionInstanceID(provider string) string {
 func extensionSupport(info extension.ProviderInfo) (kind string, methods []string, ok bool) {
 	kind, methods = string(info.CredentialKind()), []string{}
 	if !extensionProviderIDPattern.MatchString(info.ID) || info.ID == "info" ||
-		extensionInstanceID(info.ID) == "" || modelservice.ExtensionSurface(info) == "" {
+		extensionInstanceID(info.ID) == "" || extensionSurface(info) == "" {
 		return kind, methods, false
 	}
 	switch extension.CredentialKind(kind) {
@@ -177,65 +172,32 @@ func extensionSupport(info extension.ProviderInfo) (kind string, methods []strin
 	return kind, methods, false
 }
 
-func extensionDaemonSecret() (string, error) {
-	credential, err := auth.GetCredential(auth.ExtensionDaemonKey)
-	if err != nil {
-		return "", fmt.Errorf("read the extension service secret: %w", err)
-	}
-	if credential == nil {
-		return "", nil
-	}
-	return credential.AccessToken, nil
-}
-
 // extensionStoreSecret stores the service secret, or removes it when empty.
-func extensionStoreSecret(secret string) error {
+func (a *App) extensionStoreSecret(secret string) error {
+	store := kernelAuth(a.paths.Kernel)
 	if secret == "" {
-		return auth.DeleteCredential(auth.ExtensionDaemonKey)
+		return store.remove(extensionDaemonKey)
 	}
-	return auth.SetCredential(auth.ExtensionDaemonKey, &auth.AuthCredential{AccessToken: secret, Provider: auth.ExtensionDaemonKey, AuthMethod: "token"})
+	return store.set(extensionDaemonKey, &authCredential{AccessToken: secret, Provider: extensionDaemonKey, AuthMethod: "token"})
 }
 
-// extensionRestoreCredential puts back what key held before a failed change.
-func extensionRestoreCredential(key string, previous *auth.AuthCredential) {
-	if previous != nil {
-		_ = auth.SetCredential(key, previous)
-		return
-	}
-	_ = auth.DeleteCredential(key)
+func extensionInstanceIndex(cfg *kernelConfig, id string) int {
+	return slices.IndexFunc(cfg.Instances, func(instance *providerInstance) bool { return instance.ID == id })
 }
 
-func extensionInstanceIndex(cfg *config.Config, id string) int {
-	for i, instance := range cfg.ProviderInstances {
-		if instance != nil && instance.ID == id {
-			return i
-		}
-	}
-	return -1
-}
-
-func extensionClone(instance *config.ProviderInstanceConfig) *config.ProviderInstanceConfig {
-	clone := *instance
-	clone.Settings = make(map[string]any, len(instance.Settings))
-	for key, value := range instance.Settings {
-		clone.Settings[key] = value
-	}
-	return &clone
-}
-
-func extensionCredentialKind(instance *config.ProviderInstanceConfig) string {
-	kind, _ := instance.Settings[config.ExtensionCredentialSetting].(string)
+func extensionCredentialKind(instance *providerInstance) string {
+	kind, _ := instance.Settings[settingExtensionCredential].(string)
 	return kind
 }
 
 // extensionInstanceOf returns the index of the extension instance id, which
 // must belong to the connected service and need the credential kind.
-func extensionInstanceOf(cfg *config.Config, id string, kind extension.CredentialKind) (int, error) {
+func extensionInstanceOf(cfg *kernelConfig, id string, kind extension.CredentialKind) (int, error) {
 	index := extensionInstanceIndex(cfg, id)
-	if index < 0 || cfg.ProviderInstances[index].ExtensionProvider() == "" {
+	if index < 0 || cfg.Instances[index].extensionProvider() == "" {
 		return -1, extensionFail(http.StatusNotFound, "extension provider %q not found; connect the extension service again", id)
 	}
-	instance := cfg.ProviderInstances[index]
+	instance := cfg.Instances[index]
 	if cfg.Extension == nil || strings.TrimSpace(instance.Endpoint) != cfg.Extension.URL {
 		return -1, extensionFail(http.StatusConflict, "the connected extension service does not serve %q; connect it again", id)
 	}
@@ -250,19 +212,19 @@ func extensionInstanceOf(cfg *config.Config, id string, kind extension.Credentia
 
 // extensionCredentialReady reports whether an extension instance has the
 // credential its provider needs.
-func extensionCredentialReady(instance *config.ProviderInstanceConfig) bool {
+func (a *App) extensionCredentialReady(instance *providerInstance) bool {
 	switch extension.CredentialKind(extensionCredentialKind(instance)) {
 	case extension.CredentialNone:
 		return true
 	case extension.CredentialToken:
-		_, err := modelservice.ResolveCredentialReference(instance.AuthConnectionRef)
+		_, err := resolveCredentialRef(a.paths.Kernel, instance.AuthConnectionRef)
 		return err == nil
 	case extension.CredentialOAuth:
-		key, _ := instance.Settings[config.ExtensionCredentialKeySetting].(string)
-		if strings.TrimSpace(key) == "" {
+		key := instance.setting(settingExtensionCredentialKey)
+		if key == "" {
 			return false
 		}
-		_, err := auth.DefaultTokenStore().Load(context.Background(), key)
+		_, err := authTokenStore{kernelAuth(a.paths.Kernel)}.Load(context.Background(), key)
 		return err == nil
 	}
 	return false
@@ -270,12 +232,10 @@ func extensionCredentialReady(instance *config.ProviderInstanceConfig) bool {
 
 // extensionSyncCatalog lists an instance's models through the service; secret
 // is a pasted token, empty for other credentials.
-func extensionSyncCatalog(ctx context.Context, instance *config.ProviderInstanceConfig, secret string) ([]modelservice.CatalogModel, error) {
-	input := modelservice.CatalogSyncInputFromInstance(instance)
-	input.Secret = secret
+func (a *App) extensionSyncCatalog(ctx context.Context, instance *providerInstance, secret string) ([]catalogModel, error) {
 	ctx, cancel := context.WithTimeout(ctx, extensionSyncTimeout)
 	defer cancel()
-	models, err := modelservice.SyncCatalog(ctx, input)
+	models, err := listInstanceModels(ctx, a.paths.Kernel, instance, secret)
 	if err != nil {
 		return nil, err
 	}
@@ -285,7 +245,7 @@ func extensionSyncCatalog(ctx context.Context, instance *config.ProviderInstance
 	return models, nil
 }
 
-func extensionModelSet(models []modelservice.CatalogModel) map[string]bool {
+func extensionModelSet(models []catalogModel) map[string]bool {
 	set := make(map[string]bool, len(models))
 	for _, model := range models {
 		set[strings.TrimSpace(model.ID)] = true
@@ -295,38 +255,22 @@ func extensionModelSet(models []modelservice.CatalogModel) map[string]bool {
 
 // extensionAdoptDefault makes the instance's first chat model the default
 // model when none is set.
-func extensionAdoptDefault(cfg *config.Config, instanceID string, models []modelservice.CatalogModel) {
-	for _, model := range models {
-		target := config.ExactModelTarget{InstanceID: instanceID, ModelID: model.ID}.String()
-		if _, err := config.ParseExactModelTarget(target); err == nil && modelservice.ServesChat(model.Surfaces) {
-			modelservice.AdoptDefaultModel(cfg, target)
-			return
-		}
-	}
+func extensionAdoptDefault(cfg *kernelConfig, instanceID string, models []catalogModel) {
+	adoptDefaultModel(cfg, firstChatModel(instanceID, models))
 }
 
-// extensionValidate refuses a configuration the kernel could not load.
-func extensionValidate(cfg *config.Config) error {
-	if err := cfg.ValidateProviderInstances(); err != nil {
-		return err
-	}
-	return cfg.ValidateModelSelections()
-}
-
-// extensionEnable saves an instance's catalog and enables it at index,
-// dropping selections of models the catalog no longer lists.
-func extensionEnable(cfg *config.Config, index int, instance *config.ProviderInstanceConfig, models []modelservice.CatalogModel) error {
-	if err := modelservice.SaveProviderInstanceCatalog(instance, models); err != nil {
+// extensionEnable saves an instance's model list and enables it at index,
+// dropping selections of models the list no longer holds.
+func (a *App) extensionEnable(cfg *kernelConfig, index int, instance *providerInstance, models []catalogModel) error {
+	if err := saveInstanceCatalog(a.paths.Kernel, instance, models); err != nil {
 		return fmt.Errorf("save the provider's models: %w", err)
 	}
-	instance.State = config.ProviderInstanceStateEnabled
-	cfg.ProviderInstances[index] = instance
+	instance.State = instanceEnabled
+	cfg.Instances[index] = instance
 	available := extensionModelSet(models)
-	modelservice.DropTargets(cfg, func(target config.ExactModelTarget) bool {
-		return target.InstanceID != instance.ID || available[target.ModelID]
-	})
+	dropTargets(cfg, func(target exactTarget) bool { return target.Instance != instance.ID || available[target.Model] })
 	extensionAdoptDefault(cfg, instance.ID, models)
-	return extensionValidate(cfg)
+	return validateModelSettings(cfg)
 }
 
 // extensionCredentialKeys are the auth store keys Midden may keep for an
@@ -345,7 +289,7 @@ func (a *App) serveExtensionConnect(w http.ResponseWriter, r *http.Request) {
 	}
 	endpoint, err := extensionServiceURL(input.URL)
 	if err != nil {
-		writeExtensionError(w, err)
+		a.writeExtensionError(w, err)
 		return
 	}
 	// An omitted secret reuses the stored one only for the service it was
@@ -358,59 +302,60 @@ func (a *App) serveExtensionConnect(w http.ResponseWriter, r *http.Request) {
 		cfg, err := a.loadModelConfig()
 		a.modelMu.Unlock()
 		if err != nil {
-			writeExtensionError(w, err)
+			a.writeExtensionError(w, err)
 			return
 		}
 		if cfg.Extension != nil && cfg.Extension.URL == endpoint {
-			if secret, err = extensionDaemonSecret(); err != nil {
-				writeExtensionError(w, err)
+			if secret, err = extensionDaemonSecret(a.paths.Kernel); err != nil {
+				a.writeExtensionError(w, err)
 				return
 			}
 		}
 	}
-	client, err := modelservice.NewExtensionClient(endpoint, secret)
+	client, err := newExtensionClient(endpoint, secret)
 	if err != nil {
-		writeExtensionError(w, extensionFail(http.StatusBadRequest, "%v", err), secret)
+		a.writeExtensionError(w, extensionFail(http.StatusBadRequest, "%v", err), secret)
 		return
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), extensionCallTimeout)
 	info, err := client.Info(ctx)
 	cancel()
 	if err != nil {
-		writeExtensionError(w, extensionFail(http.StatusBadGateway, "could not reach the extension service: %v", err), secret)
+		a.writeExtensionError(w, extensionFail(http.StatusBadGateway, "could not reach the extension service: %v", err), secret)
 		return
 	}
 	var (
-		previous *auth.AuthCredential
+		previous *authCredential
 		replaced bool
 		stale    []string
 		views    []extensionProviderView
 	)
-	err = a.updateModelConfig(func(cfg *config.Config) error {
+	store := kernelAuth(a.paths.Kernel)
+	err = a.updateModelConfig(r.Context(), func(cfg *kernelConfig) error {
 		var err error
-		if previous, err = auth.GetCredential(auth.ExtensionDaemonKey); err != nil {
+		if previous, err = store.get(extensionDaemonKey); err != nil {
 			return fmt.Errorf("read the extension service secret: %w", err)
 		}
 		// Keyless providers list their models with the stored secret.
-		if err := extensionStoreSecret(secret); err != nil {
+		if err := a.extensionStoreSecret(secret); err != nil {
 			return fmt.Errorf("save the extension service secret: %w", err)
 		}
 		replaced = true
-		if stale, err = extensionReconcile(r.Context(), cfg, endpoint, info); err != nil {
+		if stale, err = a.extensionReconcile(r.Context(), cfg, endpoint, info); err != nil {
 			return err
 		}
-		views = extensionProviderViews(cfg, info)
-		return extensionValidate(cfg)
+		views = a.extensionProviderViews(cfg, info)
+		return validateModelSettings(cfg)
 	})
 	if err != nil {
 		if replaced {
-			extensionRestoreCredential(auth.ExtensionDaemonKey, previous)
+			_ = store.set(extensionDaemonKey, previous)
 		}
-		writeExtensionError(w, err, secret)
+		a.writeExtensionError(w, err, secret)
 		return
 	}
 	if len(stale) > 0 {
-		if err := auth.DeleteCredentials(stale...); err != nil {
+		if err := store.remove(stale...); err != nil {
 			apiError(w, http.StatusInternalServerError, "the extension service is connected, but replaced credentials could not be removed: "+err.Error())
 			return
 		}
@@ -425,13 +370,13 @@ func (a *App) serveExtensionConnect(w http.ResponseWriter, r *http.Request) {
 // same kind on the same service; otherwise its credential is dropped and the
 // keys returned for removal. A provider the service no longer serves stays
 // configured but disabled. Selections of disabled instances, and of models a
-// reloaded catalog lacks, are dropped.
-func extensionReconcile(ctx context.Context, cfg *config.Config, endpoint string, info extension.InfoResponse) ([]string, error) {
-	cfg.Extension = &config.ExtensionDaemonConfig{URL: endpoint}
+// reloaded list lacks, are dropped.
+func (a *App) extensionReconcile(ctx context.Context, cfg *kernelConfig, endpoint string, info extension.InfoResponse) ([]string, error) {
+	cfg.Extension = &extensionDaemon{URL: endpoint}
 	var stale []string
 	served := map[string]bool{}
 	disabled := map[string]bool{}
-	var keyless []*config.ProviderInstanceConfig
+	var keyless []*providerInstance
 	for _, provider := range info.Providers {
 		kind, _, ok := extensionSupport(provider)
 		id := extensionInstanceID(provider.ID)
@@ -439,7 +384,7 @@ func extensionReconcile(ctx context.Context, cfg *config.Config, endpoint string
 			continue
 		}
 		index := extensionInstanceIndex(cfg, id)
-		if index >= 0 && cfg.ProviderInstances[index].ExtensionProvider() == "" {
+		if index >= 0 && cfg.Instances[index].extensionProvider() == "" {
 			continue // the id belongs to an instance of another kind
 		}
 		served[id] = true
@@ -447,67 +392,67 @@ func extensionReconcile(ctx context.Context, cfg *config.Config, endpoint string
 		if name == "" {
 			name = provider.ID
 		}
-		instance := &config.ProviderInstanceConfig{
-			ID: id, ProviderKind: extensionProviderKind, Adapter: config.ProviderAdapterExtension,
-			Protocol: modelservice.ExtensionSurface(provider), Endpoint: endpoint,
+		instance := &providerInstance{
+			ID: id, ProviderKind: extensionProviderKind, Adapter: adapterExtension,
+			Protocol: extensionSurface(provider), Endpoint: endpoint,
 			Settings: map[string]any{
-				config.ExtensionProviderSetting:    provider.ID,
-				config.ExtensionCredentialSetting:  kind,
-				config.ExtensionDisplayNameSetting: name,
-				config.ExtensionSurfacesSetting:    modelservice.ExtensionSurfaces(provider),
+				settingExtensionProvider:   provider.ID,
+				settingExtensionCredential: kind,
+				settingDisplayName:         name,
+				settingExtensionSurfaces:   extensionSurfaces(provider),
 			},
-			State: config.ProviderInstanceStateDisabled,
+			State: instanceDisabled,
 		}
 		if index >= 0 {
-			existing := cfg.ProviderInstances[index]
+			existing := cfg.Instances[index]
 			instance.Headers, instance.Runtime = existing.Headers, existing.Runtime
-			if extensionCredentialKind(existing) == kind && existing.Endpoint == endpoint && existing.ExtensionProvider() == provider.ID {
+			if extensionCredentialKind(existing) == kind && existing.Endpoint == endpoint && existing.extensionProvider() == provider.ID {
 				instance.State = existing.State
 				instance.AuthConnectionRef = existing.AuthConnectionRef
-				if key, ok := existing.Settings[config.ExtensionCredentialKeySetting]; ok {
-					instance.Settings[config.ExtensionCredentialKeySetting] = key
+				if key, ok := existing.Settings[settingExtensionCredentialKey]; ok {
+					instance.Settings[settingExtensionCredentialKey] = key
 				}
 			} else {
-				if existing.State == config.ProviderInstanceStateEnabled {
+				if existing.State == instanceEnabled {
 					disabled[id] = true
 				}
 				stale = append(stale, extensionCredentialKeys(id)...)
 			}
-			cfg.ProviderInstances[index] = instance
+			cfg.Instances[index] = instance
 		} else {
-			cfg.ProviderInstances = append(cfg.ProviderInstances, instance)
+			cfg.Instances = append(cfg.Instances, instance)
 		}
 		if kind == string(extension.CredentialNone) {
 			keyless = append(keyless, instance)
 		}
 	}
-	for _, instance := range cfg.ProviderInstances {
-		if instance != nil && instance.ExtensionProvider() != "" && !served[instance.ID] && instance.State == config.ProviderInstanceStateEnabled {
-			instance.State = config.ProviderInstanceStateDisabled
+	for _, instance := range cfg.Instances {
+		if instance.extensionProvider() != "" && !served[instance.ID] && instance.State == instanceEnabled {
+			instance.State = instanceDisabled
 			disabled[instance.ID] = true
 		}
 	}
 	loaded := map[string]map[string]bool{}
-	catalogs := map[string][]modelservice.CatalogModel{}
+	catalogs := map[string][]catalogModel{}
 	for _, instance := range keyless {
-		// A catalog that does not load leaves the instance as it was.
-		models, err := extensionSyncCatalog(ctx, instance, "")
+		// A model list that does not load leaves the instance as it was.
+		models, err := a.extensionSyncCatalog(ctx, instance, "")
 		if err != nil {
 			continue
 		}
-		if err := modelservice.SaveProviderInstanceCatalog(instance, models); err != nil {
+		if err := saveInstanceCatalog(a.paths.Kernel, instance, models); err != nil {
 			return nil, fmt.Errorf("save the provider's models: %w", err)
 		}
-		instance.State = config.ProviderInstanceStateEnabled
+		instance.State = instanceEnabled
 		delete(disabled, instance.ID)
 		loaded[instance.ID], catalogs[instance.ID] = extensionModelSet(models), models
 	}
-	modelservice.DropTargets(cfg, func(target config.ExactModelTarget) bool {
-		if disabled[target.InstanceID] {
+	dropTargets(cfg, func(target exactTarget) bool {
+		if disabled[target.Instance] {
 			return false
 		}
-		if available, ok := loaded[target.InstanceID]; ok {
-			return available[target.ModelID]
+		if available, ok := loaded[target.Instance]; ok {
+			return available[target.Model]
 		}
 		return true
 	})
@@ -520,7 +465,7 @@ func extensionReconcile(ctx context.Context, cfg *config.Config, endpoint string
 }
 
 // extensionProviderViews lists the providers of info that have an instance.
-func extensionProviderViews(cfg *config.Config, info extension.InfoResponse) []extensionProviderView {
+func (a *App) extensionProviderViews(cfg *kernelConfig, info extension.InfoResponse) []extensionProviderView {
 	views := []extensionProviderView{}
 	seen := map[string]bool{}
 	for _, provider := range info.Providers {
@@ -530,15 +475,14 @@ func extensionProviderViews(cfg *config.Config, info extension.InfoResponse) []e
 			continue
 		}
 		index := extensionInstanceIndex(cfg, id)
-		if index < 0 || cfg.ProviderInstances[index].ExtensionProvider() != provider.ID {
+		if index < 0 || cfg.Instances[index].extensionProvider() != provider.ID {
 			continue
 		}
 		seen[id] = true
-		instance := cfg.ProviderInstances[index]
-		name, _ := instance.Settings[config.ExtensionDisplayNameSetting].(string)
+		instance := cfg.Instances[index]
 		views = append(views, extensionProviderView{
-			InstanceID: id, Provider: provider.ID, Name: name, Credential: kind,
-			Ready: extensionCredentialReady(instance), SignInMethods: methods,
+			InstanceID: id, Provider: provider.ID, Name: instance.setting(settingDisplayName), Credential: kind,
+			Ready: a.extensionCredentialReady(instance), SignInMethods: methods,
 		})
 	}
 	return views
@@ -546,38 +490,34 @@ func extensionProviderViews(cfg *config.Config, info extension.InfoResponse) []e
 
 func (a *App) serveExtensionDisconnect(w http.ResponseWriter, r *http.Request) {
 	var removed []string
-	err := a.updateModelConfig(func(cfg *config.Config) error {
+	err := a.updateModelConfig(r.Context(), func(cfg *kernelConfig) error {
 		removed = nil
 		cfg.Extension = nil
-		kept := make([]*config.ProviderInstanceConfig, 0, len(cfg.ProviderInstances))
-		for _, instance := range cfg.ProviderInstances {
-			if instance != nil && instance.ExtensionProvider() != "" {
+		cfg.Instances = slices.DeleteFunc(cfg.Instances, func(instance *providerInstance) bool {
+			if instance.extensionProvider() != "" {
 				removed = append(removed, instance.ID)
-				continue
+				return true
 			}
-			kept = append(kept, instance)
-		}
-		cfg.ProviderInstances = kept
-		modelservice.DropTargets(cfg, func(target config.ExactModelTarget) bool {
-			return !slices.Contains(removed, target.InstanceID)
+			return false
 		})
-		return extensionValidate(cfg)
+		dropTargets(cfg, func(target exactTarget) bool { return !slices.Contains(removed, target.Instance) })
+		return validateModelSettings(cfg)
 	})
 	if err != nil {
-		writeExtensionError(w, err)
+		a.writeExtensionError(w, err)
 		return
 	}
 	var problems []string
 	for _, id := range removed {
-		if err := modelservice.DeleteProviderInstanceCatalog(id); err != nil {
+		if err := deleteInstanceCatalog(a.paths.Kernel, id); err != nil {
 			problems = append(problems, err.Error())
 		}
 	}
-	keys := []string{auth.ExtensionDaemonKey}
+	keys := []string{extensionDaemonKey}
 	for _, id := range removed {
 		keys = append(keys, extensionCredentialKeys(id)...)
 	}
-	if err := auth.DeleteCredentials(keys...); err != nil {
+	if err := kernelAuth(a.paths.Kernel).remove(keys...); err != nil {
 		problems = append(problems, err.Error())
 	}
 	if len(problems) > 0 {
@@ -601,47 +541,39 @@ func (a *App) serveExtensionToken(w http.ResponseWriter, r *http.Request, instan
 	}
 	key := extensionTokenPrefix + instanceID
 	var (
-		previous *auth.AuthCredential
+		previous *authCredential
 		stored   bool
 	)
-	err := a.updateModelConfig(func(cfg *config.Config) error {
+	store := kernelAuth(a.paths.Kernel)
+	err := a.updateModelConfig(r.Context(), func(cfg *kernelConfig) error {
 		index, err := extensionInstanceOf(cfg, instanceID, extension.CredentialToken)
 		if err != nil {
 			return err
 		}
-		instance := extensionClone(cfg.ProviderInstances[index])
+		instance := cfg.Instances[index].clone()
 		instance.AuthConnectionRef = extensionRefPrefix + key
-		delete(instance.Settings, config.ExtensionCredentialKeySetting)
-		models, err := extensionSyncCatalog(r.Context(), instance, token)
+		delete(instance.Settings, settingExtensionCredentialKey)
+		models, err := a.extensionSyncCatalog(r.Context(), instance, token)
 		if err != nil {
 			return extensionFail(http.StatusBadGateway, "the provider did not accept the token: %v", err)
 		}
-		if previous, err = auth.GetCredential(key); err != nil {
+		if previous, err = store.get(key); err != nil {
 			return fmt.Errorf("read stored credentials: %w", err)
 		}
-		if err := auth.SetCredential(key, &auth.AuthCredential{AccessToken: token, Provider: key, AuthMethod: "token"}); err != nil {
+		if err := store.set(key, &authCredential{AccessToken: token, Provider: key, AuthMethod: "token"}); err != nil {
 			return fmt.Errorf("save the token: %w", err)
 		}
 		stored = true
-		return extensionEnable(cfg, index, instance, models)
+		return a.extensionEnable(cfg, index, instance, models)
 	})
 	if err != nil {
 		if stored {
-			extensionRestoreCredential(key, previous)
+			_ = store.set(key, previous)
 		}
-		writeExtensionError(w, err, token)
+		a.writeExtensionError(w, err, token)
 		return
 	}
 	a.respondExtensionState(w, map[string]any{})
-}
-
-// extensionCredentialStore keeps finished sign-ins in the kernel's auth
-// store. Instances name their sign-in through their settings, so Resolve
-// names none.
-type extensionCredentialStore struct{ *auth.TokenStore }
-
-func (extensionCredentialStore) Resolve(context.Context, core.Caller, string) (string, error) {
-	return "", core.ErrNoCredential
 }
 
 // extensionSignInDriver is a service provider's sign-in driver whose flows
@@ -674,7 +606,7 @@ func (a *App) extensionSignInService() (*oauthflow.Service, error) {
 	}
 	service, err := oauthflow.New(oauthflow.Options{
 		Store:         oauthflow.NewMemoryFlowStore(oauthflow.MemoryFlowStoreOptions{MaxFlowsPerCaller: 8}),
-		Credentials:   extensionCredentialStore{auth.DefaultTokenStore()},
+		Credentials:   authTokenStore{kernelAuth(a.paths.Kernel)},
 		Drivers:       a.extensionDriverFor,
 		CredentialKey: a.extensionSignInKey,
 	})
@@ -716,16 +648,16 @@ func (a *App) extensionDriverFor(instanceID string, method oauthflow.Method) (oa
 	if err != nil {
 		return nil, err
 	}
-	instance := cfg.ProviderInstances[index]
-	secret, err := extensionDaemonSecret()
+	instance := cfg.Instances[index]
+	secret, err := extensionDaemonSecret(a.paths.Kernel)
 	if err != nil {
 		return nil, err
 	}
-	client, err := modelservice.NewExtensionClient(instance.Endpoint, secret)
+	client, err := newExtensionClient(instance.Endpoint, secret)
 	if err != nil {
 		return nil, err
 	}
-	return extensionSignInDriver{client.OAuthDriver(instance.ExtensionProvider())}, nil
+	return extensionSignInDriver{client.OAuthDriver(instance.extensionProvider())}, nil
 }
 
 func (a *App) serveExtensionSignInStart(w http.ResponseWriter, r *http.Request, instanceID string) {
@@ -753,7 +685,7 @@ func (a *App) serveExtensionSignInStart(w http.ResponseWriter, r *http.Request, 
 		if !errors.As(err, &failure) {
 			err = extensionFail(http.StatusBadGateway, "could not start the sign-in: %s", strings.TrimPrefix(err.Error(), "oauthflow: "))
 		}
-		writeExtensionError(w, err)
+		a.writeExtensionError(w, err)
 		return
 	}
 	reply := extensionSignInReply{
@@ -834,7 +766,7 @@ func extensionSignInInput(raw string) (oauthflow.CompleteInput, error) {
 // records its credential on the instance, loads its models and enables it.
 func (a *App) answerExtensionSignIn(w http.ResponseWriter, r *http.Request, view oauthflow.View, err error) {
 	failed := func(message string) {
-		respond(w, map[string]any{"status": "failed", "error": extensionRedact(message)})
+		respond(w, map[string]any{"status": "failed", "error": a.extensionRedact(message)})
 	}
 	switch {
 	case errors.Is(err, oauthflow.ErrFlowNotFound):
@@ -853,7 +785,7 @@ func (a *App) answerExtensionSignIn(w http.ResponseWriter, r *http.Request, view
 		failed("the sign-in was refused")
 	case err != nil && view.Status == oauthflow.StatusPending:
 		// A failed poll leaves the flow pending; the next poll retries.
-		respond(w, map[string]any{"status": "pending", "error": extensionRedact(strings.TrimPrefix(err.Error(), "oauthflow: "))})
+		respond(w, map[string]any{"status": "pending", "error": a.extensionRedact(strings.TrimPrefix(err.Error(), "oauthflow: "))})
 	case err != nil:
 		failed(strings.TrimPrefix(err.Error(), "oauthflow: "))
 	case view.Status == oauthflow.StatusPending:
@@ -866,36 +798,39 @@ func (a *App) answerExtensionSignIn(w http.ResponseWriter, r *http.Request, view
 }
 
 // finishExtensionSignIn points the instance at its saved sign-in, then loads
-// its models and enables it. A catalog that does not load keeps the sign-in
-// on a disabled instance, so a later sync can enable it.
+// its models and enables it. A model list that does not load keeps the
+// sign-in on a disabled instance, so a later sync can enable it.
 func (a *App) finishExtensionSignIn(w http.ResponseWriter, r *http.Request, view oauthflow.View) {
 	key := view.CredentialKey
 	var loadErr error
-	err := a.updateModelConfig(func(cfg *config.Config) error {
+	err := a.updateModelConfig(r.Context(), func(cfg *kernelConfig) error {
 		loadErr = nil
 		index, err := extensionInstanceOf(cfg, view.Instance, extension.CredentialOAuth)
 		if err != nil {
 			return err
 		}
-		instance := extensionClone(cfg.ProviderInstances[index])
+		instance := cfg.Instances[index].clone()
 		instance.AuthConnectionRef = ""
-		instance.Settings[config.ExtensionCredentialKeySetting] = key
-		cfg.ProviderInstances[index] = instance
-		models, err := extensionSyncCatalog(r.Context(), instance, "")
+		if instance.Settings == nil {
+			instance.Settings = map[string]any{}
+		}
+		instance.Settings[settingExtensionCredentialKey] = key
+		cfg.Instances[index] = instance
+		models, err := a.extensionSyncCatalog(r.Context(), instance, "")
 		if err != nil {
 			loadErr = err
-			return extensionValidate(cfg)
+			return validateModelSettings(cfg)
 		}
-		return extensionEnable(cfg, index, instance, models)
+		return a.extensionEnable(cfg, index, instance, models)
 	})
-	secrets := extensionStoredSecrets(key)
+	secrets := a.extensionStoredSecrets(key)
 	if err != nil {
-		respond(w, map[string]any{"status": "failed", "error": extensionRedact("signed in, but the sign-in could not be saved: "+err.Error(), secrets...)})
+		respond(w, map[string]any{"status": "failed", "error": a.extensionRedact("signed in, but the sign-in could not be saved: "+err.Error(), secrets...)})
 		return
 	}
 	payload := map[string]any{"status": "complete"}
 	if loadErr != nil {
-		payload["error"] = extensionRedact("signed in, but the provider's models could not load: "+loadErr.Error(), secrets...)
+		payload["error"] = a.extensionRedact("signed in, but the provider's models could not load: "+loadErr.Error(), secrets...)
 	}
 	a.respondExtensionState(w, payload)
 }

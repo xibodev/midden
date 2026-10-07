@@ -3,11 +3,12 @@ Midden
 The Midden core and the skills of the Midden bundle are distributed under the
 license in LICENSE.
 
-The independently built Midden app is powered by Compa
-(https://github.com/xibodev/compa), an MIT-licensed runtime. The app
-artifact's app/THIRD_PARTY_NOTICES.txt names Compa and the other components
-from the same team in one line each, and includes the licenses of the other
-compiled dependencies.
+The Midden app is powered by Compa (https://github.com/xibodev/compa), an
+MIT-licensed agent runtime. The app ships Compa's compa-kernel program
+unchanged from Compa's own release, with Compa's LICENSE and NOTICE in
+app/compa. The app artifact's app/THIRD_PARTY_NOTICES.txt names Compa and the
+other components from the same team in one line each, and includes the
+licenses of the other modules compiled into midden-ui and compa-kernel.
 
 The installer's app mode downloads Pandoc (https://github.com/jgm/pandoc,
 GPL-2.0-or-later) from Pandoc's own release, checks it against the SHA-256 in

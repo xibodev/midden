@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -13,10 +14,6 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
-
-	"github.com/xibodev/compa/pkg/auth"
-	"github.com/xibodev/compa/pkg/config"
-	"github.com/xibodev/compa/pkg/modelservice"
 )
 
 func TestModelStateWithoutConfiguration(t *testing.T) {
@@ -45,7 +42,7 @@ func TestModelStateWithoutConfiguration(t *testing.T) {
 	if status := app.Status()["model"].(modelStatus); status != (modelStatus{}) {
 		t.Fatalf("unconfigured status: %+v", status)
 	}
-	if _, err := os.Stat(app.modelConfigPath()); !os.IsNotExist(err) {
+	if _, err := os.Stat(kernelConfigPath(app.paths.Kernel)); !os.IsNotExist(err) {
 		t.Fatal("reading the state wrote a configuration")
 	}
 	if callModels(t, app, "GET", "/api/models/unknown", nil).code != 404 || callModels(t, app, "POST", "/api/models/state", struct{}{}).code != 405 {
@@ -95,18 +92,18 @@ func TestConnectingAProviderKeepsItsKeyInTheAuthStoreOnly(t *testing.T) {
 			t.Fatal("a response repeated the API key")
 		}
 	}
-	for _, name := range []string{"kernel/config.json", "kernel/model_catalogs.json", "kernel/" + config.SecurityConfigFile, "model-checks.json"} {
-		raw, err := os.ReadFile(filepath.Join(app.opts.State, name))
-		if err != nil || strings.Contains(string(raw), key) {
-			t.Fatalf("%s holds the API key or is missing: %v", name, err)
+	for _, path := range []string{kernelConfigPath(app.paths.Kernel), catalogsPath(app.paths.Kernel), app.modelChecksPath(), filepath.Join(app.paths.App, "sessions.json")} {
+		raw, err := os.ReadFile(path)
+		if (err != nil && !os.IsNotExist(err)) || strings.Contains(string(raw), key) {
+			t.Fatalf("%s holds the API key: %v", path, err)
 		}
 	}
-	raw, _ := os.ReadFile(app.modelConfigPath())
+	raw, _ := os.ReadFile(kernelConfigPath(app.paths.Kernel))
 	if !strings.Contains(string(raw), `"auth_connection_ref": "credential:midden-custom_openai"`) {
 		t.Fatalf("the connection does not reference its stored key: %s", raw)
 	}
-	stored, err := auth.GetCredential("midden-custom_openai")
-	if err != nil || stored == nil || stored.AccessToken != key || stored.Provider != "custom_openai" || stored.AuthMethod != modelservice.APIKeyAuthMethod {
+	stored, err := kernelAuth(app.paths.Kernel).get("midden-custom_openai")
+	if err != nil || stored == nil || stored.AccessToken != key || stored.Provider != "custom_openai" || stored.AuthMethod != apiKeyAuthMethod {
 		t.Fatal("the API key was not stored for its connection", err)
 	}
 }
@@ -165,7 +162,7 @@ func TestProviderErrorsNeverRepeatTheKey(t *testing.T) {
 	if refused.code != http.StatusBadGateway || strings.Contains(refused.raw, key) {
 		t.Fatalf("catalog rejection: %d %s", refused.code, refused.raw)
 	}
-	if stored, _ := auth.GetCredential("midden-custom_openai-2"); stored != nil {
+	if stored, _ := kernelAuth(app.paths.Kernel).get("midden-custom_openai-2"); stored != nil {
 		t.Fatal("a refused connection kept its key")
 	}
 	if len(callModels(t, app, "GET", "/api/models/state", nil).State.Instances) != 1 {
@@ -238,6 +235,42 @@ func TestRoutesAndDefaultSelection(t *testing.T) {
 	}
 }
 
+// fakeFreeRun stands in for compa-kernel model auto-free: it connects the
+// first keyless provider as Compa does and prints Compa's report.
+func fakeFreeRun(t *testing.T, ids ...string) {
+	t.Helper()
+	previous := freeRunner
+	t.Cleanup(func() { freeRunner = previous })
+	freeRunner = func(_ context.Context, _ string, env []string) ([]byte, error) {
+		home := ""
+		for _, entry := range env {
+			if value, ok := strings.CutPrefix(entry, "COMPA_HOME="); ok {
+				home = value
+			}
+		}
+		cfg, err := loadKernelConfig(home)
+		if err != nil {
+			return nil, err
+		}
+		instance := &providerInstance{ID: ids[0], ProviderKind: ids[0], Adapter: adapterOpenAI, Protocol: "openai",
+			Endpoint: "https://free.invalid/v1", State: instanceEnabled}
+		cfg.Instances = append(cfg.Instances, instance)
+		cfg.ActiveModels = append(cfg.ActiveModels, ids[0]+"/free-chat")
+		adoptDefaultModel(cfg, ids[0]+"/free-chat")
+		if err := saveInstanceCatalog(home, instance, []catalogModel{{ID: "free-chat"}, {ID: "free-other"}}); err != nil {
+			return nil, err
+		}
+		if err := saveKernelConfig(home, cfg); err != nil {
+			return nil, err
+		}
+		return []byte("Probing the free providers that need no key...\nCatalogs discovered: 3 | Inference verified: 1\n" +
+			"- " + ids[0] + ": verified\n" +
+			"- " + ids[1] + ": connected (rate_limited) - It is busy right now; try again in a minute.\n" +
+			"- synthetic-listed: connected (no_model) - It lists no free chat model Compa adds on its own; you can still add its models by hand.\n" +
+			"- synthetic-unknown: failed - Its model list could not be read.\n  + " + ids[0] + "\n"), nil
+	}
+}
+
 func TestFreeModelsConnectThroughCompa(t *testing.T) {
 	app := newTestApp(t)
 	var keyless []rosterEntry
@@ -249,22 +282,20 @@ func TestFreeModelsConnectThroughCompa(t *testing.T) {
 	if len(keyless) < 2 {
 		t.Fatal("Compa's roster lists fewer than two free providers")
 	}
-	app.freeVerify = func(context.Context, *config.Config) []modelservice.AnonymousProviderOutcome {
-		return []modelservice.AnonymousProviderOutcome{
-			{RegistryID: keyless[0].ID, ProviderID: "synthetic-free", Status: "verified", Models: []string{"free-chat", "free-other"}, ProbeModel: "free-chat"},
-			{RegistryID: keyless[1].ID, ProviderID: "synthetic-busy", Status: "connected", ErrorClass: "rate_limited", Error: "It is busy right now; try again in a minute."},
-			{RegistryID: keyless[1].ID, ProviderID: "synthetic-listed", Status: "connected", ErrorClass: "no_model", Models: []string{"listed"}},
-			{RegistryID: "synthetic-unknown", ProviderID: "synthetic-unknown", Status: "failed", Error: "Its model list could not be read."},
-		}
+	if reply := callModels(t, app, "POST", "/api/models/free", struct{}{}); reply.code != http.StatusServiceUnavailable {
+		t.Fatalf("free models without a kernel: %d %s", reply.code, reply.raw)
 	}
+	app.opts.Kernel = "synthetic-kernel"
+	fakeFreeRun(t, keyless[0].ID, keyless[1].ID)
 	reply := callModels(t, app, "POST", "/api/models/free", struct{}{})
 	if reply.code != 200 || len(reply.Outcomes) != 4 {
 		t.Fatalf("free: %d %s", reply.code, reply.raw)
 	}
 	want := []freeOutcome{
-		{InstanceID: "synthetic-free", Label: keyless[0].Label, Status: "answers_text", Models: 2},
-		{InstanceID: "synthetic-busy", Label: keyless[1].Label, Status: "busy", Error: "It is busy right now; try again in a minute."},
-		{InstanceID: "synthetic-listed", Label: keyless[1].Label, Status: "connected", Models: 1},
+		{InstanceID: keyless[0].ID, Label: keyless[0].Label, Status: "answers_text", Models: 2},
+		{InstanceID: keyless[1].ID, Label: keyless[1].Label, Status: "busy", Error: "It is busy right now; try again in a minute."},
+		{InstanceID: "synthetic-listed", Label: "synthetic-listed", Status: "connected",
+			Error: "It lists no free chat model Compa adds on its own; you can still add its models by hand."},
 		{InstanceID: "synthetic-unknown", Label: "synthetic-unknown", Status: "failed", Error: "Its model list could not be read."},
 	}
 	for i := range want {
@@ -273,22 +304,35 @@ func TestFreeModelsConnectThroughCompa(t *testing.T) {
 		}
 	}
 	state := reply.State
-	if len(state.Instances) != 1 || state.Instances[0].ID != "synthetic-free" || state.Instances[0].Source != "free" ||
+	if len(state.Instances) != 1 || state.Instances[0].ID != keyless[0].ID || state.Instances[0].Source != "free" ||
 		len(state.Instances[0].Models) != 2 || !state.Instances[0].CredentialReady {
 		t.Fatalf("free connection: %+v", state.Instances)
 	}
-	if state.DefaultModel != "synthetic-free/free-chat" || !state.Configured || strings.Join(state.ActiveModels, ",") != "synthetic-free/free-chat" {
+	if state.DefaultModel != keyless[0].ID+"/free-chat" || !state.Configured || strings.Join(state.ActiveModels, ",") != keyless[0].ID+"/free-chat" {
 		t.Fatalf("free default: %+v", state)
 	}
-	app.freeVerify = func(context.Context, *config.Config) []modelservice.AnonymousProviderOutcome {
-		return []modelservice.AnonymousProviderOutcome{{RegistryID: keyless[1].ID, ProviderID: "synthetic-down", Status: "failed"}}
+	freeRunner = func(context.Context, string, []string) ([]byte, error) {
+		return []byte("Probing the free providers that need no key...\nError: auto-connect free failed: synthetic refusal\n"), errors.New("exit status 1")
 	}
-	again := callModels(t, app, "POST", "/api/models/free", struct{}{})
-	if again.code != 200 || len(again.State.Instances) != 1 || again.Outcomes[0].Status != "failed" {
-		t.Fatalf("free retry: %d %s", again.code, again.raw)
+	failed := callModels(t, app, "POST", "/api/models/free", struct{}{})
+	if failed.code != http.StatusBadGateway || !strings.Contains(failed.Error, "synthetic refusal") {
+		t.Fatalf("a failed check: %d %s", failed.code, failed.raw)
 	}
 }
 
+func TestFreeResultsReadCompasReport(t *testing.T) {
+	results := parseFreeResults("noise\n- llm7: verified\n- kilo_code: connected (rate_limited) - Busy - try later.\n- a: failed\n-  bad line\n- Upper: verified\n")
+	want := []freeResult{{ID: "llm7", Status: "verified"}, {ID: "kilo_code", Status: "connected", Class: "rate_limited", Error: "Busy - try later."},
+		{ID: "a", Status: "failed"}}
+	if len(results) != len(want) {
+		t.Fatalf("results = %+v", results)
+	}
+	for i := range want {
+		if results[i] != want[i] {
+			t.Fatalf("result %d = %+v, want %+v", i, results[i], want[i])
+		}
+	}
+}
 func TestSyncDropsModelsTheProviderNoLongerLists(t *testing.T) {
 	var listed atomic.Value
 	listed.Store(`{"object":"list","data":[{"id":"alpha"},{"id":"beta"}]}`)
@@ -321,9 +365,12 @@ func TestSyncDropsModelsTheProviderNoLongerLists(t *testing.T) {
 func TestModelChangesAreRefusedDuringATurn(t *testing.T) {
 	app := newTestApp(t)
 	storeTestModel(t, app, "http://127.0.0.1:9/v1", "")
-	app.freeVerify = func(context.Context, *config.Config) []modelservice.AnonymousProviderOutcome {
+	app.opts.Kernel = "synthetic-kernel"
+	previous := freeRunner
+	t.Cleanup(func() { freeRunner = previous })
+	freeRunner = func(context.Context, string, []string) ([]byte, error) {
 		t.Error("free providers were checked during a turn")
-		return nil
+		return nil, nil
 	}
 	app.mu.Lock()
 	app.active = &activeTurn{ID: "synthetic-turn", SessionID: "synthetic", cancel: func() {}}
@@ -385,7 +432,7 @@ func TestModelCheckHoldsTurnsAndChangesUntilItsResultIsSaved(t *testing.T) {
 		r := httptest.NewRequest(method, "http://127.0.0.1:18890"+path, strings.NewReader(body))
 		r.Header.Set("X-Midden-CSRF", app.csrf)
 		w := httptest.NewRecorder()
-		app.ServeHTTP(w, r)
+		app.ServeHTTP(w, keyed(app, r))
 		return w
 	}
 	checked := make(chan *httptest.ResponseRecorder, 1)
@@ -419,15 +466,12 @@ func TestModelCheckHoldsTurnsAndChangesUntilItsResultIsSaved(t *testing.T) {
 	}
 }
 
-func TestRuntimeFailureDoesNotPersistProviderEchoedCredential(t *testing.T) {
-	app, _, _ := kernelApp(t)
-	service := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(401)
-		w.Write([]byte(`{"error":{"message":"rejected synthetic-runtime-secret"}}`))
-	}))
-	defer service.Close()
-	storeTestModel(t, app, service.URL, "synthetic-runtime-secret")
+func TestTurnFailureDoesNotPersistAnEchoedCredential(t *testing.T) {
+	app := newTestApp(t)
+	storeTestModel(t, app, "http://127.0.0.1:9/v1", "synthetic-runtime-secret")
+	app.runtime = outcomeEngine{process: func(context.Context, string, string, string) (string, error) {
+		return "", errors.New("provider said: rejected synthetic-runtime-secret")
+	}}
 	s, err := app.NewSession("provider failure")
 	if err != nil {
 		t.Fatal(err)
@@ -437,14 +481,14 @@ func TestRuntimeFailureDoesNotPersistProviderEchoedCredential(t *testing.T) {
 	}
 	app.wg.Wait()
 	outcomes := observedOutcomes(t, app, s.ID)
-	if len(outcomes) != 1 || outcomes[0].Status != "failed" {
-		t.Fatal("expected a visible failed outcome")
+	if len(outcomes) != 1 || outcomes[0].Status != "failed" || !strings.Contains(outcomes[0].Error, "[redacted]") {
+		t.Fatalf("expected a visible, redacted failed outcome: %+v", outcomes)
 	}
-	raw, err := os.ReadFile(filepath.Join(app.opts.State, "sessions.json"))
+	raw, err := os.ReadFile(filepath.Join(app.paths.App, "sessions.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if strings.Contains(string(raw), "synthetic-runtime-secret") {
-		t.Fatal("provider-echoed credential leaked into durable conversation history")
+		t.Fatal("a provider-echoed credential leaked into the conversation history")
 	}
 }

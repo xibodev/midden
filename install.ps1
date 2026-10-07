@@ -586,7 +586,7 @@ public static class MiddenEnvironmentNotification {
                 }
             }
             'app' {
-                foreach ($name in @('midden-ui.exe', 'app/LICENSE', 'app/NOTICE')) { if ($name -cnotin $names) { throw "Missing app file: $name" } }
+                foreach ($name in @('midden-ui.exe', 'app/compa-kernel.exe', 'app/LICENSE', 'app/NOTICE')) { if ($name -cnotin $names) { throw "Missing app file: $name" } }
                 foreach ($name in $names) {
                     if ($name -cne 'midden-ui.exe' -and (-not $name.StartsWith('app/') -or $name.StartsWith('app/tools/'))) {
                         throw "Unsupported app file: $name"

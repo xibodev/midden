@@ -48,6 +48,9 @@ func (a *App) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	if !a.admitted(w, r) {
+		return
+	}
 	if r.Method != "GET" && r.Method != "HEAD" && r.Header.Get("X-Midden-CSRF") != a.csrf {
 		apiError(w, http.StatusForbidden, "missing session CSRF token")
 		return

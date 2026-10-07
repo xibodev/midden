@@ -20,7 +20,7 @@ func TestLocalSessionAPIAndSandboxedArtifactPreview(t *testing.T) {
 	request.Header.Set("X-Midden-CSRF", app.csrf)
 	request.Header.Set("Origin", "http://127.0.0.1:18890")
 	response := httptest.NewRecorder()
-	app.ServeHTTP(response, request)
+	app.ServeHTTP(response, keyed(app, request))
 	if response.Code != http.StatusOK {
 		t.Fatalf("session creation failed: %s", response.Body.String())
 	}
@@ -28,11 +28,11 @@ func TestLocalSessionAPIAndSandboxedArtifactPreview(t *testing.T) {
 	if err = json.Unmarshal(response.Body.Bytes(), &created); err != nil || created.ID == "" {
 		t.Fatal("missing session", err)
 	}
-	if err = os.WriteFile(filepath.Join(app.opts.Workspace, "deck.html"), []byte("<h1>Local artifact</h1>"), 0600); err != nil {
+	if err = os.WriteFile(filepath.Join(app.paths.Files, "deck.html"), []byte("<h1>Local artifact</h1>"), 0600); err != nil {
 		t.Fatal(err)
 	}
 	response = httptest.NewRecorder()
-	app.ServeHTTP(response, httptest.NewRequest("GET", "http://127.0.0.1:18890/preview?path=deck.html", nil))
+	app.ServeHTTP(response, keyed(app, httptest.NewRequest("GET", "http://127.0.0.1:18890/preview?path=deck.html", nil)))
 	if response.Code != http.StatusOK || !strings.Contains(response.Header().Get("Content-Security-Policy"), "sandbox allow-scripts") {
 		t.Fatal("preview is not sandboxed")
 	}

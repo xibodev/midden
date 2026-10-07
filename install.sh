@@ -236,7 +236,7 @@ mb_manifest() {
                 extension=""
                 if(targets[key] ~ /^windows\//) extension=".exe"
                 if(p=="core" && (!files[key SUBSEP "midden" extension] || !files[key SUBSEP "LICENSE"])) exit 1
-                if(p=="app" && (!files[key SUBSEP "midden-ui" extension] ||
+                if(p=="app" && (!files[key SUBSEP "midden-ui" extension] || !files[key SUBSEP "app/compa-kernel" extension] ||
                     !files[key SUBSEP "app/LICENSE"] || !files[key SUBSEP "app/NOTICE"])) exit 1
                 if(p=="bundle" && (!files[key SUBSEP "skills/midden-investigation/SKILL.md"] ||
                     !files[key SUBSEP "skills/midden-article/SKILL.md"] ||
@@ -771,7 +771,7 @@ mb_note() {
 }
 
 mb_mode_of() {
-    case "$1" in midden|midden-ui|app/tools/pandoc|Midden.app/Contents/MacOS/Midden) printf '755\n' ;; *) printf '644\n' ;; esac
+    case "$1" in midden|midden-ui|app/compa-kernel|app/tools/pandoc|Midden.app/Contents/MacOS/Midden) printf '755\n' ;; *) printf '644\n' ;; esac
 }
 
 # Plan removals for one owned place; edited files are kept and noted.
