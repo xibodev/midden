@@ -8,7 +8,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
-	"path/filepath"
 	"slices"
 	"strings"
 	"sync"
@@ -18,10 +17,6 @@ import (
 	core "github.com/xibodev/llmgw-core"
 	"github.com/xibodev/llmgw-core/extension"
 	"github.com/xibodev/llmgw-core/oauthflow"
-
-	"github.com/xibodev/compa/pkg/auth"
-	"github.com/xibodev/compa/pkg/config"
-	"github.com/xibodev/compa/pkg/modelservice"
 )
 
 // Synthetic secrets the fake extension service hands out or expects. None may
@@ -191,14 +186,7 @@ func (f *fakeExtensionService) serve(w http.ResponseWriter, r *http.Request) {
 
 func extensionTestApp(t *testing.T) *App {
 	t.Helper()
-	opts := testOptions(t)
-	t.Setenv(config.EnvHome, filepath.Join(opts.State, "kernel"))
-	app, err := NewApp(opts)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(app.Close)
-	return app
+	return newTestApp(t)
 }
 
 type extrasReply struct {
@@ -240,7 +228,7 @@ func expectStatus(t *testing.T, reply extrasReply, status int) {
 	}
 }
 
-func modelConfigOf(t *testing.T, app *App) *config.Config {
+func modelConfigOf(t *testing.T, app *App) *kernelConfig {
 	t.Helper()
 	app.modelMu.Lock()
 	defer app.modelMu.Unlock()
@@ -251,32 +239,32 @@ func modelConfigOf(t *testing.T, app *App) *config.Config {
 	return cfg
 }
 
-func instanceOf(t *testing.T, cfg *config.Config, id string) *config.ProviderInstanceConfig {
+func instanceOf(t *testing.T, cfg *kernelConfig, id string) *providerInstance {
 	t.Helper()
 	if index := extensionInstanceIndex(cfg, id); index >= 0 {
-		return cfg.ProviderInstances[index]
+		return cfg.Instances[index]
 	}
 	t.Fatalf("instance %q is missing", id)
 	return nil
 }
 
-func storedCredential(t *testing.T, key string) *auth.AuthCredential {
+func storedCredential(t *testing.T, app *App, key string) *authCredential {
 	t.Helper()
-	credential, err := auth.GetCredential(key)
+	credential, err := kernelAuth(app.paths.Kernel).get(key)
 	if err != nil {
 		t.Fatal(err)
 	}
 	return credential
 }
 
-func catalogModels(t *testing.T, id string) []string {
+func catalogModels(t *testing.T, app *App, id string) []string {
 	t.Helper()
-	store, err := modelservice.LoadCatalogs()
+	store, err := loadCatalogs(app.paths.Kernel)
 	if err != nil {
 		t.Fatal(err)
 	}
 	var ids []string
-	if entry := store.Entries[id]; entry != nil {
+	if entry := store[id]; entry != nil {
 		for _, model := range entry.Models {
 			ids = append(ids, model.ID)
 		}
@@ -293,7 +281,7 @@ func connectFakeService(t *testing.T, app *App, fake *fakeExtensionService, bodi
 
 func assertNoSecrets(t *testing.T, app *App, bodies []string) {
 	t.Helper()
-	raw, err := os.ReadFile(app.modelConfigPath())
+	raw, err := os.ReadFile(kernelConfigPath(app.paths.Kernel))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -316,10 +304,10 @@ func TestExtensionServiceConnectsProvidersByCredential(t *testing.T) {
 
 	reply := callExtras(t, app, &bodies, http.MethodPut, "/api/models/extension", map[string]any{"url": fake.URL, "secret": wrongSecret})
 	expectStatus(t, reply, http.StatusBadGateway)
-	if cfg := modelConfigOf(t, app); cfg.Extension != nil || len(cfg.ProviderInstances) != 0 {
+	if cfg := modelConfigOf(t, app); cfg.Extension != nil || len(cfg.Instances) != 0 {
 		t.Fatal("a refused connection changed the model configuration")
 	}
-	if storedCredential(t, auth.ExtensionDaemonKey) != nil {
+	if storedCredential(t, app, extensionDaemonKey) != nil {
 		t.Fatal("a refused secret was stored")
 	}
 
@@ -341,28 +329,28 @@ func TestExtensionServiceConnectsProvidersByCredential(t *testing.T) {
 	}
 
 	cfg := modelConfigOf(t, app)
-	if cfg.Extension == nil || cfg.Extension.URL != fake.URL || len(cfg.ProviderInstances) != 3 {
+	if cfg.Extension == nil || cfg.Extension.URL != fake.URL || len(cfg.Instances) != 3 {
 		t.Fatalf("service or instances not recorded: %+v", cfg.Extension)
 	}
-	for id, state := range map[string]config.ProviderInstanceState{"ext-provider-a": "disabled", "ext-provider-b": "enabled", "ext-provider-c": "disabled"} {
+	for id, state := range map[string]string{"ext-provider-a": "disabled", "ext-provider-b": "enabled", "ext-provider-c": "disabled"} {
 		instance := instanceOf(t, cfg, id)
-		if instance.State != state || instance.ProviderKind != "extension" || instance.Adapter != config.ProviderAdapterExtension ||
-			instance.Protocol != config.ExtensionSurfaceChatCompletions || instance.Endpoint != fake.URL ||
-			instance.ExtensionProvider() != strings.TrimPrefix(id, "ext-") {
+		if instance.State != state || instance.ProviderKind != "extension" || instance.Adapter != adapterExtension ||
+			instance.Protocol != "chat_completions" || instance.Endpoint != fake.URL ||
+			instance.extensionProvider() != strings.TrimPrefix(id, "ext-") {
 			t.Fatalf("instance %s = %+v", id, instance)
 		}
 	}
-	if cfg.Agents.Defaults.ModelName != "ext-provider-b/provider-b-model-1" {
-		t.Fatalf("default model = %q, want the keyless provider's first model", cfg.Agents.Defaults.ModelName)
+	if cfg.DefaultModel() != "ext-provider-b/provider-b-model-1" {
+		t.Fatalf("default model = %q, want the keyless provider's first model", cfg.DefaultModel())
 	}
-	if credential := storedCredential(t, auth.ExtensionDaemonKey); credential == nil || credential.AccessToken != fakeServiceSecret {
+	if credential := storedCredential(t, app, extensionDaemonKey); credential == nil || credential.AccessToken != fakeServiceSecret {
 		t.Fatal("the service secret was not stored")
 	}
 
 	// A pasted token must list the provider's models before it is kept.
 	reply = callExtras(t, app, &bodies, http.MethodPost, "/api/models/extension/ext-provider-c/token", map[string]any{"token": rejectedToken})
 	expectStatus(t, reply, http.StatusBadGateway)
-	if storedCredential(t, "ext-token-ext-provider-c") != nil || instanceOf(t, modelConfigOf(t, app), "ext-provider-c").State != "disabled" {
+	if storedCredential(t, app, "ext-token-ext-provider-c") != nil || instanceOf(t, modelConfigOf(t, app), "ext-provider-c").State != "disabled" {
 		t.Fatal("a rejected token was kept")
 	}
 	reply = callExtras(t, app, &bodies, http.MethodPost, "/api/models/extension/ext-provider-a/token", map[string]any{"token": fakePastedToken})
@@ -373,10 +361,10 @@ func TestExtensionServiceConnectsProvidersByCredential(t *testing.T) {
 	if instance.State != "enabled" || instance.AuthConnectionRef != "credential:ext-token-ext-provider-c" {
 		t.Fatalf("token instance = %+v", instance)
 	}
-	if credential := storedCredential(t, "ext-token-ext-provider-c"); credential == nil || credential.AccessToken != fakePastedToken {
+	if credential := storedCredential(t, app, "ext-token-ext-provider-c"); credential == nil || credential.AccessToken != fakePastedToken {
 		t.Fatal("the token was not stored under its instance key")
 	}
-	if got := catalogModels(t, "ext-provider-c"); !slices.Equal(got, []string{"provider-c-model-1", "provider-c-model-2"}) {
+	if got := catalogModels(t, app, "ext-provider-c"); !slices.Equal(got, []string{"provider-c-model-1", "provider-c-model-2"}) {
 		t.Fatalf("token catalog = %v", got)
 	}
 
@@ -409,13 +397,13 @@ func TestExtensionServiceConnectsProvidersByCredential(t *testing.T) {
 		t.Fatalf("completed poll = %s", reply.body)
 	}
 	instance = instanceOf(t, modelConfigOf(t, app), "ext-provider-a")
-	if instance.State != "enabled" || instance.AuthConnectionRef != "" || instance.Settings[config.ExtensionCredentialKeySetting] != "ext-signin-ext-provider-a" {
+	if instance.State != "enabled" || instance.AuthConnectionRef != "" || instance.Settings[settingExtensionCredentialKey] != "ext-signin-ext-provider-a" {
 		t.Fatalf("signed-in instance = %+v", instance)
 	}
-	if record, err := auth.DefaultTokenStore().Load(context.Background(), "ext-signin-ext-provider-a"); err != nil || record.AccessToken != fakeAccessToken {
+	if record, err := (authTokenStore{kernelAuth(app.paths.Kernel)}).Load(context.Background(), "ext-signin-ext-provider-a"); err != nil || record.AccessToken != fakeAccessToken {
 		t.Fatalf("sign-in not saved in the token store: %v", err)
 	}
-	if got := catalogModels(t, "ext-provider-a"); len(got) != 2 {
+	if got := catalogModels(t, app, "ext-provider-a"); len(got) != 2 {
 		t.Fatalf("signed-in catalog = %v", got)
 	}
 
@@ -427,16 +415,16 @@ func TestExtensionServiceConnectsProvidersByCredential(t *testing.T) {
 		t.Fatalf("answer lacks the model state: %s", reply.body)
 	}
 	cfg = modelConfigOf(t, app)
-	if cfg.Extension != nil || len(cfg.ProviderInstances) != 0 || cfg.Agents.Defaults.ModelName != "" {
-		t.Fatalf("disconnect left %d instances, service %+v, default %q", len(cfg.ProviderInstances), cfg.Extension, cfg.Agents.Defaults.ModelName)
+	if cfg.Extension != nil || len(cfg.Instances) != 0 || cfg.DefaultModel() != "" {
+		t.Fatalf("disconnect left %d instances, service %+v, default %q", len(cfg.Instances), cfg.Extension, cfg.DefaultModel())
 	}
-	for _, key := range []string{auth.ExtensionDaemonKey, "ext-token-ext-provider-c", "ext-signin-ext-provider-a"} {
-		if storedCredential(t, key) != nil {
+	for _, key := range []string{extensionDaemonKey, "ext-token-ext-provider-c", "ext-signin-ext-provider-a"} {
+		if storedCredential(t, app, key) != nil {
 			t.Fatalf("disconnect left the credential %q", key)
 		}
 	}
 	for _, id := range []string{"ext-provider-a", "ext-provider-b", "ext-provider-c"} {
-		if got := catalogModels(t, id); len(got) != 0 {
+		if got := catalogModels(t, app, id); len(got) != 0 {
 			t.Fatalf("disconnect left the catalog of %s", id)
 		}
 	}
@@ -483,7 +471,7 @@ func TestExtensionManualSignInAcceptsTheRedirectAddress(t *testing.T) {
 		t.Fatalf("complete = %s", reply.body)
 	}
 	instance := instanceOf(t, modelConfigOf(t, app), "ext-provider-a")
-	if instance.State != "enabled" || instance.Settings[config.ExtensionCredentialKeySetting] != "ext-signin-ext-provider-a" {
+	if instance.State != "enabled" || instance.Settings[settingExtensionCredentialKey] != "ext-signin-ext-provider-a" {
 		t.Fatalf("signed-in instance = %+v", instance)
 	}
 	expectStatus(t, complete(flowID, fakeAuthCode), http.StatusNotFound)
@@ -537,8 +525,8 @@ func TestExtensionReconnectFollowsTheServiceProviders(t *testing.T) {
 	var bodies []string
 	connectFakeService(t, app, fake, &bodies)
 	expectStatus(t, callExtras(t, app, &bodies, http.MethodPost, "/api/models/extension/ext-provider-c/token", map[string]any{"token": fakePastedToken}), http.StatusOK)
-	if err := app.updateModelConfig(func(cfg *config.Config) error {
-		cfg.ModelRoutes = append(cfg.ModelRoutes, &config.ModelRouteConfig{Name: "main", Targets: []string{"ext-provider-b/provider-b-model-1", "ext-provider-c/provider-c-model-1"}})
+	if err := app.updateModelConfig(context.Background(), func(cfg *kernelConfig) error {
+		cfg.Routes = append(cfg.Routes, &modelRoute{Name: "main", Targets: []string{"ext-provider-b/provider-b-model-1", "ext-provider-c/provider-c-model-1"}})
 		cfg.ActiveModels = []string{"ext-provider-b/provider-b-model-2", "ext-provider-c/provider-c-model-2"}
 		return nil
 	}); err != nil {
@@ -573,14 +561,14 @@ func TestExtensionReconnectFollowsTheServiceProviders(t *testing.T) {
 	if instance.State != "enabled" || instance.AuthConnectionRef != "" || extensionCredentialKind(instance) != "none" {
 		t.Fatalf("provider whose credential changed = %+v", instance)
 	}
-	if storedCredential(t, "ext-token-ext-provider-c") != nil {
+	if storedCredential(t, app, "ext-token-ext-provider-c") != nil {
 		t.Fatal("the replaced token was kept")
 	}
 	// The dropped default gives way to the first model of the provider that
 	// became keyless; the other selections of the dropped provider go.
-	if cfg.Agents.Defaults.ModelName != "ext-provider-c/provider-c-model-1" || !slices.Equal(cfg.ActiveModels, []string{"ext-provider-c/provider-c-model-2"}) ||
-		len(cfg.ModelRoutes) != 1 || !slices.Equal(cfg.ModelRoutes[0].Targets, []string{"ext-provider-c/provider-c-model-1"}) {
-		t.Fatalf("selections after the provider left: default %q, active %v", cfg.Agents.Defaults.ModelName, cfg.ActiveModels)
+	if cfg.DefaultModel() != "ext-provider-c/provider-c-model-1" || !slices.Equal(cfg.ActiveModels, []string{"ext-provider-c/provider-c-model-2"}) ||
+		len(cfg.Routes) != 1 || !slices.Equal(cfg.Routes[0].Targets, []string{"ext-provider-c/provider-c-model-1"}) {
+		t.Fatalf("selections after the provider left: default %q, active %v", cfg.DefaultModel(), cfg.ActiveModels)
 	}
 
 	// Another address without a secret never receives the stored one.
@@ -594,10 +582,10 @@ func TestExtensionReconnectFollowsTheServiceProviders(t *testing.T) {
 	reply = callExtras(t, app, &bodies, http.MethodPut, "/api/models/extension", map[string]any{"url": other.URL})
 	expectStatus(t, reply, http.StatusOK)
 	cfg = modelConfigOf(t, app)
-	if cfg.Extension.URL != other.URL || storedCredential(t, auth.ExtensionDaemonKey) != nil {
+	if cfg.Extension.URL != other.URL || storedCredential(t, app, extensionDaemonKey) != nil {
 		t.Fatal("the secret of the previous service was kept for another address")
 	}
-	for _, instance := range cfg.ProviderInstances {
+	for _, instance := range cfg.Instances {
 		if instance.State != "disabled" {
 			t.Fatalf("instance %s of the previous service stayed enabled", instance.ID)
 		}

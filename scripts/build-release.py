@@ -12,9 +12,9 @@ import tempfile
 import zipfile
 
 sys.dont_write_bytecode = True
-from release_contract import (INSTALLERS, PANDOC_NOTICE, PRODUCTS, TARGETS, app_inputs, archive_name, bundle_inputs,
-                              dependency_notices, git_blob_bytes, materialize_inputs, pandoc_records, release_tsv,
-                              release_version, validate_member_set)
+from release_contract import (COMPA_NOTICE, INSTALLERS, PANDOC_NOTICE, PRODUCTS, TARGETS, app_inputs, archive_name,
+                              binary_modules, bundle_inputs, dependency_notices, git_blob_bytes, materialize_inputs,
+                              pandoc_records, release_tsv, release_version, take_compa, validate_member_set)
 
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -63,6 +63,7 @@ def write_archive(path, files):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--out", type=Path, required=True)
+    parser.add_argument("--downloads", type=Path, help="Folder that keeps Compa's release archives between builds")
     parser.add_argument("--targets", nargs="+", choices=TARGETS, default=list(TARGETS))
     parser.add_argument("--version", help="Release SemVer, injected into both independently built binaries")
     args = parser.parse_args()
@@ -88,6 +89,9 @@ def main():
         bundle_files = materialize_inputs(ROOT, commit, bundle_files, temporary / "source")
         static_app_files = materialize_inputs(ROOT, commit, static_app_files, temporary / "source")
         static_core_files = materialize_inputs(ROOT, commit, [(ROOT / "LICENSE", "LICENSE")], temporary / "source")
+        downloads = args.downloads.resolve() if args.downloads else temporary / "downloads"
+        downloads.mkdir(parents=True, exist_ok=True)
+        (temporary / "modules").mkdir()
 
         def archive_product(product, target, files):
             name = archive_name(product, release, target)
@@ -115,10 +119,13 @@ def main():
             archive_product("core", target, [
                 (core, core.name), *static_core_files, (core_notice, "THIRD_PARTY_NOTICES.txt"),
             ])
+            compa = take_compa(target, downloads, temporary / "compa" / target.replace("/", "_"))
+            kernel_modules = binary_modules(compa[0][0], env, temporary / "modules")
             app_notice = temporary / "app-notices.txt"
-            app_notice.write_bytes(dependency_notices(APP, ".", env) + PANDOC_NOTICE.encode("utf-8"))
+            app_notice.write_bytes(dependency_notices(APP, ".", env, kernel_modules) +
+                                   COMPA_NOTICE.encode("utf-8") + PANDOC_NOTICE.encode("utf-8"))
             archive_product("app", target, [
-                (app, app.name), *static_app_files, (app_notice, "app/THIRD_PARTY_NOTICES.txt"),
+                (app, app.name), *static_app_files, *compa, (app_notice, "app/THIRD_PARTY_NOTICES.txt"),
             ])
         archive_product("bundle", "universal", bundle_files)
     for name in INSTALLERS:

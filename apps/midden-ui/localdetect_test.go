@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -8,8 +9,6 @@ import (
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/xibodev/compa/pkg/config"
 )
 
 func localFakeServer(t *testing.T, path, body string) *httptest.Server {
@@ -59,12 +58,12 @@ func TestLocalDetectionFindsLoopbackServersAndTheirInstances(t *testing.T) {
 
 	// An instance already reaches the compatible server, by another name for
 	// the loopback address; a disabled one reaches the Ollama server.
-	if err := app.updateModelConfig(func(cfg *config.Config) error {
-		cfg.ProviderInstances = append(cfg.ProviderInstances,
-			&config.ProviderInstanceConfig{ID: "lm-local", ProviderKind: "custom_openai", Adapter: config.ProviderAdapterOpenAICompatible, Protocol: "openai",
-				Endpoint: strings.Replace(compatible.URL, "127.0.0.1", "localhost", 1) + "/v1/", State: config.ProviderInstanceStateEnabled},
-			&config.ProviderInstanceConfig{ID: "ollama-local", ProviderKind: "ollama", Adapter: config.ProviderAdapterNative, Protocol: "ollama",
-				Endpoint: ollama.URL, State: config.ProviderInstanceStateDisabled},
+	if err := app.updateModelConfig(context.Background(), func(cfg *kernelConfig) error {
+		cfg.Instances = append(cfg.Instances,
+			&providerInstance{ID: "lm-local", ProviderKind: "custom_openai", Adapter: adapterOpenAI, Protocol: "openai",
+				Endpoint: strings.Replace(compatible.URL, "127.0.0.1", "localhost", 1) + "/v1/", State: instanceEnabled},
+			&providerInstance{ID: "ollama-local", ProviderKind: "ollama", Adapter: adapterNative, Protocol: "ollama",
+				Endpoint: ollama.URL, State: instanceDisabled},
 		)
 		return nil
 	}); err != nil {

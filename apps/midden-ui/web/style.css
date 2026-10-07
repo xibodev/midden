@@ -184,7 +184,7 @@ summary { cursor: pointer; font-size: .85rem; font-weight: 600; min-height: 32px
 /* Assistant */
 body[data-route="assistant"] main { overflow: hidden; padding: 0; display: flex; flex-direction: column; }
 .assistant-view { flex: 1; min-height: 0; display: flex; flex-direction: column; }
-.host-notice { padding: 7px 18px; background: #faf1df; border-bottom: 1px solid #e0d2b5; color: #694a24; font-size: .78rem; overflow-wrap: anywhere; flex-shrink: 0; }
+.app-notice { padding: 7px 18px; background: #faf1df; border-bottom: 1px solid #e0d2b5; color: #694a24; font-size: .78rem; overflow-wrap: anywhere; flex-shrink: 0; }
 .setup-notice { padding: 8px 18px; background: #fff0e9; border-bottom: 1px solid #e5b9a9; color: #8a3526; font-size: .82rem; flex-shrink: 0; max-height: 9rem; overflow: auto; overflow-wrap: anywhere; }
 .assistant-layout { flex: 1; min-height: 0; display: grid; grid-template-columns: 250px minmax(0, 1fr); }
 .sessions-pane { display: flex; flex-direction: column; min-height: 0; min-width: 0; background: #f6f7f2; border-right: 1px solid var(--line); }
@@ -196,10 +196,10 @@ body[data-route="assistant"] main { overflow: hidden; padding: 0; display: flex;
 .session-list button strong { font-size: .86rem; font-weight: 600; display: block; }
 .session-list button small { display: block; margin-top: 3px; font-size: .72rem; }
 .session-list button[aria-current="true"] { background: #dfe8dc; border-color: #bbcdb7; }
-.bundles { padding: 10px 14px; border-top: 1px solid var(--line); max-height: 40%; overflow: auto; }
-.bundles ul { list-style: none; padding: 0; margin: 6px 0 0; }
-.bundles li { padding: 6px 0; font-size: .8rem; }
-.bundles li strong { display: block; margin-bottom: 2px; font-weight: 600; }
+.skills { padding: 10px 14px; border-top: 1px solid var(--line); max-height: 40%; overflow: auto; }
+.skills ul { list-style: none; padding: 0; margin: 6px 0 0; }
+.skills li { padding: 6px 0; font-size: .8rem; }
+.skills li strong { display: block; margin-bottom: 2px; font-weight: 600; }
 .chat-pane { min-width: 0; min-height: 0; display: flex; flex-direction: column; background: var(--paper); }
 .chat-heading { padding: 14px 24px; border-bottom: 1px solid var(--line); display: flex; justify-content: space-between; gap: 16px; align-items: center; }
 .chat-heading > div:first-child { min-width: 0; }
@@ -257,7 +257,7 @@ body[data-route="assistant"] main { overflow: hidden; padding: 0; display: flex;
   .pill, #modelChip { max-width: 100%; }
   .notice { padding: 6px 12px; gap: 4px; }
   .notice > span { flex-basis: 100%; min-width: 0; max-height: 3em; overflow: auto; font-size: .8rem; }
-  .host-notice { padding: 7px 12px; max-height: 5.5em; overflow: auto; }
+  .app-notice { padding: 7px 12px; max-height: 5.5em; overflow: auto; }
   .layout { display: flex; flex-direction: column; }
   nav.side { flex-direction: row; overflow-x: auto; border-right: 0; border-bottom: 1px solid var(--line); padding: 6px 8px; gap: 2px; flex-shrink: 0; }
   nav.side a { white-space: nowrap; padding: 8px 10px; }
@@ -268,7 +268,7 @@ body[data-route="assistant"] main { overflow: hidden; padding: 0; display: flex;
   table.sessions th:nth-child(3), table.sessions td:nth-child(3) { display: none; }
   .assistant-layout { display: flex; flex-direction: column; }
   .sessions-pane { max-height: 30%; flex-shrink: 0; border-right: 0; border-bottom: 1px solid var(--line); }
-  .bundles { display: none; }
+  .skills { display: none; }
   .chat-heading { padding: 8px 12px; gap: 8px; }
   .chat-heading h1 { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 1rem; }
   .chat-scroll { padding: 12px; }

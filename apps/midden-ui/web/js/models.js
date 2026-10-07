@@ -4,7 +4,7 @@ let root, ctx;
 const view = { state: null, error: "", busy: "", message: "", free: null, local: null, extension: null, flows: new Map(), route: null };
 const FREE_STATUS = { answers_text: ["Answers text", "ok"], connected: ["Lists models, didn't answer", ""], busy: ["Busy (rate limited), try later", "warn"], failed: ["Failed", "warn"] };
 const SOURCE = { free: "free", key: "API key", local: "local", extension: "extension" };
-// Host messages never get to show back a secret the person just typed.
+// Messages from Midden never get to show back a secret the person just typed.
 const redact = (text, secret) => secret ? String(text).split(secret).join("[redacted]") : String(text);
 
 function targets(state) {
@@ -176,7 +176,7 @@ function extensionProvider(provider) {
 }
 
 function webLink(address, text) {
-  // Defense in depth: the host already refuses non-web sign-in addresses.
+  // Defense in depth: midden-ui already refuses non-web sign-in addresses.
   return /^https?:\/\//i.test(address || "") ? el("a", { text, attrs: { href: address, target: "_blank", rel: "noreferrer noopener" } }) : el("span", { class: "mono", text: address || "" });
 }
 

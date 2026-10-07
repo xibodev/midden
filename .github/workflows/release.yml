@@ -77,6 +77,10 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
+      # verify-release reads the modules compiled into compa-kernel with go version -m.
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: apps/midden-ui/go.mod
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'

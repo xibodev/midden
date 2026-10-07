@@ -65,7 +65,7 @@ def write_tar(path, entries, links=()):
     with tarfile.open(path, "w:gz", format=tarfile.PAX_FORMAT) as archive:
         for name, data in entries:
             info = tarfile.TarInfo(name)
-            info.mode = 0o755 if name.rsplit("/", 1)[-1] in ("midden", "midden-ui", "pandoc") else 0o644
+            info.mode = 0o755 if name.rsplit("/", 1)[-1] in ("midden", "midden-ui", "compa-kernel", "pandoc") else 0o644
             info.size = len(data)
             archive.addfile(info, io.BytesIO(data))
         for name, target in links:
@@ -179,7 +179,8 @@ exec cat "$MIDDEN_TEST_DIST/${url##*/}"
         ).encode()
         self.entries = {
             "core": [("midden", core), ("LICENSE", b"Synthetic license\n")],
-            "app": [("midden-ui", app), ("app/LICENSE", b"Synthetic license\n"), ("app/NOTICE", b"Synthetic notice\n")],
+            "app": [("midden-ui", app), ("app/compa-kernel", b"#!/bin/sh\nexit 0\n"), ("app/LICENSE", b"Synthetic license\n"),
+                    ("app/NOTICE", b"Synthetic notice\n")],
             "bundle": [("skills/" + name, ("Synthetic " + name + " " + version + "\n").encode()) for name in SKILL_NAMES],
         }
         if notices:
@@ -288,6 +289,8 @@ exec cat "$MIDDEN_TEST_DIST/${url##*/}"
         self.assertEqual(self.files(self.install), self.installed("core", "bundle", "app"))
         self.assertEqual((self.install / "app" / "tools" / "pandoc").read_bytes(), self.pandoc_binary)
         self.assertEqual(self.log.read_text().splitlines(), ["core:version", "app:--version", "app:"])
+        if not WINDOWS:
+            self.assertTrue(os.access(self.install / "app" / "compa-kernel", os.X_OK), "the kernel is not executable")
         for name in ("midden", "midden-ui"):
             link = self.home / ".local" / "bin" / name
             result = self.shell("readlink " + shlex.quote(unix_path(link)))

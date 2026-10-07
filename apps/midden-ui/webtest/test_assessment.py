@@ -224,7 +224,7 @@ class AssessmentTests(BrowserCase):
         ]
         self.open()
         for index, label in enumerate(("Failed", "Cancelled", "Interrupted")):
-            expect(self.page.locator("#messages .user").nth(index).locator(".turn-outcome")).to_contain_text(f"Host status: {label}")
+            expect(self.page.locator("#messages .user").nth(index).locator(".turn-outcome")).to_contain_text(f"Turn status: {label}")
         expect(self.page.locator("#messages .turn-outcome")).to_have_count(3)
         expect(self.page.locator("#messages .assistant pre")).to_have_text("Authored response.")
         self.page.reload()

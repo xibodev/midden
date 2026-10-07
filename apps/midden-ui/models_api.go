@@ -7,10 +7,6 @@ import (
 	"net/url"
 	"sort"
 	"strings"
-
-	"github.com/xibodev/compa/pkg/auth"
-	"github.com/xibodev/compa/pkg/config"
-	"github.com/xibodev/compa/pkg/modelservice"
 )
 
 // modelState is what the Models page shows. Secrets are never part of it.
@@ -66,9 +62,9 @@ type extensionView struct {
 	Connected bool   `json:"connected"`
 }
 
-// serveModels exposes model connections managed through Compa's runtime format
-// under STATE/kernel: providers, free models, local servers, extension services,
-// routes and the default selection.
+// serveModels exposes the model connections in the kernel's own settings:
+// providers, free models, local servers, extension services, routes and the
+// default selection.
 func (a *App) serveModels(w http.ResponseWriter, r *http.Request) {
 	if a.serveModelExtras(w, r) {
 		return
@@ -127,7 +123,7 @@ func (a *App) serveModels(w http.ResponseWriter, r *http.Request) {
 			apiError(w, http.StatusBadRequest, `selection must be a model or route name, or "" to clear it`)
 			return
 		}
-		if err := a.setDefaultModel(*input.Selection); err != nil {
+		if err := a.setDefaultModel(r.Context(), *input.Selection); err != nil {
 			modelError(w, err)
 			return
 		}
@@ -151,7 +147,7 @@ func (a *App) serveModelInstance(w http.ResponseWriter, r *http.Request, rest st
 			methodNotAllowed(w, "DELETE")
 			return
 		}
-		if err := a.deleteInstance(id); err != nil {
+		if err := a.deleteInstance(r.Context(), id); err != nil {
 			modelError(w, err)
 			return
 		}
@@ -205,9 +201,9 @@ func (a *App) serveModelRoute(w http.ResponseWriter, r *http.Request, name strin
 		if !decode(w, r, &input) {
 			return
 		}
-		err = a.putRoute(name, input.Targets)
+		err = a.putRoute(r.Context(), name, input.Targets)
 	case "DELETE":
-		err = a.deleteRoute(name)
+		err = a.deleteRoute(r.Context(), name)
 	default:
 		methodNotAllowed(w, "PUT, DELETE")
 		return
@@ -262,64 +258,60 @@ func (a *App) modelStateResponse() (any, error) {
 	return a.modelState()
 }
 
-// modelState reads the stored connections, catalogs and check results.
+// modelState reads the stored connections, model lists and check results.
 func (a *App) modelState() (modelState, error) {
 	cfg, err := a.loadModelConfig()
 	if err != nil {
 		return modelState{}, err
 	}
-	store, err := modelservice.LoadCatalogs()
+	catalogs, err := loadCatalogs(a.paths.Kernel)
 	if err != nil {
 		return modelState{}, err
 	}
 	checks := a.loadModelChecks()
 	state := modelState{Roster: []rosterEntry{}, Instances: []instanceView{}, Routes: []routeView{}, ActiveModels: []string{}}
-	roster := map[string]modelservice.ProviderRosterItem{}
-	for _, item := range modelservice.ListRoster(cfg) {
+	roster := map[string]rosterItem{}
+	for _, item := range providerRoster() {
 		roster[item.ID] = item
 		state.Roster = append(state.Roster, rosterEntry{ID: item.ID, Label: item.Label, Adapter: item.Adapter, Protocol: item.Protocol,
 			AuthMethods: append([]string{}, item.AuthMethods...), DefaultEndpoint: item.DefaultEndpoint,
-			RequiresAPIKey: item.RequiresAPIKey, RequiresBaseURL: item.RequiresBaseURL, Keyless: item.AnonymousAutomation})
+			RequiresAPIKey: item.RequiresAPIKey, RequiresBaseURL: item.RequiresBaseURL, Keyless: item.Keyless})
 	}
-	for _, instance := range cfg.ProviderInstances {
-		if instance != nil {
-			state.Instances = append(state.Instances, instanceViewOf(instance, roster, store, checks[instance.ID]))
-		}
+	for _, instance := range cfg.Instances {
+		state.Instances = append(state.Instances, a.instanceViewOf(instance, roster, catalogs, checks[instance.ID]))
 	}
-	for _, route := range cfg.ModelRoutes {
-		if route != nil {
-			state.Routes = append(state.Routes, routeView{Name: route.Name, Targets: append([]string{}, route.Targets...)})
-		}
+	for _, route := range cfg.Routes {
+		state.Routes = append(state.Routes, routeView{Name: route.Name, Targets: append([]string{}, route.Targets...)})
 	}
 	sort.Slice(state.Routes, func(i, j int) bool { return state.Routes[i].Name < state.Routes[j].Name })
 	state.ActiveModels = append(state.ActiveModels, cfg.ActiveModels...)
 	if cfg.Extension != nil {
 		state.Extension = extensionView{URL: cfg.Extension.URL, Connected: strings.TrimSpace(cfg.Extension.URL) != ""}
 	}
-	status := selectionStatus(cfg)
+	status := selectionStatus(a.paths.Kernel, cfg)
 	state.DefaultModel, state.Configured, state.SetupError = status.DefaultModel, status.Configured, status.SetupError
 	return state, nil
 }
 
 // instanceViewOf shows one connection with its chat models and their checks.
-func instanceViewOf(instance *config.ProviderInstanceConfig, roster map[string]modelservice.ProviderRosterItem, store *modelservice.CatalogStore, checks map[string]modelCheck) instanceView {
+func (a *App) instanceViewOf(instance *providerInstance, roster map[string]rosterItem, catalogs map[string]*catalogEntry, checks map[string]modelCheck) instanceView {
 	item, known := roster[instance.ProviderKind]
 	view := instanceView{ID: instance.ID, Label: instance.ID, ProviderKind: instance.ProviderKind, Adapter: instance.Adapter,
-		Protocol: instance.Protocol, Endpoint: instance.Endpoint, State: string(instance.State),
-		CredentialReady: credentialReady(instance, item, known), Source: instanceSource(instance, item, known),
+		Protocol: instance.Protocol, Endpoint: instance.Endpoint, State: instance.State,
+		CredentialReady: a.credentialReady(instance, item, known), Source: instanceSource(instance, item, known),
 		Models: []catalogModelView{}, Checks: map[string]modelCheck{}}
-	if name, _ := instance.Settings[config.ExtensionDisplayNameSetting].(string); strings.TrimSpace(name) != "" {
-		view.Label = strings.TrimSpace(name)
+	if name := instance.setting(settingDisplayName); name != "" {
+		view.Label = name
 	} else if known && item.Label != "" {
 		view.Label = item.Label
 	}
-	entry := store.Entries[instance.ID]
-	if !modelservice.ValidInstanceCatalog(instance.ID, entry, instance) {
+	entry := catalogs[instance.ID]
+	if !validCatalog(instance.ID, entry, instance) {
 		return view
 	}
 	for _, model := range entry.Models {
 		id := strings.TrimSpace(model.ID)
-		if _, err := config.ParseExactModelTarget(instance.ID + "/" + id); err != nil || !modelservice.ServesChat(model.Surfaces) {
+		if _, err := parseExactTarget(instance.ID + "/" + id); err != nil || !servesChat(model.Surfaces) {
 			continue
 		}
 		view.Models = append(view.Models, catalogModelView{ID: id, DisplayName: strings.TrimSpace(model.DisplayName)})
@@ -331,13 +323,13 @@ func instanceViewOf(instance *config.ProviderInstanceConfig, roster map[string]m
 }
 
 // instanceSource tells where a connection comes from.
-func instanceSource(instance *config.ProviderInstanceConfig, item modelservice.ProviderRosterItem, known bool) string {
+func instanceSource(instance *providerInstance, item rosterItem, known bool) string {
 	switch {
-	case strings.EqualFold(strings.TrimSpace(instance.Adapter), config.ProviderAdapterExtension):
+	case strings.EqualFold(strings.TrimSpace(instance.Adapter), adapterExtension):
 		return "extension"
 	case loopbackEndpoint(instance.Endpoint):
 		return "local"
-	case strings.TrimSpace(instance.AuthConnectionRef) == "" && known && item.AnonymousAutomation:
+	case strings.TrimSpace(instance.AuthConnectionRef) == "" && known && item.Keyless:
 		return "free"
 	}
 	return "key"
@@ -354,22 +346,21 @@ func loopbackEndpoint(endpoint string) bool {
 }
 
 // credentialReady reports whether the credential a connection needs is stored.
-func credentialReady(instance *config.ProviderInstanceConfig, item modelservice.ProviderRosterItem, known bool) bool {
+func (a *App) credentialReady(instance *providerInstance, item rosterItem, known bool) bool {
 	if ref := strings.TrimSpace(instance.AuthConnectionRef); ref != "" {
-		_, err := modelservice.ResolveCredentialReference(ref)
+		_, err := resolveCredentialRef(a.paths.Kernel, ref)
 		return err == nil
 	}
-	if instance.ExtensionProvider() != "" {
-		kind, _ := instance.Settings[config.ExtensionCredentialSetting].(string)
-		switch strings.ToLower(strings.TrimSpace(kind)) {
+	if instance.extensionProvider() != "" {
+		switch strings.ToLower(instance.setting(settingExtensionCredential)) {
 		case "none":
 			return true
 		case "oauth":
-			key, _ := instance.Settings[config.ExtensionCredentialKeySetting].(string)
-			if strings.TrimSpace(key) == "" {
+			key := instance.setting(settingExtensionCredentialKey)
+			if key == "" {
 				return false
 			}
-			credential, err := auth.GetCredential(strings.TrimSpace(key))
+			credential, err := kernelAuth(a.paths.Kernel).get(key)
 			return err == nil && credential != nil && (credential.AccessToken != "" || credential.RefreshToken != "")
 		}
 		return false

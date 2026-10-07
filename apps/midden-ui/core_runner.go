@@ -31,8 +31,8 @@ type coreOutput struct {
 	StderrClipped bool
 }
 
-// runCore runs the core in the workspace with the host's core state and the
-// launch-time source roots. The error is the process error, if any.
+// runCore runs the core in the person's files, with the person's own Core
+// state. The error is the process error, if any.
 func (a *App) runCore(ctx context.Context, args []string) (coreOutput, error) {
 	result := coreOutput{ExitCode: -1}
 	select {
@@ -42,7 +42,7 @@ func (a *App) runCore(ctx context.Context, args []string) (coreOutput, error) {
 		return result, ctx.Err()
 	}
 	cmd := exec.CommandContext(ctx, a.opts.Core, args...)
-	cmd.Dir = a.opts.Workspace
+	cmd.Dir = a.paths.Files
 	cmd.Env = a.coreEnv()
 	cmd.WaitDelay = 5 * time.Second
 	stdout := boundedOutput{max: coreStdoutLimit}
@@ -58,19 +58,24 @@ func (a *App) runCore(ctx context.Context, args []string) (coreOutput, error) {
 	return result, err
 }
 
-// coreEnv drops inherited MIDDEN_* settings; the host supplies its own.
+// coreEnv is the person's environment, so Core keeps the one state it has at
+// a terminal, with the settings the App was started with on top.
 func (a *App) coreEnv() []string {
+	overrides := map[string]string{}
+	for _, values := range []map[string]string{a.opts.SourceEnv, a.opts.CoreEnv} {
+		for key, value := range values {
+			overrides[strings.ToUpper(key)] = key + "=" + value
+		}
+	}
 	env := []string{}
 	for _, entry := range os.Environ() {
 		key, _, _ := strings.Cut(entry, "=")
-		if strings.HasPrefix(strings.ToUpper(key), "MIDDEN_") {
-			continue
+		if _, replaced := overrides[strings.ToUpper(key)]; !replaced {
+			env = append(env, entry)
 		}
-		env = append(env, entry)
 	}
-	env = append(env, "MIDDEN_HOME="+filepath.Join(a.opts.State, "core"))
-	for key, value := range a.opts.SourceEnv {
-		env = append(env, key+"="+value)
+	for _, entry := range overrides {
+		env = append(env, entry)
 	}
 	return env
 }
@@ -181,14 +186,15 @@ func (a *App) validateCoreArgs(args []string) error {
 	return nil
 }
 
-// newDestination accepts only a path inside the workspace that does not exist yet.
+// newDestination accepts only a path among the person's files that does not
+// exist yet.
 func (a *App) newDestination(name string) error {
 	if err := a.writePath(name); err != nil {
 		return err
 	}
 	path := name
 	if !filepath.IsAbs(path) {
-		path = filepath.Join(a.opts.Workspace, path)
+		path = filepath.Join(a.paths.Files, path)
 	}
 	if _, err := os.Lstat(path); err == nil {
 		return fmt.Errorf("output destination already exists; choose a new path")

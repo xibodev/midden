@@ -282,7 +282,7 @@ class PowerShellInstallerTests(unittest.TestCase):
             "core": {"midden.exe": self.probe, "LICENSE": b"Synthetic license.\n",
                      "THIRD_PARTY_NOTICES.txt": b"Synthetic core notices.\n"},
             "bundle": bundle,
-            "app": {"midden-ui.exe": self.probe, "app/LICENSE": b"Synthetic license.\n",
+            "app": {"midden-ui.exe": self.probe, "app/compa-kernel.exe": b"Synthetic kernel, never executed.\n", "app/LICENSE": b"Synthetic license.\n",
                     "app/NOTICE": b"Synthetic notice.\n", "app/THIRD_PARTY_NOTICES.txt": b"Synthetic app notices.\n"},
         }
         self.pandoc = {"pandoc-3.12/pandoc.exe": b"Synthetic Pandoc, never executed.\n",
