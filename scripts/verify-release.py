@@ -133,7 +133,12 @@ def process_alive(pid):
 def ui_smoke(binary, version, stage, env):
     output = subprocess.check_output([str(binary), "--version"], env=env, text=True, timeout=15)
     assert output.strip() == "midden-ui " + version, "App version mismatch"
-    data = stage / "user-data"
+    # Where the App keeps its data under this profile (applicationDataRoot in startup.go):
+    # LOCALAPPDATA or XDG_DATA_HOME, but Library/Application Support on macOS.
+    if platform.system() == "Darwin":
+        data = stage / "home" / "Library" / "Application Support"
+    else:
+        data = stage / "user-data"
     assert not data.exists(), "passive app version probe wrote user state"
     windows = platform.system() == "Windows"
     process = subprocess.Popen([str(binary), "--no-open", "--listen", "127.0.0.1:0"],
