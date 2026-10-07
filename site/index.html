@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="description" content="Midden reads the AI sessions that Claude Code, GitHub Copilot CLI and OpenCode record on your computer, and helps you turn them into findings, articles, presentations and longer pieces.">
+<meta name="color-scheme" content="light">
+<title>Midden: from recorded AI work to work worth sharing</title>
+<link rel="canonical" href="https://xibodev.github.io/midden/">
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="site.css">
+</head>
+<body>
+<a class="skip-link" href="#content">Skip to content</a>
+<div class="page">
+<nav class="site-nav" aria-label="Main navigation">
+<a class="brand" href="./"><img src="favicon.svg" alt="" width="30" height="30">Midden</a>
+<a class="release-tag" href="https://github.com/xibodev/midden/releases/tag/@TAG@">@TAG@</a>
+<div class="nav-links">
+<a href="#parts">What it is</a>
+<a href="#install">Install</a>
+<a href="#privacy">Privacy</a>
+<a href="https://github.com/xibodev/midden#documentation">Documentation</a>
+<a href="https://github.com/xibodev/midden">GitHub</a>
+</div>
+</nav>
+
+<main id="content">
+<header class="hero">
+<div>
+<p class="eyebrow">For people who work with AI agents</p>
+<h1>From recorded AI work to work worth sharing.</h1>
+<p class="lead">Claude Code, GitHub Copilot CLI and OpenCode already record your sessions on your computer. Midden reads them and helps you turn what happened into findings, articles, tutorials, presentations and longer pieces, each pointing back to the records it came from.</p>
+<div class="actions">
+<a class="button" href="#install">Install Midden @VERSION@</a>
+<a class="button secondary" href="https://github.com/xibodev/midden#documentation">Read the documentation</a>
+</div>
+<p class="note">Free and open source under the MIT License, for Windows, macOS and Linux on x64 and Arm64.</p>
+</div>
+<aside class="work-example" aria-labelledby="example-title">
+<p class="eyebrow">For example</p>
+<h2 id="example-title">“Write a tutorial from the sessions where I set up the release pipeline.”</h2>
+<ul class="file-stack">
+<li><code>release-pipeline.md</code><span>The tutorial, citing the session records it rests on</span></li>
+<li><code>sources/</code><span>Those records, collected into a collection you can verify</span></li>
+<li><code>release-pipeline.html</code><span>A rendered copy, when you ask for one</span></li>
+</ul>
+<p class="note">What a session only reports, such as checks that passed, is written up as reported, not as proven.</p>
+</aside>
+</header>
+
+<section id="parts" aria-labelledby="parts-title">
+<div class="section-heading">
+<p class="eyebrow">What it is</p>
+<h2 id="parts-title">Three parts. Use one, or all three.</h2>
+</div>
+<div class="cards three">
+<article>
+<h3>Core</h3>
+<p>The <code>midden</code> command lists, reads, searches and collects records from your sessions. It opens them read-only, never calls a model and makes no network connections.</p>
+<a href="https://github.com/xibodev/midden/blob/main/docs/core.md">The midden command</a>
+</article>
+<article>
+<h3>The skills</h3>
+<p>Four skills for the agent you already use: Claude Code, GitHub Copilot CLI, or an agent that reads <code>~/.agents/skills</code>. You ask for an outcome; they run <code>midden</code> and write files.</p>
+<a href="https://github.com/xibodev/midden/blob/main/docs/skills.md">The skills</a>
+</article>
+<article>
+<h3>The App</h3>
+<p>A web page on your computer with its own assistant, if you don't work in a terminal agent. Browse your sessions, collect evidence, and ask the assistant, with a free, local or paid model.</p>
+<a href="https://github.com/xibodev/midden/blob/main/docs/app.md">The App</a>
+</article>
+</div>
+</section>
+
+<section id="outcomes" aria-labelledby="outcomes-title">
+<div class="section-heading">
+<p class="eyebrow">Outcomes</p>
+<h2 id="outcomes-title">Ask for the result. The skills do the reading.</h2>
+</div>
+<div class="cards four">
+<article><p class="card-number">01</p><h3>Investigation</h3><p>What happened, what is worth writing up, and which records support it.</p></article>
+<article><p class="card-number">02</p><h3>Article</h3><p>An article, tutorial or case study in Markdown, with citations.</p></article>
+<article><p class="card-number">03</p><h3>Presentation</h3><p>Slides as Markdown and self-contained HTML, or PDF or PowerPoint when you ask.</p></article>
+<article><p class="card-number">04</p><h3>Long-form</h3><p>A handbook or guide written a part at a time, as HTML or EPUB.</p></article>
+</div>
+</section>
+
+<section id="install" aria-labelledby="install-title">
+<div class="section-heading">
+<p class="eyebrow">Install</p>
+<h2 id="install-title">One command, for your user account only.</h2>
+<p>The installer checks every download against the release's checksums and needs no administrator rights, Python, Go or Node.</p>
+</div>
+<div class="entrances">
+<div class="entrance app-entrance">
+<p class="eyebrow">The App, with Core and the skills</p>
+<h3>Windows, in PowerShell</h3>
+<pre><code>irm https://xibodev.github.io/midden/install.ps1 | iex</code></pre>
+<h3>macOS and Linux</h3>
+<pre><code>curl -fsSL https://xibodev.github.io/midden/install.sh | sh</code></pre>
+<p>Midden starts and opens in your browser; press Ctrl+C in the terminal to stop it. Later, start it from the Start menu, your Applications folder or your application menu.</p>
+</div>
+<div class="entrance">
+<p class="eyebrow">The skills for your agent, with Core</p>
+<h3>Windows, in PowerShell</h3>
+<pre><code>&amp; ([scriptblock]::Create((irm https://xibodev.github.io/midden/install.ps1))) -Mode bundle -Harness claude</code></pre>
+<h3>macOS and Linux</h3>
+<pre><code>curl -fsSL https://xibodev.github.io/midden/install.sh | sh -s -- --mode bundle --harness claude</code></pre>
+<p>Use <code>claude</code>, <code>copilot</code> or <code>agents</code> as the harness, or <code>core</code> as the mode for Core alone.</p>
+</div>
+</div>
+<p class="install-note">On macOS and Linux the commands are linked into <code>~/.local/bin</code>, which must be on your PATH. Midden's programs are not code-signed: checksums show that files are intact, not who published them. <a href="https://github.com/xibodev/midden/blob/main/docs/install.md">Options, updates and removal</a></p>
+</section>
+
+<section id="privacy" class="split" aria-labelledby="privacy-title">
+<div>
+<p class="eyebrow">Privacy</p>
+<h2 id="privacy-title">Your sessions stay where they are.</h2>
+<p>Midden works on your computer. It sends nothing anywhere unless you connect a model to the App's assistant.</p>
+</div>
+<div class="limits">
+<ul>
+<li>Core opens session stores read-only, never calls a model and has no network code.</li>
+<li>With the skills, your agent reads session records like any other file and sends what it reads to its own model, as usual.</li>
+<li>The App listens only on 127.0.0.1 and answers only pages opened with the key it prints at each start.</li>
+<li>What you send to the App's assistant goes to the model provider you connect, and its web tools can reach the internet.</li>
+<li>Midden sends no telemetry.</li>
+<li>Core hides recognisable credentials in what it shows. That is not a privacy review: check what you share.</li>
+</ul>
+</div>
+</section>
+</main>
+
+<footer>
+<div class="footer-links">
+<a href="https://github.com/xibodev/midden">Source</a>
+<a href="https://github.com/xibodev/midden/releases/tag/@TAG@">Release @TAG@</a>
+<a href="SHA256SUMS">SHA256SUMS</a>
+<a href="https://github.com/xibodev/midden/blob/main/LICENSE">MIT License</a>
+<a href="https://github.com/xibodev/midden/blob/main/NOTICE">Notices</a>
+</div>
+<p>The App includes Compa's compa-kernel, unchanged, under Compa's MIT License. Its installer downloads Pandoc (GPL-2.0-or-later) from Pandoc's own release.</p>
+</footer>
+</div>
+</body>
+</html>
