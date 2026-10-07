@@ -85,8 +85,9 @@ func openReadOnlyFile(path string, immutable bool) (*DB, error) {
 // OpenAt opens the index under an EXPLICIT directory rather than resolving one
 // from the environment.
 //
-// The core cache is separate from legacy editorial state. Opening it never
-// migrates or deletes an existing index.db or its associated working files.
+// The index is the core-index.db file in that directory. Opening it creates the
+// directory if needed and writes only that database and its SQLite companion
+// files.
 func OpenAt(dir string) (*DB, error) {
 	if strings.TrimSpace(dir) == "" {
 		return nil, fmt.Errorf("index directory is empty")
@@ -489,16 +490,16 @@ func (d *DB) ManifestFresh(tool, id string, srcBytes int64, srcMtime time.Time) 
 
 // Totals is the aggregate view used by reports.
 type Totals struct {
-	Sessions int64
-	Assayed  int64
-	Bytes    int64
-	Signal   int64
-	Exhaust  int64
-	Artifact int64
-	Book     int64
-	DupBytes int64
-	Images   int64
-	Clusters int64
+	Sessions int64 `json:"sessions"`
+	Assayed  int64 `json:"assayed"`
+	Bytes    int64 `json:"bytes"`
+	Signal   int64 `json:"signal"`
+	Exhaust  int64 `json:"exhaust"`
+	Artifact int64 `json:"artifact"`
+	Book     int64 `json:"bookkeeping"`
+	DupBytes int64 `json:"dup_bytes"`
+	Images   int64 `json:"images"`
+	Clusters int64 `json:"clusters"`
 }
 
 // Reclaimable is exhaust plus bookkeeping: bytes removable without losing

@@ -9,7 +9,7 @@ Deliver editable source and the requested artifact; default to self-contained
 HTML. Discovery-only requests use investigation.
 
 Read the shared [source guide](../midden-shared/sources.md) and
-[dependency guide](../midden-shared/tools.md).
+[dependency guide](../midden-shared/dependencies.md).
 
 ## Shape the talk around intent
 
@@ -50,7 +50,8 @@ python INSPECTOR slides.html --mode slides --expected-slides 5 --out inspection
 ```
 
 The inspector counts every rendered slide and fails a mismatch while retaining
-the screenshots and report.
+the screenshots and report. Without Python Playwright, take one screenshot per
+slide with a browser alone, as the inspection guide shows, and count them.
 
 **Open every screenshot with an image-viewing tool.** Check readability,
 clipping, visuals, citations, and the conclusion. HTML/CSS/report text alone is

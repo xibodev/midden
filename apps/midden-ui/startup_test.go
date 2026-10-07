@@ -4,7 +4,8 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
-	"runtime"
+	"regexp"
+	"strings"
 	"testing"
 )
 
@@ -27,47 +28,85 @@ func TestReleaseVersionFlagDoesNotCreateUserState(t *testing.T) {
 
 func TestDefaultLaunchUsesSiblingComponentsAndSeparateUserData(t *testing.T) {
 	root := t.TempDir()
-	binary := filepath.Join(root, "install", "midden-ui")
-	if err := os.MkdirAll(filepath.Dir(binary), 0700); err != nil {
-		t.Fatal(err)
+	install := filepath.Join(root, "install")
+	binary := filepath.Join(install, "midden-ui")
+	kernel := filepath.Join(install, "app", executableName("compa-kernel"))
+	tools := filepath.Join(install, "app", "tools")
+	for _, dir := range []string{tools, filepath.Join(install, "skills")} {
+		if err := os.MkdirAll(dir, 0700); err != nil {
+			t.Fatal(err)
+		}
 	}
-	if err := os.WriteFile(binary, []byte("synthetic executable location"), 0600); err != nil {
-		t.Fatal(err)
+	for _, file := range []string{binary, kernel} {
+		if err := os.WriteFile(file, []byte("synthetic executable"), 0600); err != nil {
+			t.Fatal(err)
+		}
 	}
 	data := filepath.Join(root, "user-data")
-	opts, create, err := resolveLaunchPaths(Options{}, binary, data)
+	opts, err := resolveLaunchPaths(Options{}, binary, data)
 	if err != nil {
 		t.Fatal(err)
 	}
-	core := "midden"
-	if runtime.GOOS == "windows" {
-		core += ".exe"
-	}
-	if !create || opts.Workspace != filepath.Join(data, "workspace") || opts.State != filepath.Join(data, "host-state") {
-		t.Fatalf("default launch did not separate writable data from installation: %+v", opts)
-	}
-	realBinary, _ := filepath.EvalSymlinks(binary)
-	if opts.Core != filepath.Join(filepath.Dir(realBinary), core) || opts.Bundle != filepath.Join(filepath.Dir(realBinary), "bundles") {
-		t.Fatal("default launch would resolve stale components from PATH or cwd")
+	realInstall, _ := filepath.EvalSymlinks(install)
+	if opts.Data != data || opts.Install != realInstall || opts.Core != filepath.Join(realInstall, executableName("midden")) ||
+		opts.Skills != filepath.Join(realInstall, "skills") || opts.Kernel != filepath.Join(realInstall, "app", executableName("compa-kernel")) ||
+		opts.Tools != filepath.Join(realInstall, "app", "tools") {
+		t.Fatalf("default launch did not use the installed layout: %+v", opts)
 	}
 	if _, err := os.Stat(data); !os.IsNotExist(err) {
 		t.Fatal("path resolution unexpectedly created data")
 	}
-}
-
-func TestExplicitWorkspaceRetainsItsExistingImplicitStateBinding(t *testing.T) {
-	root := t.TempDir()
-	binary := filepath.Join(root, "midden-ui")
-	if err := os.WriteFile(binary, []byte("synthetic"), 0600); err != nil {
+	if err := os.RemoveAll(filepath.Join(install, "app")); err != nil {
 		t.Fatal(err)
 	}
-	workspace := filepath.Join(root, "project")
-	opts, create, err := resolveLaunchPaths(Options{Workspace: workspace}, binary, filepath.Join(root, "default-data"))
-	if err != nil || create || opts.State != filepath.Join(workspace, ".midden-ui") {
-		t.Fatal("an existing explicit-workspace launch silently moved its state", err)
+	bare, err := resolveLaunchPaths(Options{}, binary, data)
+	if err != nil || bare.Kernel != "" || bare.Tools != "" {
+		t.Fatalf("an App without a kernel or tools: %+v %v", bare, err)
+	}
+	if _, err := resolveLaunchPaths(Options{Kernel: filepath.Join(root, "missing")}, binary, data); err == nil {
+		t.Fatal("a missing explicit kernel was accepted")
+	}
+	explicit, err := resolveLaunchPaths(Options{Data: filepath.Join(root, "elsewhere")}, binary, data)
+	if err != nil || explicit.Data != filepath.Join(root, "elsewhere") {
+		t.Fatal("an explicit data folder was not used as given", err)
 	}
 }
 
+func TestKernelEnvironmentPutsTheAppsProgramsFirst(t *testing.T) {
+	setup := kernelSetup{Home: "/data/kernel", Workspace: "/data/workspace", Skills: "/install/skills", Tools: "/install/app/tools", Install: "/install"}
+	base := []string{"Path=/person/bin", "COMPA_HOME=/person/.compa", "COMPA_CONFIG=/person/config.json", "compa_gateway_port=1", "MIDDEN_HOME=/person/.midden", "OTHER=kept"}
+	env := kernelEnv(base, setup, 18999, "token")
+	values := map[string]string{}
+	for _, entry := range env {
+		key, value, _ := strings.Cut(entry, "=")
+		if _, seen := values[strings.ToUpper(key)]; seen {
+			t.Fatalf("%s is set twice: %v", key, env)
+		}
+		values[strings.ToUpper(key)] = value
+	}
+	separator := string(os.PathListSeparator)
+	want := map[string]string{"PATH": "/install" + separator + "/install/app/tools" + separator + "/person/bin", "COMPA_HOME": "/data/kernel",
+		"COMPA_AGENTS_DEFAULTS_WORKSPACE": "/data/workspace", "COMPA_GATEWAY_HOST": "127.0.0.1", "COMPA_GATEWAY_PORT": "18999",
+		"COMPA_BUILTIN_SKILLS": "/install/skills", "COMPA_CHANNELS_WEB_TOKEN": "token", "MIDDEN_HOME": "/person/.midden", "OTHER": "kept"}
+	for key, value := range want {
+		if values[key] != value {
+			t.Fatalf("%s = %q, want %q", key, values[key], value)
+		}
+	}
+	if _, ok := values["COMPA_CONFIG"]; ok {
+		t.Fatal("another Compa's settings reached the kernel")
+	}
+	pattern := regexp.MustCompile(values["COMPA_TOOLS_ALLOW_READ_PATHS"])
+	for path, allowed := range map[string]bool{filepath.FromSlash("/install/skills"): true, filepath.FromSlash("/install/skills/midden-article/SKILL.md"): true,
+		filepath.FromSlash("/install/skills-other/x"): false, filepath.FromSlash("/data/kernel/auth.json"): false} {
+		if pattern.MatchString(filepath.Clean(path)) != allowed {
+			t.Fatalf("read allowlist on %s = %v", path, !allowed)
+		}
+	}
+	if strings.Contains(readOnlyPattern("/a,b"), ",") {
+		t.Fatal("a comma in the skills path split the allowlist")
+	}
+}
 func TestPlatformDataRootsStayOutsideVersionedInstallation(t *testing.T) {
 	root := t.TempDir()
 	home := filepath.Join(root, "home")

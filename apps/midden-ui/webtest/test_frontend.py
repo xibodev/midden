@@ -6,15 +6,15 @@ set PLAYWRIGHT_BROWSERS_PATH if installed outside Playwright's default cache.
 Optional MIDDEN_UI_SCREENSHOTS writes desktop/mobile PNGs to that directory.
 Only loopback HTTP and synthetic fixtures are used. No model calls or accounts.
 
-The host serves web/index.html, app.js and style.css at /. API errors are JSON.
-SSE uses real EventSource, including id/seq replay detection. activeTurn accepts
-a turn ID (in a session response) or {turnId, sessionId} (in host status).
-Blank API keys are omitted from PUT /api/model to preserve stored credentials.
-Compa exposes openai/anthropic compatible connections. Unsupported saved provider
-values are preserved for explicit reconnection, not silently normalized or saved.
+The host serves web/index.html, app.js, style.css and the /js view modules at /.
+The page is a journey shell with hash routes (#/sessions default, #/evidence/<id>,
+#/sources, #/files[/<path>], #/assistant[/<conversation>], #/models). API errors
+are JSON. SSE uses real EventSource, including id/seq replay detection. activeTurn
+accepts a turn ID (in a session response) or {turnId, sessionId} (in host status).
+Model connections come from the host roster in GET /api/models/state, which never
+contains secrets; blank API keys and default endpoints are omitted when connecting.
 Host notices remain visible separately from dismissible request errors.
-configured means a model was selected, not that credentials were verified.
-Only an explicit authStatus of "verified" is treated as verified authentication.
+configured means the host reported a usable default model, shown by the model chip.
 Preview fixtures use the backend's inline-script-only CSP with an opaque sandbox
 origin and no network access. They exercise runtime artifacts, not live decks.
 Call/state assertions use matching HTTP responses, not optimistic busy controls.
@@ -85,12 +85,25 @@ class MockHost:
         self.csrf = "synthetic-csrf"
         self.tokens = {self.csrf}
         self.replay = []
-        self.catalog = {"models": [{"id": "synthetic/available", "name": "Available model"},
-                                   {"id": "synthetic/other"}], "note": "Synthetic provider catalog."}
-        self.model_check = {"ok": True, "message": "Synthetic tool-capability probe succeeded."}
-        self.model = dict(provider="openai", model="synthetic-model", endpoint="",
-                          credentialRef="", configured=True, credentialConfigured=False,
-                          authStatus="Credentials are checked by the provider when used.")
+        self.versions = dict(uiVersion="test-ui", coreVersion="test-core", kernelName="Compa", kernelVersion="3.0.0")
+        self.model = dict(configured=True, defaultModel="synthetic/synthetic-model",
+                          summary="synthetic/synthetic-model", setupError="")
+        self.roster = [dict(id=kind, label=label, defaultEndpoint=f"https://{kind}.invalid/v1",
+                            requiresApiKey=True, requiresBaseUrl=False, keyless=False)
+                       for kind, label in (("openai", "OpenAI"), ("anthropic", "Anthropic"))]
+        self.instances = [dict(id="synthetic", label="Synthetic service", providerKind="custom_openai",
+                               endpoint="http://127.0.0.1:9/v1", state="enabled", credentialReady=True, source="local",
+                               models=[dict(id="synthetic-model"), dict(id="other-model")], checks={})]
+        # View tests extend this: (method, path) -> callable(handler, body or None) returning a JSON-able reply.
+        self.routes = {
+            ("GET", "/api/core/sessions"): lambda *_: dict(sessions=[], total=0, matched=0, excluded_noise=0, offset=0,
+                                                            stores_read=[], warnings=[], partial=False),
+            ("GET", "/api/core/collections"): lambda *_: dict(collections=[]),
+            ("GET", "/api/models/state"): lambda *_: dict(state=self.model_state()),
+            ("POST", "/api/models/instances"): self.connect_instance,
+            ("POST", "/api/models/instances/synthetic/check"): self.check_model,
+            ("PUT", "/api/models/default"): self.choose_default,
+        }
         self.sessions = {
             "s1": dict(id="s1", title="Research notes", messages=[], updated="2026-01-01T12:00:00Z"),
             "s2": dict(id="s2", title="Earlier conversation", updated="2026-01-01T11:00:00Z",
@@ -104,6 +117,27 @@ class MockHost:
         self.seq, self.turns = 0, 0
         self.fast_finish = None
         self.running = True
+
+    def model_state(self):
+        return dict(roster=self.roster, instances=self.instances, routes=[], activeModels=[],
+                    defaultModel=self.model.get("defaultModel", ""), extension=dict(url="", connected=False),
+                    configured=self.model.get("configured", False), setupError=self.model.get("setupError", ""))
+
+    def connect_instance(self, _handler, body):
+        entry = next(item for item in self.roster if item["id"] == body["providerKind"])
+        self.instances.append(dict(id=entry["id"], label=body.get("label") or entry["label"], providerKind=entry["id"],
+                                   endpoint=body.get("endpoint") or entry["defaultEndpoint"], state="enabled",
+                                   credentialReady=True, source="key", models=[dict(id="connected-model")], checks={}))
+        return dict(state=self.model_state())
+
+    def check_model(self, _handler, body):
+        self.instances[0]["checks"][body["model"]] = dict(status="tested")
+        return dict(status="tested", message="Synthetic tool-calling probe succeeded.")
+
+    def choose_default(self, _handler, body):
+        self.model.update(configured=bool(body["selection"]), defaultModel=body["selection"],
+                          summary=body["selection"], setupError="")
+        return dict(state=self.model_state())
 
     def emit(self, kind, **fields):
         self.seq += 1
@@ -180,20 +214,20 @@ class MockHost:
                 host.calls.append(("GET", path, None, None))
                 if ("GET", path) in host.failures:
                     return self.reply({"error": host.failures["GET", path]}, 503)
-                if path in ("/", "/app.js", "/style.css"):
+                if path in ("/", "/app.js", "/style.css") or (path.startswith(("/js/", "/css/")) and path.count("/") == 2):
                     asset = WEB / (path[1:] or "index.html")
-                    mime = {".html": "text/html", ".js": "text/javascript", ".css": "text/css"}[asset.suffix]
-                    return self.reply(asset.read_bytes() if asset.exists() else b"UI not implemented", mime=mime)
+                    mime = {".html": "text/html", ".js": "text/javascript", ".css": "text/css"}.get(asset.suffix, "text/plain")
+                    return self.reply(asset.read_bytes() if asset.exists() else b"UI not implemented", 200 if asset.exists() else 404, mime=mime)
+                if ("GET", path) in host.routes:
+                    return self.reply(host.routes["GET", path](self, None))
                 if path == "/api/status":
                     host.tokens.add(host.csrf)
-                    return self.reply(dict(workspace=host.workspace_name, workspaceId=host.workspace_id, coreVersion="test-core",
-                        kernelName="Compa", kernelVersion="v1.0.0", model=host.model, activeTurn=host.active,
-                        notice="Compa v1.0.0 released runtime. Approved shell commands run with your account; this is not an OS sandbox.",
-                        csrfToken=host.csrf, bundles=[
+                    return self.reply(dict(workspace=host.workspace_name, workspaceId=host.workspace_id, **host.versions,
+                        model=host.model, activeTurn=host.active,
+                        notice="The assistant runs commands with your account; this is not an OS sandbox.",
+                        csrfToken=host.csrf, skills=[
                             dict(name="Investigation", description="Understand source material and its limits."),
                             dict(name="Presentation", description="Create an editable, inspectable presentation.")]))
-                if path == "/api/model":
-                    return self.reply(host.model)
                 if path == "/api/sessions":
                     return self.reply({"sessions": [{key: session[key] for key in ("id", "title", "updated")}
                                                    for session in host.sessions.values()]})
@@ -223,15 +257,8 @@ class MockHost:
                     return self.reply({"error": "Missing CSRF token"}, 403)
                 if (self.command, path) in host.failures:
                     return self.reply({"error": host.failures[self.command, path]}, 409)
-                if path == "/api/model":
-                    host.model = {key: value for key, value in body.items() if key != "apiKey"}
-                    host.model["configured"] = bool(body.get("model"))
-                    host.model["credentialConfigured"] = bool(body.get("apiKey") or body.get("credentialRef"))
-                    return self.reply(host.model)
-                if path == "/api/models":
-                    return self.reply(host.catalog)
-                if path == "/api/model/check":
-                    return self.reply(host.model_check)
+                if (self.command, path) in host.routes:
+                    return self.reply(host.routes[self.command, path](self, body))
                 if path == "/api/sessions":
                     sid = f"s{len(host.sessions) + 1}"
                     host.sessions[sid] = dict(id=sid, title="New conversation", messages=[], outcomes=[], updated="2026-01-01T12:00:00Z")
@@ -337,8 +364,8 @@ class BrowserCase(unittest.TestCase):
             if method != "GET":
                 self.assertIn(token, self.host.tokens)
 
-    def open(self):
-        self.page.goto(self.url)
+    def open(self, route="#/assistant"):
+        self.page.goto(self.url + "/" + route)
         expect(self.page.locator("#connection")).to_have_text("Live updates connected")
         expect(self.page.locator("#sessionList button")).to_have_count(len(self.host.sessions))
 
@@ -381,10 +408,16 @@ class BrowserCase(unittest.TestCase):
                       (path is None or target == path)]
         self.assertEqual(unexpected, [], "Unexpected API request, including queued fetch starts")
 
-    def open_settings(self):
-        with self.api_response("GET", "/api/model"):
-            self.page.get_by_role("button", name="Settings", exact=True).click()
-        expect(self.page.get_by_label("Provider", exact=True)).to_be_enabled()
+    def nav(self, name):
+        return self.page.get_by_role("navigation", name="Main").get_by_role("link", name=name, exact=True)
+
+    def routed_session(self):
+        route = [unquote(part) for part in urlsplit(self.page.url).fragment.split("/")]
+        self.assertEqual(route[:2], ["", "assistant"], self.page.url)
+        return route[2]
+
+    def fits_width(self):
+        return self.page.evaluate("document.documentElement.scrollWidth <= innerWidth")
 
     def screenshot(self, name):
         if directory := os.environ.get("MIDDEN_UI_SCREENSHOTS"):
@@ -394,7 +427,7 @@ class BrowserCase(unittest.TestCase):
 
     def start_turn(self):
         self.page.get_by_label("Message", exact=True).fill("Help me turn these notes into a short explanation.")
-        session_id = parse_qs(urlsplit(self.page.url).fragment)["session"][0]
+        session_id = self.routed_session()
         with self.api_response("POST", f"/api/sessions/{session_id}/turn", 202):
             self.page.get_by_label("Message", exact=True).press("Control+Enter")
         expect(self.page.get_by_role("button", name="Stop", exact=True)).to_be_enabled()
@@ -403,15 +436,16 @@ class FrontendTests(BrowserCase):
     def test_boot_history_new_conversation_and_draft_preservation(self):
         self.open()
         expect(self.page.locator("#workspace")).to_have_text("Synthetic workspace")
-        expect(self.page.locator("#kernelVersion")).to_contain_text("v1.0.0")
-        expect(self.page.locator("#hostNotice")).to_be_visible()
-        expect(self.page.locator("#hostNotice")).to_contain_text("this is not an OS sandbox")
-        expect(self.page.locator("#bundles")).to_contain_text("Understand source material")
+        expect(self.page.locator("#versions")).to_contain_text("Compa 3.0.0")
+        expect(self.page.locator("#appNotice")).to_be_visible()
+        expect(self.page.locator("#appNotice")).to_contain_text("this is not an OS sandbox")
+        expect(self.page.locator("#skills")).to_contain_text("Understand source material")
         expect(self.page.locator("#fileList button")).to_have_count(2)
         self.screenshot("desktop.png")
         self.page.get_by_label("Message", exact=True).fill("Keep my unsent thought.")
         self.page.get_by_role("button", name="Earlier conversation", exact=False).click()
         expect(self.page.locator("#messages")).to_contain_text("An earlier observation.")
+        self.assertEqual(self.routed_session(), "s2")
         self.page.reload()
         expect(self.page.locator("#messages")).to_contain_text("An earlier observation.")
         self.page.get_by_label("Message", exact=True).fill("Another unsent thought.")
@@ -488,89 +522,56 @@ class FrontendTests(BrowserCase):
 
     def test_errors_keep_drafts_and_surface_failed_reads(self):
         self.host.failures["GET", "/api/files"] = "File listing unavailable"
-        self.open()
+        self.open("#/files")
         expect(self.page.locator("#filesError")).to_contain_text("File listing unavailable")
         del self.host.failures["GET", "/api/files"]
         self.page.get_by_role("button", name="Refresh files").click()
         expect(self.page.locator("#fileList button")).to_have_count(2)
+        expect(self.page.locator("#filesError")).to_be_hidden()
         self.host.failures["POST", "/api/sessions/s1/turn"] = "Turn could not start"
+        self.nav("Assistant").click()
         self.page.get_by_label("Message", exact=True).fill("Do not lose this message.")
         self.page.get_by_role("button", name="Send", exact=True).click()
         expect(self.page.locator("#notice")).to_contain_text("Turn could not start")
         expect(self.page.get_by_label("Message", exact=True)).to_have_value("Do not lose this message.")
         expect(self.page.locator("#messages .user")).to_have_count(0)
 
-    def test_settings_clear_secrets_and_report_configured_flag(self):
-        self.open()
-        self.open_settings()
-        self.page.get_by_label("Provider", exact=True).select_option("anthropic")
-        self.page.get_by_label("API key", exact=True).fill("synthetic-key-only")
-        with self.api_response("PUT", "/api/model"):
-            self.page.get_by_role("button", name="Save settings").click()
-        expect(self.page.locator("#settings")).not_to_be_visible()
-        self.open_settings()
-        expect(self.page.get_by_label("API key", exact=True)).to_have_value("")
+    def test_model_keys_are_write_only_kept_for_retry_and_never_echoed(self):
+        self.open("#/models")
+        card = self.page.locator(".prov-card").filter(has_text="OpenAI")
+        card.get_by_role("button", name="Connect", exact=True).click()
+        dialog = self.page.get_by_role("dialog", name="Connect OpenAI")
+        key = dialog.get_by_label("API key")
+        expect(key).to_be_focused()
+        expect(key).to_have_attribute("type", "password")
+        self.host.failures["POST", "/api/models/instances"] = "Rejected synthetic-key-only"
+        key.fill("synthetic-key-only")
+        with self.api_response("POST", "/api/models/instances", 409):
+            dialog.get_by_role("button", name="Connect", exact=True).click()
+        expect(dialog.get_by_role("status")).to_contain_text("Rejected")
+        expect(dialog).not_to_contain_text("synthetic-key-only")
+        expect(key).to_have_value("synthetic-key-only")
+        del self.host.failures["POST", "/api/models/instances"]
+        with self.api_response("POST", "/api/models/instances"):
+            dialog.get_by_role("button", name="Connect", exact=True).click()
+        expect(dialog).to_have_count(0)
+        expect(self.page.locator("#view-models .status-message")).to_have_text("Connected OpenAI.")
+        saved = [call[2] for call in self.host.calls if call[:2] == ("POST", "/api/models/instances")]
+        self.assertEqual(saved[-1], {"providerKind": "openai", "apiKey": "synthetic-key-only"})
         self.assertNotIn("synthetic-key-only", self.page.evaluate("JSON.stringify([localStorage, sessionStorage])"))
-        expect(self.page.get_by_label("API key", exact=True)).to_have_attribute("type", "password")
-        expect(self.page.get_by_label("Provider", exact=True)).to_have_value("anthropic")
-        expect(self.page.locator("#credentialStatus")).to_contain_text("Model selected")
-        expect(self.page.locator("#credentialStatus")).to_contain_text("authentication checked on use")
-        self.page.get_by_label("Credential reference", exact=True).fill("synthetic-reference")
-        with self.api_response("PUT", "/api/model"):
-            self.page.get_by_role("button", name="Save settings").click()
-        expect(self.page.locator("#settings")).not_to_be_visible()
-        saved = [call[2] for call in self.host.calls if call[:2] == ("PUT", "/api/model")]
-        self.assertNotIn("apiKey", saved[-1])
-        self.assertEqual(saved[-1]["credentialRef"], "synthetic-reference")
-        self.open_settings()
-        self.host.failures["PUT", "/api/model"] = "Rejected synthetic-key-only"
-        self.page.get_by_label("API key", exact=True).fill("synthetic-key-only")
-        with self.api_response("PUT", "/api/model", 409):
-            self.page.get_by_role("button", name="Save settings").click()
-        expect(self.page.locator("#modelError")).to_contain_text("Rejected")
-        expect(self.page.locator("#modelError")).not_to_contain_text("synthetic-key-only")
-        expect(self.page.get_by_label("API key", exact=True)).to_have_value("synthetic-key-only")
+        self.assertNotIn("synthetic-key-only", self.page.content())
+        card.get_by_role("button", name="Connect", exact=True).click()
+        expect(dialog.get_by_label("API key")).to_have_value("")
         self.page.keyboard.press("Escape")
-        expect(self.page.get_by_role("button", name="Settings", exact=True)).to_be_focused()
-
-    def test_blank_provider_defaults_without_an_unsupported_warning(self):
-        self.host.model.update(provider="", model="", configured=False)
-        self.open()
-        expect(self.page.locator("#modelCredential")).to_contain_text("Model not selected")
-        self.open_settings()
-        expect(self.page.get_by_label("Provider", exact=True)).to_have_value("openai")
-        expect(self.page.locator("#modelError")).not_to_be_visible()
-        expect(self.page.get_by_label("Model", exact=True)).to_have_value("")
-
-    def test_selected_model_does_not_claim_authentication_is_verified(self):
-        self.host.model.update(provider="openai", configured=True, credentialRef="")
-        self.open()
-        expect(self.page.locator("#modelCredential")).to_have_text("Model selected / authentication checked on use")
-        self.host.model["credentialConfigured"] = True
-        self.host.model["model"] = "synthetic-stored-credential-model"
-        with self.api_response("GET", "/api/status"):
-            self.host.emit("status")
-        expect(self.page.locator("#modelSummary")).to_contain_text("synthetic-stored-credential-model")
-        expect(self.page.locator("#modelCredential")).to_have_text("Model selected / authentication checked on use")
-        self.host.model["authStatus"] = "verified"
-        with self.api_response("GET", "/api/status"):
-            self.host.emit("status")
-        expect(self.page.locator("#modelCredential")).to_have_text("Model selected / authentication verified")
-
-    def test_supported_providers_keep_credential_fields_available(self):
-        self.open()
-        self.open_settings()
-        for provider in ("openai", "anthropic"):
-            self.page.get_by_label("Provider", exact=True).select_option(provider)
-            expect(self.page.get_by_role("button", name="Sign in with GitHub")).to_have_count(0)
-            expect(self.page.get_by_label("API key", exact=True)).to_be_enabled()
-            expect(self.page.get_by_label("Credential reference", exact=True)).to_be_enabled()
+        expect(dialog).to_have_count(0)
+        expect(card.get_by_role("button", name="Connect", exact=True)).to_be_focused()
 
     def test_safe_text_sandbox_preview_and_download(self):
-        self.open()
+        self.open("#/files")
         self.page.get_by_role("button", name="draft & notes.txt", exact=False).click()
         expect(self.page.locator("#fileContent")).to_contain_text("<img src=x onerror=alert(1)>")
         expect(self.page.locator("#fileContent img")).to_have_count(0)
+        self.assertEqual(self.page.evaluate("location.hash"), "#/files/draft%20%26%20notes.txt")
         with self.page.expect_download() as download:
             self.page.get_by_role("button", name="Download", exact=True).click()
         self.assertEqual(Path(download.value.path()).read_text(), self.host.contents["draft & notes.txt"])
@@ -587,7 +588,7 @@ class FrontendTests(BrowserCase):
         expect(self.page.locator("#filesError")).to_contain_text("Preview blocked by host")
 
     def test_preview_runtime_updates_itself_but_cannot_access_parent_or_network(self):
-        self.open()
+        self.open("#/files")
         self.page.get_by_role("button", name="sample.html", exact=False).click()
         for selector in ("#fileFrame", "#expandedFrame"):
             if selector == "#expandedFrame":
@@ -676,17 +677,20 @@ class FrontendTests(BrowserCase):
         self.start_turn()
         expect(self.page.get_by_role("button", name="Stop", exact=True)).to_be_enabled()
 
-    def test_settings_are_not_editable_before_configuration_loads(self):
+    def test_models_are_not_editable_before_their_state_loads(self):
         self.open()
-        with self.hold_api("GET", "/api/model") as gate:
-            self.page.get_by_role("button", name="Settings", exact=True).click()
+        models = self.page.locator("#view-models")
+        with self.hold_api("GET", "/api/models/state") as gate:
+            self.nav("Models").click()
             self.wait_for_gate(gate)
-            expect(self.page.get_by_label("Provider", exact=True)).to_be_disabled()
-            expect(self.page.get_by_role("button", name="Save settings")).to_be_disabled()
-            with self.api_response("GET", "/api/model"):
+            expect(models.get_by_role("status")).to_have_text("Loading model connections...")
+            expect(models.get_by_role("button")).to_have_count(0)
+            expect(models.get_by_role("combobox")).to_have_count(0)
+            with self.api_response("GET", "/api/models/state"):
                 gate.release.set()
-        expect(self.page.get_by_label("Provider", exact=True)).to_be_enabled()
-        expect(self.page.get_by_label("Provider", exact=True)).to_be_focused()
+        expect(self.page.get_by_label("Default model", exact=True)).to_be_enabled()
+        expect(self.page.get_by_label("Default model", exact=True)).to_have_value("synthetic/synthetic-model")
+        self.assert_no_api_calls()
 
     def test_failed_history_load_is_not_presented_as_a_loaded_conversation(self):
         self.host.failures["GET", "/api/sessions/s1"] = "Conversation could not be read"
@@ -694,7 +698,7 @@ class FrontendTests(BrowserCase):
         expect(self.page.locator("#notice")).to_contain_text("Conversation could not be read")
         expect(self.page.get_by_label("Message", exact=True)).to_be_disabled()
         del self.host.failures["GET", "/api/sessions/s1"]
-        self.page.get_by_role("button", name="Refresh host").click()
+        self.page.get_by_role("button", name="Reload Midden").click()
         expect(self.page.get_by_label("Message", exact=True)).to_be_enabled()
 
     def test_permission_and_kernel_errors_are_visible_and_recoverable(self):
@@ -711,53 +715,71 @@ class FrontendTests(BrowserCase):
         expect(self.page.locator("#turnStatus")).to_contain_text("Ready")
 
     def test_host_and_closed_event_stream_failures_offer_a_working_retry(self):
-        self.host.failures["GET", "/api/status"] = "Host not ready"
-        self.page.goto(self.url)
-        expect(self.page.locator("#notice")).to_contain_text("Host not ready")
+        self.host.failures["GET", "/api/status"] = "Midden not ready"
+        self.page.goto(self.url + "/#/assistant")
+        expect(self.page.locator("#notice")).to_contain_text("Midden not ready")
         expect(self.page.get_by_label("Message", exact=True)).to_be_disabled()
         del self.host.failures["GET", "/api/status"]
         self.page.route("**/api/events", lambda route: route.fulfill(status=204))
-        self.page.get_by_role("button", name="Refresh host").click()
+        self.page.get_by_role("button", name="Reload Midden").click()
         expect(self.page.locator("#notice")).to_contain_text("Live event stream closed")
         self.page.unroute("**/api/events")
-        self.page.get_by_role("button", name="Refresh host").click()
+        self.page.get_by_role("button", name="Reload Midden").click()
         expect(self.page.locator("#connection")).to_have_text("Live updates connected")
 
     def test_file_and_status_events_refresh_an_open_artifact_and_model_summary(self):
-        self.open()
+        self.open("#/files")
         self.page.get_by_role("button", name="draft & notes.txt", exact=False).click()
         self.page.get_by_role("button", name="Expand preview").click()
         self.host.contents["draft & notes.txt"] = "Updated by the synthetic host."
         self.original_files = dict(self.host.contents)
         self.host.emit("files_changed", path="draft & notes.txt")
         expect(self.page.locator("#expandedText")).to_have_text("Updated by the synthetic host.")
-        self.host.model["provider"] = "anthropic"
+        self.host.model["summary"] = "anthropic/synthetic-model"
         self.host.emit("status")
-        expect(self.page.locator("#modelSummary")).to_contain_text("anthropic")
+        expect(self.page.locator("#modelChip")).to_have_text("anthropic/synthetic-model")
 
     def test_mobile_navigation_keyboard_and_layout(self):
         self.page.set_viewport_size({"width": 390, "height": 844})
         self.open()
         self.assertEqual(self.page.locator("#chatScroll").evaluate("element => element.scrollTop"), 0)
         self.screenshot("mobile-chat.png")
-        self.page.get_by_role("button", name="Conversations", exact=True).click()
+        nav = self.page.get_by_role("navigation", name="Main")
+        expect(nav.get_by_role("link")).to_have_text(["Sessions", "Sources", "Files", "Assistant", "Models"])
+        bar, main = nav.bounding_box(), self.page.locator("main").bounding_box()
+        self.assertLessEqual(bar["y"] + bar["height"], main["y"] + 1, "Navigation is a bar above the view")
+        self.assertLess(bar["height"], 60, "Navigation links share one row")
+        layout = self.page.locator(".assistant-layout").bounding_box()
+        conversations, chat = self.page.locator("#sessionsPane").bounding_box(), self.page.locator("#chatPane").bounding_box()
+        self.assertLessEqual(conversations["y"] + conversations["height"], chat["y"] + 1, "Conversations sit above the chat")
+        self.assertLessEqual(conversations["height"], layout["height"] * 0.3 + 1)
         expect(self.page.locator("#sessionList")).to_be_visible()
         self.page.get_by_role("button", name="Earlier conversation", exact=False).click()
-        expect(self.page.get_by_label("Message", exact=True)).to_be_visible()
-        self.page.get_by_role("button", name="Files", exact=True).click()
+        expect(self.page.get_by_label("Message", exact=True)).to_be_focused()
+        self.nav("Files").focus()
+        self.page.keyboard.press("Enter")
+        expect(self.nav("Files")).to_have_attribute("aria-current", "page")
         self.page.get_by_role("button", name="sample.html", exact=False).click()
+        expect(self.page.locator("#fileFrame")).to_be_visible()
         self.screenshot("mobile-files.png")
-        self.page.get_by_role("button", name="Settings", exact=True).click()
-        expect(self.page.get_by_label("Provider", exact=True)).to_be_focused()
+        self.assertTrue(self.fits_width())
+        self.nav("Models").focus()
+        self.page.keyboard.press("Enter")
+        connect = self.page.locator(".prov-card").filter(has_text="OpenAI").get_by_role("button", name="Connect", exact=True)
+        connect.focus()
+        self.page.keyboard.press("Enter")
+        expect(self.page.get_by_role("dialog", name="Connect OpenAI").get_by_label("API key")).to_be_focused()
         self.page.keyboard.press("Escape")
-        self.assertTrue(self.page.evaluate("document.documentElement.scrollWidth <= innerWidth"))
-        self.page.get_by_role("button", name="Chat", exact=True).click()
+        expect(connect).to_be_focused()
+        self.assertTrue(self.fits_width())
+        self.nav("Assistant").focus()
+        self.page.keyboard.press("Enter")
         self.page.get_by_label("Message", exact=True).fill("First line")
         self.page.get_by_label("Message", exact=True).press("Enter")
         expect(self.page.get_by_label("Message", exact=True)).to_have_value("First line\n")
         for width in (320, 768, 960, 1024):
             self.page.set_viewport_size({"width": width, "height": 844})
-            self.assertTrue(self.page.evaluate("document.documentElement.scrollWidth <= innerWidth"), width)
+            self.assertTrue(self.fits_width(), width)
 
 
 if __name__ == "__main__":

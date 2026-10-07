@@ -1,12 +1,19 @@
 Midden
 
-The Midden core and canonical outcome bundles are distributed under the
+The Midden core and the skills of the Midden bundle are distributed under the
 license in LICENSE.
 
-The independently built Midden UI embeds Compa v1.0.0
-(https://github.com/xibodev/compa), an MIT-licensed runtime. Compa's license
-and upstream attribution notices are included in the UI artifact's
-THIRD_PARTY_NOTICES.txt along with the licenses of its compiled dependencies.
+The Midden app is powered by Compa (https://github.com/xibodev/compa), an
+MIT-licensed agent runtime. The app ships Compa's compa-kernel program
+unchanged from Compa's own release, with Compa's LICENSE and NOTICE in
+app/compa. The app artifact's app/THIRD_PARTY_NOTICES.txt names Compa and the
+other components from the same team in one line each, and includes the
+licenses of the other modules compiled into midden-ui and compa-kernel.
+
+The installer's app mode downloads Pandoc (https://github.com/jgm/pandoc,
+GPL-2.0-or-later) from Pandoc's own release, checks it against the SHA-256 in
+Midden's release manifest and keeps it in app/tools for the app's agent.
+Midden does not redistribute Pandoc.
 
 Core artifacts contain their own THIRD_PARTY_NOTICES.txt and do not embed
 Compa or model-provider runtimes. Dependency notices are generated from the

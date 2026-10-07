@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 )
 
-// ErrScanLocked means another CLI or UI process is already collecting source
+// ErrScanLocked means another midden process is already collecting source
 // stores and applying its result. A second scan must not overlap it: source
 // observation order is otherwise ambiguous, and an older list can resurrect
 // or delete a newer result.

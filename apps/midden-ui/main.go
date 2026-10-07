@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"embed"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -12,12 +13,10 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
-	"path/filepath"
 	"runtime"
 	"strings"
+	"syscall"
 	"time"
-
-	"github.com/xibodev/compa/pkg/config"
 )
 
 //go:embed web/*
@@ -34,16 +33,22 @@ func run() error {
 }
 
 func runArgs(args []string, output io.Writer) error {
+	if len(args) > 0 && args[0] == "kernel-hook" {
+		if len(args) != 1 {
+			return fmt.Errorf("kernel-hook takes no arguments")
+		}
+		return runKernelHook(os.Stdin, output)
+	}
 	var opts Options
 	flags := flag.NewFlagSet("midden-ui", flag.ContinueOnError)
 	flags.SetOutput(output)
-	flags.StringVar(&opts.Workspace, "workspace", "", "working directory (defaults to per-user Midden data)")
-	flags.StringVar(&opts.State, "state", "", "isolated UI/kernel state directory")
+	flags.StringVar(&opts.Data, "data", "", "the App's data folder (defaults to the per-user Midden folder)")
 	flags.StringVar(&opts.Core, "core", "", "Midden core executable (defaults to the sibling binary)")
-	flags.StringVar(&opts.Bundle, "bundle", "", "bundle directory (defaults to sibling bundles)")
+	flags.StringVar(&opts.Skills, "skills", "", "skills folder (defaults to the sibling skills folder)")
+	flags.StringVar(&opts.Kernel, "kernel", "", "compa-kernel executable (defaults to app/compa-kernel beside midden-ui)")
 	listen := flags.String("listen", "127.0.0.1:18890", "loopback listen address")
 	noOpen := flags.Bool("no-open", false, "do not open the browser automatically")
-	showVersion := flags.Bool("version", false, "print the UI release version without opening state")
+	showVersion := flags.Bool("version", false, "print the release version without opening data")
 	if err := flags.Parse(args); err != nil {
 		if err == flag.ErrHelp {
 			return nil
@@ -67,27 +72,46 @@ func runArgs(args []string, output io.Writer) error {
 		return err
 	}
 	dataRoot := ""
-	if opts.Workspace == "" {
+	if opts.Data == "" {
 		home, err := os.UserHomeDir()
 		if err != nil {
 			return err
 		}
-		dataRoot, err = applicationDataRoot(runtime.GOOS, home, os.Getenv("LOCALAPPDATA"), os.Getenv("XDG_DATA_HOME"))
-		if err != nil {
+		if dataRoot, err = applicationDataRoot(runtime.GOOS, home, os.Getenv("LOCALAPPDATA"), os.Getenv("XDG_DATA_HOME")); err != nil {
 			return err
 		}
 	}
-	var createWorkspace bool
-	opts, createWorkspace, err = resolveLaunchPaths(opts, executable, dataRoot)
+	if opts, err = resolveLaunchPaths(opts, executable, dataRoot); err != nil {
+		return err
+	}
+	host, _, err := net.SplitHostPort(*listen)
 	if err != nil {
 		return err
 	}
-	probe := exec.Command(opts.Core, "version")
-	probeOutput, err := probe.Output()
+	if ip := net.ParseIP(host); ip == nil || !ip.IsLoopback() {
+		return fmt.Errorf("listen address must use a loopback IP")
+	}
+	release, err := lockData(opts.Data)
+	if errors.Is(err, errAlreadyRunning) {
+		address, ok := runningLaunchAddress(dataPaths(opts.Data))
+		if !ok {
+			return fmt.Errorf("%w, but it does not answer; stop it and start Midden again", err)
+		}
+		fmt.Fprintln(output, "Midden is already running: "+address)
+		if !*noOpen {
+			return openBrowser(address)
+		}
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	defer release()
+	probe, err := exec.Command(opts.Core, "version").Output()
 	if err != nil {
 		return fmt.Errorf("core version probe: %w", err)
 	}
-	opts.CoreVersion = strings.TrimSpace(string(probeOutput))
+	opts.CoreVersion = strings.TrimSpace(string(probe))
 	if !strings.HasPrefix(opts.CoreVersion, "midden ") {
 		return fmt.Errorf("not a Midden core executable")
 	}
@@ -97,36 +121,29 @@ func runArgs(args []string, output io.Writer) error {
 			opts.SourceEnv[key] = value
 		}
 	}
-	if err := protectSourceStores(opts); err != nil {
-		return err
-	}
-	host, _, err := net.SplitHostPort(*listen)
-	if err != nil {
-		return err
-	}
-	ip := net.ParseIP(host)
-	if ip == nil || !ip.IsLoopback() {
-		return fmt.Errorf("listen address must use a loopback IP")
-	}
-	if createWorkspace {
-		if err := os.MkdirAll(opts.Workspace, 0700); err != nil {
-			return err
-		}
-	}
-	if err = os.Setenv(config.EnvHome, filepath.Join(opts.State, "kernel")); err != nil {
-		return err
-	}
-	app, err := NewApp(opts)
-	if err != nil {
-		return err
-	}
-	defer app.Close()
 	listener, err := net.Listen("tcp", *listen)
 	if err != nil {
 		return err
 	}
+	app, err := NewApp(opts)
+	if err != nil {
+		listener.Close()
+		return err
+	}
+	defer app.Close()
+	if opts.Kernel != "" {
+		if err := startKernel(app, executable); err != nil {
+			app.notice = strings.TrimSpace(app.notice + " The assistant could not start: " + err.Error())
+		}
+	}
+	address := app.launchAddress(listener.Addr().String())
+	if err := writeLaunchAddress(app.paths, address); err != nil {
+		listener.Close()
+		return err
+	}
+	defer removeLaunchAddress(app.paths, address)
 	server := &http.Server{Handler: app, ReadHeaderTimeout: 10 * time.Second}
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	go func() {
 		<-ctx.Done()
@@ -134,8 +151,11 @@ func runArgs(args []string, output io.Writer) error {
 		defer cancel()
 		server.Shutdown(shutdown)
 	}()
-	address := "http://" + listener.Addr().String()
-	fmt.Fprintf(output, "Midden UI %s: %s\nWorkspace: %s\nState: %s\nKernel: Compa %s\n", version, address, opts.Workspace, opts.State, kernelVersion)
+	kernel := "not installed"
+	if app.opts.KernelVersion != "" {
+		kernel = app.opts.KernelVersion
+	}
+	fmt.Fprintf(output, "Midden App %s: %s\nYour files: %s\nPowered by Compa %s\n", version, address, app.paths.Files, kernel)
 	if !*noOpen {
 		go func() {
 			if err := openBrowser(address); err != nil {
@@ -148,4 +168,20 @@ func runArgs(args []string, output io.Writer) error {
 		return nil
 	}
 	return err
+}
+
+// startKernel starts the App's compa-kernel in the background.
+func startKernel(app *App, executable string) error {
+	kernelVersion, err := probeKernelVersion(app.opts.Kernel, app.paths.Kernel)
+	if err != nil {
+		return err
+	}
+	app.opts.KernelVersion = kernelVersion
+	kernel, err := newKernelProcess(app.kernelSetup(executable))
+	if err != nil {
+		return err
+	}
+	app.attachKernel(kernel)
+	kernel.Start()
+	return nil
 }

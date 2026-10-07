@@ -7,7 +7,7 @@ on:
       version:
         description: Version to build without a v prefix
         required: true
-        default: '0.3.1-rc.1'
+        default: '0.4.0-rc.1'
         type: string
       publish:
         description: Publish only if the matching tag already names this commit
@@ -25,8 +25,8 @@ concurrency:
 jobs:
   validate:
     uses: ./.github/workflows/validate.yml
-  ui:
-    uses: ./.github/workflows/ui-host.yml
+  app:
+    uses: ./.github/workflows/app.yml
   build:
     runs-on: ubuntu-latest
     timeout-minutes: 45
@@ -72,11 +72,15 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [windows-latest, ubuntu-latest, ubuntu-24.04-arm, macos-15-intel, macos-15]
+        os: [windows-latest, windows-11-arm, ubuntu-latest, ubuntu-24.04-arm, macos-15-intel, macos-15]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
+      # verify-release reads the modules compiled into compa-kernel with go version -m.
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: apps/midden-ui/go.mod
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
@@ -88,11 +92,11 @@ jobs:
         env:
           VERSION: ${{ needs.build.outputs.version }}
         run: python -B scripts/verify-release.py --directory "${{ runner.temp }}/release" --tag "v${{ needs.build.outputs.version }}" --commit "${{ github.sha }}" --smoke
-      - name: Consumer bootstrap lifecycle
+      - name: Install, update, verify and remove each product with the published installers
         run: python -B scripts/smoke-bootstrap.py --directory "${{ runner.temp }}/release"
   publish:
     if: github.event_name == 'push' || inputs.publish
-    needs: [validate, ui, build, smoke]
+    needs: [validate, app, build, smoke]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -118,7 +122,7 @@ jobs:
           flags=(--latest)
           if [[ "$VERSION" == *-* ]]; then flags=(--prerelease); fi
           gh release create "$TAG" "$ASSETS"/* --verify-tag "${flags[@]}" \
-            --title "Midden $TAG" --notes-file docs/RELEASE_NOTES.md
+            --title "Midden $TAG" --generate-notes
           if [[ "$VERSION" != *-* ]] && [ "${{ github.event.repository.private }}" = false ]; then
             gh workflow run pages.yml --repo "$GITHUB_REPOSITORY" --ref main -f tag="$TAG"
           fi

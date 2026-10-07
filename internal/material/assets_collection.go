@@ -115,41 +115,33 @@ func recordDigests(records []Record) map[string]map[string]bool {
 	return out
 }
 
-func assetSourceDigest(recordID, digest string, owners map[string]map[string]bool) (string, error) {
-	digests := owners[recordID]
-	if digest == "" && len(digests) == 1 {
-		for value := range digests {
-			digest = value
-		}
+func checkAssetProvenance(recordID, digest string, owners map[string]map[string]bool) error {
+	if !validCollectionDigest(digest) || !owners[recordID][digest] {
+		return fmt.Errorf("asset or omission has missing or unknown record provenance")
 	}
-	if !validCollectionDigest(digest) || !digests[digest] {
-		return "", fmt.Errorf("asset or omission has missing, ambiguous or unknown record provenance")
-	}
-	return digest, nil
+	return nil
 }
 
-func validateAssetMetadata(asset Asset, owners map[string]map[string]bool) (Asset, error) {
-	digest, err := assetSourceDigest(asset.RecordID, asset.SourceDigest, owners)
-	if err != nil {
-		return asset, err
+func validateAssetMetadata(asset Asset, owners map[string]map[string]bool) error {
+	if err := checkAssetProvenance(asset.RecordID, asset.SourceDigest, owners); err != nil {
+		return err
 	}
-	asset.SourceDigest = digest
 	if asset.ID == "" || asset.Name == "" || asset.Bytes < 0 || (asset.Digest != "" && !validCollectionDigest(asset.Digest)) {
-		return asset, fmt.Errorf("invalid asset identity, size or digest")
+		return fmt.Errorf("invalid asset identity, size or digest")
 	}
 	switch asset.Status {
 	case "copied":
 		if asset.Bytes > MaxCollectionAssetBytes || !validCollectionDigest(asset.Digest) {
-			return asset, fmt.Errorf("copied asset exceeds 16 MiB or has no valid digest")
+			return fmt.Errorf("copied asset exceeds 16 MiB or has no valid digest")
 		}
 	case "unavailable", "external_reference", "embedded", "available", "missing", "reference":
 		if asset.Path != "" {
-			return asset, fmt.Errorf("reference-only asset must not claim an output path")
+			return fmt.Errorf("reference-only asset must not claim an output path")
 		}
 	default:
-		return asset, fmt.Errorf("unsupported collection asset status")
+		return fmt.Errorf("unsupported collection asset status")
 	}
-	return asset, nil
+	return nil
 }
 
 func prepareCollectionAssets(records []Record, assets []collectionAsset) ([]collectionAsset, error) {
@@ -157,8 +149,8 @@ func prepareCollectionAssets(records []Record, assets []collectionAsset) ([]coll
 	unique := map[string]collectionAsset{}
 	var total int64
 	for _, asset := range assets {
-		metadata, err := validateAssetMetadata(asset.metadata, owners)
-		if err != nil {
+		metadata := asset.metadata
+		if err := validateAssetMetadata(metadata, owners); err != nil {
 			return nil, err
 		}
 		metadata.Path = ""
@@ -226,15 +218,13 @@ func prepareAssetOmissions(records []Record, assets []collectionAsset, omissions
 	}
 	unique := map[string]AssetOmission{}
 	for _, omission := range omissions {
-		digest, err := assetSourceDigest(omission.RecordID, omission.SourceDigest, owners)
-		if err != nil {
+		if err := checkAssetProvenance(omission.RecordID, omission.SourceDigest, owners); err != nil {
 			return nil, err
 		}
-		omission.SourceDigest = digest
-		if omission.Reason == "" || (omission.AssetID != "" && !known[identityKey(omission.AssetID, omission.RecordID, digest)]) {
+		if omission.Reason == "" || (omission.AssetID != "" && !known[identityKey(omission.AssetID, omission.RecordID, omission.SourceDigest)]) {
 			return nil, fmt.Errorf("asset omission has an empty reason or unknown asset")
 		}
-		unique[identityKey(omission.RecordID, digest, omission.AssetID, omission.Reason)] = omission
+		unique[identityKey(omission.RecordID, omission.SourceDigest, omission.AssetID, omission.Reason)] = omission
 		if len(unique) > MaxCollectionAssets {
 			return nil, fmt.Errorf("collection exceeds 256 asset omissions")
 		}

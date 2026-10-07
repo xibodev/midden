@@ -13,9 +13,9 @@ import (
 // files a user paid for, yet invisible to every listing. Deleting them or
 // leaving them unlisted are both wrong: the honest repair is to adopt them.
 //
-// It lives in the core, not in a face, because the CLI (`midden artifacts`)
-// and the standalone UI (/api/artifacts) read the same table -- a repair
-// reachable from only one of them would leave the other still wrong.
+// It lives in the core, not in a command, because every reader of the
+// artifacts table, `midden artifacts` among them, must see the same repair --
+// a repair reachable from only one of them would leave the others still wrong.
 //
 // Adopted rows carry no nugget ids and no model: the evidence behind a file
 // written before it was recorded is genuinely unknown, and inventing a

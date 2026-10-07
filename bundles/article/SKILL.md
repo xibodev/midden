@@ -10,7 +10,7 @@ Describing the work is not delivery.
 For opportunity-finding without a writing request, use investigation instead.
 
 Read the shared [source guide](../midden-shared/sources.md) and
-[dependency guide](../midden-shared/tools.md).
+[dependency guide](../midden-shared/dependencies.md).
 
 ## Work from intent and existing material
 

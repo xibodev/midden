@@ -1,7 +1,7 @@
 package main
 
 import (
-	"os"
+	"net/http"
 	"path/filepath"
 	"testing"
 )
@@ -9,9 +9,12 @@ import (
 func testOptions(t *testing.T) Options {
 	t.Helper()
 	root := t.TempDir()
-	workspace := filepath.Join(root, "workspace")
-	if err := os.Mkdir(workspace, 0700); err != nil {
-		t.Fatal(err)
-	}
-	return Options{Workspace: workspace, State: filepath.Join(root, "state"), Core: "synthetic-core"}
+	return Options{Data: filepath.Join(root, "data"), Core: "synthetic-core",
+		CoreEnv: map[string]string{"MIDDEN_HOME": filepath.Join(root, "core-state")}}
+}
+
+// keyed adds the App's launch key, as the browser sends it.
+func keyed(app *App, request *http.Request) *http.Request {
+	request.AddCookie(&http.Cookie{Name: launchCookie, Value: app.key})
+	return request
 }

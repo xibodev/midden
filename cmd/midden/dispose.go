@@ -14,6 +14,7 @@ import (
 	"github.com/xibodev/midden/internal/core"
 	"github.com/xibodev/midden/internal/dispose"
 	"github.com/xibodev/midden/internal/index"
+	"github.com/xibodev/midden/internal/material"
 	"github.com/xibodev/midden/internal/render"
 )
 
@@ -70,7 +71,19 @@ func cmdPrune(args []string) error {
 	}
 	sort.Slice(targets, func(i, j int) bool { return targets[i].Bytes > targets[j].Bytes })
 
+	type outcome struct {
+		Session  core.Session          `json:"session"`
+		Plan     dispose.Plan          `json:"plan"`
+		Verified *dispose.Verification `json:"verification,omitempty"`
+		Replaced bool                  `json:"replaced"`
+		Err      string                `json:"error,omitempty"`
+	}
+	results := []outcome{}
+
 	if len(targets) == 0 {
+		if *asJSON {
+			return emitJSON(results)
+		}
 		fmt.Printf("  %s\n", render.Dim(fmt.Sprintf(
 			"no transcripts over %d MiB — lower --min-session to consider smaller ones", *minSize)))
 		return nil
@@ -91,14 +104,6 @@ func cmdPrune(args []string) error {
 
 	workDir := filepath.Join(index.Dir(), "pruned")
 
-	type outcome struct {
-		Session  core.Session          `json:"session"`
-		Plan     dispose.Plan          `json:"plan"`
-		Verified *dispose.Verification `json:"verification,omitempty"`
-		Replaced bool                  `json:"replaced"`
-		Err      string                `json:"error,omitempty"`
-	}
-	var results []outcome
 	var totalBefore, totalAfter int64
 
 	if !*asJSON {
@@ -111,7 +116,7 @@ func cmdPrune(args []string) error {
 	}
 
 	for _, s := range targets {
-		o := outcome{Session: s}
+		o := outcome{Session: material.ListSession(s)}
 
 		if !*apply {
 			// Estimate from the stored manifest rather than rewriting.
@@ -125,7 +130,7 @@ func cmdPrune(args []string) error {
 			totalBefore += s.Bytes
 			totalAfter += s.Bytes - o.Plan.BytesPruned
 			if !*asJSON {
-				printPruneRow(s, o.Plan, nil, false)
+				printPruneRow(o.Session, o.Plan, nil, false)
 			}
 			continue
 		}
@@ -164,7 +169,7 @@ func cmdPrune(args []string) error {
 		totalBefore += p.BeforeBytes
 		totalAfter += p.AfterBytes
 		if !*asJSON {
-			printPruneRow(s, p, o.Verified, o.Replaced)
+			printPruneRow(o.Session, p, o.Verified, o.Replaced)
 		}
 	}
 
@@ -289,6 +294,15 @@ func copyOver(src, dst string) error {
 	return os.WriteFile(dst, b, 0o644)
 }
 
+// archiveRow is one transcript that archive would move (or moved, with
+// --apply) and where it goes.
+type archiveRow struct {
+	Session string    `json:"session"`
+	Tool    core.Tool `json:"tool"`
+	Bytes   int64     `json:"bytes"`
+	Target  string    `json:"target"`
+}
+
 // cmdArchive moves a session's transcript out of the tool's active path,
 // keeping a manifest so it stays understandable.
 func cmdArchive(args []string) error {
@@ -308,7 +322,11 @@ func cmdArchive(args []string) error {
 
 	sessions, errs := adapter.Collect(*sc)
 	reportErrs(errs)
+	rows := []archiveRow{}
 	if len(sessions) == 0 {
+		if *asJSON {
+			return emitJSON(rows)
+		}
 		return fmt.Errorf("no sessions match")
 	}
 
@@ -320,7 +338,6 @@ func cmdArchive(args []string) error {
 
 	root := index.Dir()
 	var moved, total int64
-	var rows []map[string]any
 
 	for _, s := range sessions {
 		if s.TranscriptPath == "" || !fileExists(s.TranscriptPath) {
@@ -334,9 +351,7 @@ func cmdArchive(args []string) error {
 		total++
 
 		dir := dispose.ArchivePath(root, string(s.Tool), s.ID)
-		rows = append(rows, map[string]any{
-			"session": s.ID, "tool": s.Tool, "bytes": s.Bytes, "target": dir,
-		})
+		rows = append(rows, archiveRow{Session: s.ID, Tool: s.Tool, Bytes: s.Bytes, Target: dir})
 
 		if !*apply {
 			continue

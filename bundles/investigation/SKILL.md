@@ -10,7 +10,7 @@ latest human goal: discovery ends with choices, while a request to develop one
 continues into the appropriate outcome skill.
 
 Read the shared [source guide](../midden-shared/sources.md) and check only the
-[dependencies](../midden-shared/tools.md) needed for this task.
+[dependencies](../midden-shared/dependencies.md) needed for this task.
 
 ## Find the real scope
 

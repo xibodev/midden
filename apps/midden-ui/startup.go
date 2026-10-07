@@ -2,14 +2,16 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
 	"time"
 )
 
-var version = "0.3.0-dev"
+var version = "0.4.0-dev"
 
 func applicationDataRoot(platform, home, local, xdg string) (string, error) {
 	if !filepath.IsAbs(home) {
@@ -36,40 +38,91 @@ func applicationDataRoot(platform, home, local, xdg string) (string, error) {
 	return root, nil
 }
 
-func resolveLaunchPaths(opts Options, executable, dataRoot string) (Options, bool, error) {
+func executableName(name string) string {
+	if runtime.GOOS == "windows" {
+		return name + ".exe"
+	}
+	return name
+}
+
+// resolveLaunchPaths completes opts from the installed layout beside
+// executable: midden, the skills folder, and in app/ the kernel and the App's
+// own programs. dataRoot is the data folder when none is given.
+func resolveLaunchPaths(opts Options, executable, dataRoot string) (Options, error) {
 	executable, err := filepath.EvalSymlinks(executable)
 	if err != nil {
-		return opts, false, fmt.Errorf("resolve installed executable: %w", err)
+		return opts, fmt.Errorf("resolve installed executable: %w", err)
 	}
-	createWorkspace := opts.Workspace == ""
-	if createWorkspace {
+	install := filepath.Dir(executable)
+	if opts.Data == "" {
 		if !filepath.IsAbs(dataRoot) {
-			return opts, false, fmt.Errorf("default application data directory must be absolute")
+			return opts, fmt.Errorf("default application data directory must be absolute")
 		}
-		opts.Workspace = filepath.Join(dataRoot, "workspace")
-		if opts.State == "" {
-			opts.State = filepath.Join(dataRoot, "host-state")
-		}
-	} else if opts.State == "" {
-		opts.State = filepath.Join(opts.Workspace, ".midden-ui")
+		opts.Data = dataRoot
 	}
 	if opts.Core == "" {
-		name := "midden"
-		if runtime.GOOS == "windows" {
-			name += ".exe"
+		opts.Core = filepath.Join(install, executableName("midden"))
+	}
+	if opts.Skills == "" {
+		opts.Skills = filepath.Join(install, "skills")
+	}
+	if opts.Kernel == "" {
+		if candidate := filepath.Join(install, "app", executableName("compa-kernel")); isFile(candidate) {
+			opts.Kernel = candidate
 		}
-		opts.Core = filepath.Join(filepath.Dir(executable), name)
+	} else if !isFile(opts.Kernel) {
+		return opts, fmt.Errorf("compa-kernel not found at %s", opts.Kernel)
 	}
-	if opts.Bundle == "" {
-		opts.Bundle = filepath.Join(filepath.Dir(executable), "bundles")
+	if tools := filepath.Join(install, "app", "tools"); isDir(tools) {
+		opts.Tools = tools
 	}
-	for _, path := range []*string{&opts.Workspace, &opts.State, &opts.Core, &opts.Bundle} {
-		*path, err = filepath.Abs(*path)
-		if err != nil {
-			return opts, false, err
+	opts.Install = install
+	for _, path := range []*string{&opts.Data, &opts.Core, &opts.Skills, &opts.Kernel, &opts.Tools, &opts.Install} {
+		if *path == "" {
+			continue
+		}
+		if *path, err = filepath.Abs(*path); err != nil {
+			return opts, err
 		}
 	}
-	return opts, createWorkspace, nil
+	if resolved, err := filepath.EvalSymlinks(opts.Skills); err == nil {
+		opts.Skills = resolved
+	}
+	return opts, nil
+}
+
+func isFile(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && info.Mode().IsRegular()
+}
+
+func isDir(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && info.IsDir()
+}
+
+// errAlreadyRunning reports another midden-ui on the same data folder.
+var errAlreadyRunning = errors.New("Midden is already running for this data folder")
+
+// lockData holds the data folder for this process; a second midden-ui finds
+// it held and opens the running App instead.
+func lockData(root string) (func(), error) {
+	if err := os.MkdirAll(root, 0o700); err != nil {
+		return nil, err
+	}
+	file, err := os.OpenFile(filepath.Join(root, "midden-ui.lock"), os.O_RDWR|os.O_CREATE, 0o600)
+	if err != nil {
+		return nil, err
+	}
+	held, err := tryLockFile(file)
+	if err != nil || !held {
+		file.Close()
+		if err == nil {
+			err = errAlreadyRunning
+		}
+		return nil, err
+	}
+	return func() { _ = unlockFile(file); _ = file.Close() }, nil
 }
 
 func openBrowser(address string) error {

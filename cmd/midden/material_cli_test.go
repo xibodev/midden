@@ -55,7 +55,7 @@ func TestOrdinaryCLIReadsAndCollectsWithoutModuleEnvelope(t *testing.T) {
 		t.Fatal("portable source collection missing", err)
 	}
 	if strings.Contains(output.String(), `"protocol"`) {
-		t.Fatal("retired module envelope leaked into normal CLI")
+		t.Fatal("module envelope leaked into normal CLI")
 	}
 }
 

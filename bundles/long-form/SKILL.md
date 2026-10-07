@@ -10,7 +10,7 @@ self-contained HTML reading copy; use EPUB when requested. Honor narrower
 chapter-only requests. A partial increment is not a finished book.
 
 Read the shared [source guide](../midden-shared/sources.md) and
-[dependency guide](../midden-shared/tools.md).
+[dependency guide](../midden-shared/dependencies.md).
 
 ## Resume the real work
 
@@ -20,7 +20,7 @@ Read neighboring chapters and the existing terminology before changing a
 chapter. Preserve useful human edits and revise the agreed files.
 
 Keep chapter order, coverage, and the next increment in an outline; evidence gaps
-in notes. These host-authored aids stay separate from the raw `sources`
+in notes. These agent-written aids stay separate from the raw `sources`
 collection, without a special project format.
 
 ## Develop the chosen increment

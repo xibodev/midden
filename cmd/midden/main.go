@@ -43,8 +43,6 @@ func main() {
 		err = cmdFind(os.Args[2:])
 	case "read", "search", "collect", "collection", "assets":
 		err = runMaterial(os.Args[1], os.Args[2:], os.Stdout)
-	case "legacy":
-		err = runLegacy(os.Args[2:], os.Stdout)
 	case "usage":
 		err = runUsage(os.Args[2:], os.Stdout)
 	case "show":
@@ -67,8 +65,6 @@ func main() {
 		err = cmdArchive(os.Args[2:])
 	case "ops":
 		err = cmdOps(os.Args[2:])
-	case "module", "agent", "ui", "reclaim", "refine", "ask", "advise", "catalog", "nuggets", "artifacts", "plugins", "plugin", "seed", "install", "summarize", "summarise", "summary", "start", "cost", "mcp":
-		err = fmt.Errorf("%q is retired from the deterministic core; use normal data commands and the separate outcome bundle", os.Args[1])
 	case "version", "--version", "-v":
 		fmt.Println("midden", version)
 	case "help", "--help", "-h":
@@ -112,7 +108,6 @@ WORK WITH MATERIAL
   collection     Inspect, read, search, select, merge, verify or export
   assets         List/extract recorded assets without fetching remote URLs
   usage          Read a source session's recorded model usage
-  legacy export  Copy legacy working data without migrating its store
 
 EXPLICIT SOURCE MAINTENANCE
   prune          Preview cleanup; source changes require explicit execution
@@ -128,8 +123,9 @@ EXAMPLES
   midden collection export sources --format markdown --out source-notes.md
 
 Use each command's --help for scope, source roots and output bounds.
-Core never invokes a model. The separate outcome bundle guides an existing AI
-CLI and operator; the host writes, renders, inspects and delivers working files.
+Core never calls a model. The Midden Bundle's skills teach the AI CLI you
+already use to run Core; that harness writes, renders, checks and delivers the
+work.
 `)
 }
 
@@ -349,6 +345,7 @@ func cmdShow(args []string) error {
 	if err != nil {
 		return err
 	}
+	s = material.RedactSession(s)
 
 	if *asJSON {
 		return emitJSON(s)
@@ -452,6 +449,9 @@ func cmdDoctor(args []string) error {
 	}
 
 	rep := report{
+		AtRisk:     []core.Session{},
+		DeadDirs:   []core.Session{},
+		Live:       []core.Session{},
 		ByTool:     map[string]int{},
 		ToolBytes:  map[string]int64{},
 		ToolStores: map[string]int64{},
@@ -466,14 +466,15 @@ func cmdDoctor(args []string) error {
 		rep.ByTool[string(s.Tool)]++
 		rep.ToolBytes[string(s.Tool)] += s.Bytes
 
+		listed := material.ListSession(s)
 		if s.Risk() != core.RiskNone {
-			rep.AtRisk = append(rep.AtRisk, s)
+			rep.AtRisk = append(rep.AtRisk, listed)
 		}
 		if !s.DirExists() {
-			rep.DeadDirs = append(rep.DeadDirs, s)
+			rep.DeadDirs = append(rep.DeadDirs, listed)
 		}
 		if s.Live != nil {
-			rep.Live = append(rep.Live, s)
+			rep.Live = append(rep.Live, listed)
 		}
 	}
 	sort.Slice(rep.AtRisk, func(i, j int) bool { return rep.AtRisk[i].Bytes > rep.AtRisk[j].Bytes })
@@ -557,7 +558,7 @@ func findOne(idOrPrefix string) (core.Session, error) {
 	}
 	fmt.Fprintf(os.Stderr, "%q matches %d sessions:\n", idOrPrefix, len(matches))
 	for _, m := range matches {
-		fmt.Fprintf(os.Stderr, "  %s  %s  %s\n", m.Tool, m.ID, core.Truncate(m.Title, 50))
+		fmt.Fprintf(os.Stderr, "  %s  %s  %s\n", m.Tool, m.ID, core.Truncate(filterText(m.Title), 50))
 	}
 	return core.Session{}, fmt.Errorf("ambiguous prefix — use more characters")
 }

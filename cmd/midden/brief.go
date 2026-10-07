@@ -12,6 +12,7 @@ import (
 	"github.com/xibodev/midden/internal/core"
 	handoffpkg "github.com/xibodev/midden/internal/handoff"
 	"github.com/xibodev/midden/internal/index"
+	"github.com/xibodev/midden/internal/material"
 	"github.com/xibodev/midden/internal/render"
 )
 
@@ -53,6 +54,10 @@ func cmdBrief(args []string) error {
 	if err != nil {
 		return fmt.Errorf("harvest: %w", err)
 	}
+	// Every surface below (JSON, handoff text, saved handoff, terminal) shows
+	// the filtered session and turns.
+	s = material.RedactSession(s)
+	hv = filterHarvest(hv)
 
 	if *asJSON {
 		return emitJSON(struct {
@@ -102,8 +107,8 @@ func cmdBrief(args []string) error {
 	return nil
 }
 
-// printHandoff moved to internal/handoff so the CLI and the web UI cannot
-// drift: a rescue brief that differs by surface is one you cannot trust.
+// printHandoff moved to internal/handoff so every caller prints the same
+// rescue brief: one that differs by caller is one you cannot trust.
 
 func indent(s, prefix string) string {
 	lines := strings.Split(s, "\n")

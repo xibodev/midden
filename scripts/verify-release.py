@@ -1,23 +1,28 @@
 """Verify release provenance, exact archive inventories and hashes; optionally run native products."""
 import argparse
 import hashlib
+import http.cookiejar
 import json
 import os
 from pathlib import Path
 import platform
 import queue
 import re
+import signal
 import subprocess
 import sys
 import tarfile
 import tempfile
 import threading
 import time
+import urllib.error
 import urllib.request
 import zipfile
 
 sys.dont_write_bytecode = True
-from release_contract import COMMIT, TARGETS, archive_name, bundle_inputs, git_blob_bytes, parse_release_tsv, release_version, safe_member, ui_inputs, validate_member_set
+from release_contract import (COMMIT, COMPA_NOTICE, COMPA_VERSION, INSTALLERS, PANDOC_NOTICE, PRODUCTS, TARGETS, XIBODEV_PREFIX,
+                              app_inputs, archive_name, bundle_inputs, compa_members, git_blob_bytes, pandoc_records,
+                              parse_release_tsv, release_version, safe_member, stray_xibodev_lines, validate_member_set)
 
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -94,13 +99,51 @@ def verify_static_source(root, commit, inputs, actual):
             raise ValueError("Static release member differs from the claimed source commit: " + name)
 
 
+def verify_kernel_notices(kernel, notice, temporary):
+    """Every module compiled into compa-kernel, after replacements, is named in the app's notices."""
+    path = Path(temporary) / "compa-kernel-check"
+    path.write_bytes(kernel)
+    info = subprocess.check_output(["go", "version", "-m", str(path)], text=True)
+    compiled = []
+    for line in info.splitlines()[1:]:
+        fields = line.strip().split("\t")
+        if fields[0] == "dep" and len(fields) >= 3:
+            compiled.append((fields[1], fields[2]))
+        elif fields[0] == "=>" and len(fields) >= 3 and compiled:
+            compiled[-1] = (fields[1], fields[2])
+    assert compiled, "compa-kernel records no compiled modules"
+    for module, version in compiled:
+        named = (f"https://{'/'.join(module.split('/')[:3])}" if module.startswith(XIBODEV_PREFIX) else f"{module} {version}")
+        assert named.encode("utf-8") in notice, "App notices omit a module compiled into compa-kernel: " + module
+
+
+def process_alive(pid):
+    if platform.system() == "Windows":
+        output = subprocess.run(["tasklist", "/FI", f"PID eq {pid}", "/NH"], capture_output=True, text=True).stdout
+        return str(pid) in output
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
 def ui_smoke(binary, version, stage, env):
     output = subprocess.check_output([str(binary), "--version"], env=env, text=True, timeout=15)
-    assert output.strip() == "midden-ui " + version, "UI version mismatch"
-    data = stage / "user-data"
-    assert not data.exists(), "passive UI version probe wrote user state"
+    assert output.strip() == "midden-ui " + version, "App version mismatch"
+    # Where the App keeps its data under this profile (applicationDataRoot in startup.go):
+    # LOCALAPPDATA or XDG_DATA_HOME, but Library/Application Support on macOS.
+    if platform.system() == "Darwin":
+        data = stage / "home" / "Library" / "Application Support"
+    else:
+        data = stage / "user-data"
+    assert not data.exists(), "passive app version probe wrote user state"
+    windows = platform.system() == "Windows"
     process = subprocess.Popen([str(binary), "--no-open", "--listen", "127.0.0.1:0"],
-                               cwd=stage, env=env, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+                               cwd=stage, env=env, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                               creationflags=subprocess.CREATE_NEW_PROCESS_GROUP if windows else 0)
     lines = queue.Queue()
     transcript = []
 
@@ -110,6 +153,7 @@ def ui_smoke(binary, version, stage, env):
 
     reader = threading.Thread(target=read, daemon=True)
     reader.start()
+    kernel_pid = None
     try:
         address = None
         deadline = time.monotonic() + 30
@@ -121,29 +165,55 @@ def ui_smoke(binary, version, stage, env):
                     break
                 continue
             transcript.append(line)
-            match = re.search(r"Midden UI [^:]+: (http://127\.0\.0\.1:[0-9]+)", line)
+            match = re.search(r"Midden App \S+: (http://127\.0\.0\.1:[0-9]+)(/\?key=[0-9a-f]{32})\s*$", line)
             if match:
-                address = match.group(1)
+                address, launch = match.group(1), match.group(1) + match.group(2)
                 break
-        assert address, "UI did not start: " + "".join(transcript)
-        with urllib.request.urlopen(address + "/api/status", timeout=10) as response:
-            status = json.load(response)
-        assert status["uiVersion"] == version and status["coreVersion"] == "midden " + version
-        assert status["kernelName"] == "Compa" and status["kernelVersion"] == "v1.0.0"
-        assert not status["model"]["configured"] and len(status["bundles"]) == 4
-        workspace = Path(status["workspace"]).resolve()
-        assert binary.parent.resolve() not in workspace.parents, "workspace is inside installed binaries"
-        with urllib.request.urlopen(address + "/", timeout=10) as response:
-            assert b"Bundle workspace" in response.read()
-    finally:
-        process.terminate()
+        assert address, "App did not start: " + "".join(transcript)
         try:
-            process.wait(timeout=10)
+            urllib.request.urlopen(address + "/api/status", timeout=10)
+            raise AssertionError("the App answered without its launch key")
+        except urllib.error.HTTPError as error:
+            assert error.code == 401, "unexpected answer without the launch key: " + str(error.code)
+        browser = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
+        with browser.open(launch, timeout=10) as response:
+            assert b"<title>Midden</title>" in response.read(), "the launch address did not open the app shell"
+        deadline = time.monotonic() + 60
+        while True:
+            with browser.open(address + "/api/status", timeout=10) as response:
+                status = json.load(response)
+            if status["kernel"]["state"] != "starting" or time.monotonic() > deadline:
+                break
+            time.sleep(0.5)
+        assert status["uiVersion"] == version and status["coreVersion"] == "midden " + version
+        assert status["kernelName"] == "Compa" and status["kernelVersion"] == COMPA_VERSION
+        assert status["kernel"]["state"] == "ready", "compa-kernel did not start: " + json.dumps(status["kernel"])
+        assert not status["model"]["configured"] and len(status["skills"]) == 4
+        workspace = Path(status["workspace"]).resolve()
+        assert binary.parent.resolve() not in workspace.parents, "the person's files are inside installed binaries"
+        kernels = list(data.glob("*/kernel/.compa.pid"))
+        assert len(kernels) == 1, "compa-kernel wrote no pid file in the App's kernel folder"
+        kernel_pid = json.loads(kernels[0].read_text(encoding="utf-8"))["pid"]
+        with browser.open(address + "/app.js", timeout=10) as response:
+            modules = re.findall(rb'from "(/js/[a-z0-9-]+\.js)"', response.read())
+        for module in modules:
+            with browser.open(address + module.decode("ascii"), timeout=10) as response:
+                assert response.headers.get_content_type() == "text/javascript", module
+    finally:
+        process.send_signal(signal.CTRL_BREAK_EVENT) if windows else process.terminate()
+        try:
+            process.wait(timeout=20)
         except subprocess.TimeoutExpired:
             process.kill()
             process.wait(timeout=5)
         process.stdout.close()
         reader.join(timeout=2)
+    if kernel_pid is not None:
+        deadline = time.monotonic() + 15
+        while process_alive(kernel_pid) and time.monotonic() < deadline:
+            time.sleep(0.3)
+        assert not process_alive(kernel_pid), "compa-kernel outlived the App"
+    assert not (stage / "home" / ".compa").exists(), "the App touched the person's own Compa home"
 
 
 def main():
@@ -163,13 +233,13 @@ def main():
     assert manifest["commit"] == args.commit, "source revision mismatch"
     if args.tag:
         assert args.tag == "v" + manifest["version"], "tag/version mismatch"
-    assert manifest["products"] == ["core", "bundle", "ui"]
+    assert manifest["products"] == list(PRODUCTS)
     targets = manifest["targets"]
     assert targets and len(set(targets)) == len(targets) and all(t in TARGETS for t in targets)
-    expected_archives = {archive_name(p, manifest["version"], t) for p in ("core", "ui") for t in targets}
+    expected_archives = {archive_name(p, manifest["version"], t) for p in ("core", "app") for t in targets}
     expected_archives.add(archive_name("bundle", manifest["version"], "universal"))
     assert set(manifest["archives"]) == expected_archives and len(manifest["archives"]) == len(expected_archives)
-    assert manifest["installers"] == ["install.ps1", "install.sh"]
+    assert manifest["installers"] == list(INSTALLERS)
     expected = expected_archives | set(manifest["installers"]) | {"build-manifest.json", "manifest.tsv"}
     checksums = {}
     for line in (root / "SHA256SUMS").read_text(encoding="utf-8").splitlines():
@@ -184,37 +254,46 @@ def main():
     tsv = parse_release_tsv((root / "manifest.tsv").read_text(encoding="utf-8"))
     assert tsv["version"] == manifest["version"] and tsv["commit"] == args.commit
     assert set(tsv["archives"].values()) == expected_archives
-    bundle_names = {name for _, name in bundle_inputs(ROOT, args.commit)}
-    ui_names = {name for _, name in ui_inputs(ROOT, args.commit)}
+    pins = {(record[2], record[0]): [] for record in pandoc_records(targets)}
+    for record in pandoc_records(targets):
+        pins[(record[2], record[0])].append(record[3:])
+    for target in targets:
+        assert [tsv["fetch"][target]] == pins[(target, "fetch")], "Pandoc pin differs from the reviewed contract: " + target
+        assert sorted(tsv["take"][target].items()) == sorted(pins[(target, "take")]), "Pandoc members differ: " + target
+    assert set(tsv["fetch"]) == set(targets)
+    bundle = bundle_inputs(ROOT, args.commit)
+    static_app = app_inputs(ROOT, args.commit)
     for key, name in tsv["archives"].items():
         product, target = key
         actual = archive_inventory(root / name)
         assert actual == tsv["files"][key], "archive bytes differ from manifest: " + name
         extension = ".exe" if target.startswith("windows/") else ""
-        core, ui = "midden" + extension, "midden-ui" + extension
+        core, app = "midden" + extension, "midden-ui" + extension
         if product == "core":
-            assert set(actual) == {core, "LICENSE", "CORE.md", "THIRD_PARTY_NOTICES.txt"}
+            assert set(actual) == {core, "LICENSE", "THIRD_PARTY_NOTICES.txt"}
             assert actual[core] == manifest["core_binaries"][target]
-            verify_static_source(ROOT, args.commit, [(ROOT / "LICENSE", "LICENSE"), (ROOT / "docs" / "CORE.md", "CORE.md")], actual)
-            assert b"github.com/xibodev/compa " not in archive_bytes(root / name, "THIRD_PARTY_NOTICES.txt")
+            verify_static_source(ROOT, args.commit, [(ROOT / "LICENSE", "LICENSE")], actual)
+            notice = archive_bytes(root / name, "THIRD_PARTY_NOTICES.txt")
+            assert b"github.com/xibodev/compa" not in notice and not stray_xibodev_lines(notice), name
         elif product == "bundle":
-            assert set(actual) == bundle_names
-            verify_static_source(ROOT, args.commit, bundle_inputs(ROOT, args.commit), actual)
+            assert set(actual) == {name for _, name in bundle}
+            verify_static_source(ROOT, args.commit, bundle, actual)
         else:
-            assert set(actual) == ui_names | {core, ui, "THIRD_PARTY_NOTICES.txt", "package-manifest.json"}
-            assert actual[core] == manifest["core_binaries"][target]
-            assert actual[ui] == manifest["ui_binaries"][target]
-            verify_static_source(ROOT, args.commit, ui_inputs(ROOT, args.commit), actual)
-            package = json.loads(archive_bytes(root / name, "package-manifest.json"))
-            assert package["kind"] == "midden-ui-release" and package["version"] == manifest["version"]
-            assert package["platform"] == target and package["source_commit"] == args.commit
-            assert package["kernel"] == "github.com/xibodev/compa v1.0.0"
-            assert package["files"] == {k: v for k, v in actual.items() if k != "package-manifest.json"}
-            assert b"github.com/xibodev/compa " in archive_bytes(root / name, "THIRD_PARTY_NOTICES.txt")
-            core_notice = archive_bytes(root / archive_name("core", manifest["version"], target), "THIRD_PARTY_NOTICES.txt")
-            assert core_notice in archive_bytes(root / name, "THIRD_PARTY_NOTICES.txt"), "UI product omitted its bundled core's notices"
+            compa = compa_members(target)
+            assert set(actual) == ({name for _, name in static_app} | {app, "app/THIRD_PARTY_NOTICES.txt"} |
+                                   {name for _, name, _ in compa}), "app inventory differs: " + name
+            assert actual[app] == manifest["app_binaries"][target]
+            for _, member, expected in compa:
+                assert actual[member] == expected, "Compa file differs from the pinned release: " + member
+            verify_static_source(ROOT, args.commit, static_app, actual)
+            notice = archive_bytes(root / name, "app/THIRD_PARTY_NOTICES.txt")
+            assert not stray_xibodev_lines(notice), "App notices may name xibodev components only in one line each: " + name
+            assert notice.endswith((COMPA_NOTICE + PANDOC_NOTICE).encode("utf-8")), \
+                "App notices must name the shipped Compa and the Pandoc the installer fetches: " + name
+            with tempfile.TemporaryDirectory(prefix="midden-kernel-") as temporary:
+                verify_kernel_notices(archive_bytes(root / name, compa[0][1]), notice, temporary)
     for name in manifest["installers"]:
-        assert (root / name).read_bytes() == git_blob_bytes(ROOT, args.commit, ROOT / "bootstrap" / name)
+        assert (root / name).read_bytes() == git_blob_bytes(ROOT, args.commit, ROOT / name)
     if args.smoke:
         system = {"Windows": "windows", "Linux": "linux", "Darwin": "darwin"}[platform.system()]
         arch = "arm64" if platform.machine().lower() in {"arm64", "aarch64"} else "amd64"
@@ -228,26 +307,22 @@ def main():
                        MIDDEN_CLAUDE_ROOT=str(stage / "sources" / "claude"),
                        MIDDEN_COPILOT_ROOT=str(stage / "sources" / "copilot"),
                        MIDDEN_OPENCODE_DB=str(stage / "sources" / "opencode.db"))
-            core_root, ui_root, bundle_root = stage / "core", stage / "ui", stage / "bundle"
-            for product, destination in (("core", core_root), ("ui", ui_root), ("bundle", bundle_root)):
-                extract_verified(root / archive_name(product, manifest["version"], "universal" if product == "bundle" else target), destination)
-            binary = core_root / ("midden.exe" if system == "windows" else "midden")
+            # The installer combines the three products in one folder; so does this check.
+            programs = stage / "programs"
+            for product in PRODUCTS:
+                extract_verified(root / archive_name(product, manifest["version"],
+                                                     "universal" if product == "bundle" else target), programs)
+            binary = programs / ("midden.exe" if system == "windows" else "midden")
             binary.chmod(0o755)
             assert subprocess.check_output([str(binary), "version"], env=env, text=True).strip() == "midden " + manifest["version"]
             subprocess.run([str(binary), "help"], env=env, check=True, stdout=subprocess.DEVNULL)
             assert not (stage / "core-state").exists(), "passive core probe wrote state"
-            ui = ui_root / ("midden-ui.exe" if system == "windows" else "midden-ui")
-            ui.chmod(0o755)
-            ui_smoke(ui, manifest["version"], stage, env)
-            project = stage / "project"
-            project.mkdir()
-            installer = bundle_root / "installer" / "install.py"
-            common = [sys.executable, "-B", str(installer), "--project", str(project)]
-            subprocess.run(common + ["--distribution-dir", str(root)], env=env, check=True)
-            subprocess.run(common + ["--verify"], env=env, check=True)
-            subprocess.run(common + ["--uninstall"], env=env, check=True)
-    print("PASS: exact release source, all product/member hashes, license inventories" +
-          (", native core/UI startup and actual CLI-bundle installation" if args.smoke else ""))
+            app = programs / ("midden-ui.exe" if system == "windows" else "midden-ui")
+            app.chmod(0o755)
+            (programs / "app" / ("compa-kernel.exe" if system == "windows" else "compa-kernel")).chmod(0o755)
+            ui_smoke(app, manifest["version"], stage, env)
+    print("PASS: exact release source, all product/member hashes, license inventories, Pandoc and Compa pins" +
+          (", native core and app startup with its kernel" if args.smoke else ""))
 
 
 if __name__ == "__main__":

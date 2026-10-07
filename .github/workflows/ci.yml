@@ -13,7 +13,7 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  core-and-distribution:
+  core-bundle-and-installer:
     uses: ./.github/workflows/validate.yml
-  ui:
-    uses: ./.github/workflows/ui-host.yml
+  app:
+    uses: ./.github/workflows/app.yml

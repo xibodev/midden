@@ -164,8 +164,8 @@ func fromUnixMS(ms int64) time.Time {
 	return time.UnixMilli(ms).Local()
 }
 
-// normaliseDir converts the forward-slash paths opencode stores into the
-// host's native separator so directory checks and cd commands work.
+// normaliseDir converts the forward-slash paths opencode stores into this
+// computer's native separator so directory checks and cd commands work.
 func normaliseDir(dir string) string {
 	d := strings.TrimSpace(dir)
 	if d == "" {

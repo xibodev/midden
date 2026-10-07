@@ -3,8 +3,8 @@
 //
 // This is the deterministic floor of the product: no model call, no cost, and
 // the only remedy for a transcript past the resume cliff. It lives in its own
-// package because both the CLI and the web UI must produce byte-identical
-// output — a rescue that differs by surface is a rescue you cannot trust.
+// package so every caller produces byte-identical output — a rescue that
+// differs by caller is a rescue you cannot trust.
 package handoff
 
 import (

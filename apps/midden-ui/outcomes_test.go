@@ -10,14 +10,14 @@ import (
 	"testing"
 )
 
+// outcomeEngine runs a turn with a function: (ctx, session, turn, text).
 type outcomeEngine struct {
-	process func(context.Context, string, string) (string, error)
+	process func(context.Context, string, string, string) (string, error)
 }
 
-func (e outcomeEngine) Process(ctx context.Context, text, id string) (string, error) {
-	return e.process(ctx, text, id)
+func (e outcomeEngine) Process(ctx context.Context, sessionID, turnID, text string) (string, error) {
+	return e.process(ctx, sessionID, turnID, text)
 }
-func (outcomeEngine) Close() {}
 
 type observedOutcome struct {
 	TurnID       string `json:"turnId"`
@@ -52,8 +52,8 @@ func TestFailedTurnOutcomeSurvivesRestart(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	app.model = Model{Provider: "openai", Model: "fixture"}
-	app.runtime = outcomeEngine{process: func(context.Context, string, string) (string, error) {
+	storeTestModel(t, app, "http://127.0.0.1:9/v1", "")
+	app.runtime = outcomeEngine{process: func(context.Context, string, string, string) (string, error) {
 		return "", errors.New("synthetic provider refused the request")
 	}}
 	s, _ := app.NewSession("failure")
@@ -75,7 +75,7 @@ func TestFailedTurnOutcomeSurvivesRestart(t *testing.T) {
 	}
 	history, _ := reopened.Session(s.ID)
 	if len(history.Messages) != 1 || history.Messages[0].Role != "user" {
-		t.Fatal("host failure must not masquerade as assistant-authored prose")
+		t.Fatal("a failed turn must not masquerade as assistant-authored prose")
 	}
 }
 
@@ -85,8 +85,8 @@ func TestCancelledTurnHasADurableOutcome(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer app.Close()
-	app.model = Model{Provider: "openai", Model: "fixture"}
-	app.runtime = outcomeEngine{process: func(ctx context.Context, _, _ string) (string, error) {
+	storeTestModel(t, app, "http://127.0.0.1:9/v1", "")
+	app.runtime = outcomeEngine{process: func(ctx context.Context, _, _, _ string) (string, error) {
 		<-ctx.Done()
 		return "", ctx.Err()
 	}}
@@ -113,7 +113,7 @@ func TestRestartMarksUnfinishedTurnInterrupted(t *testing.T) {
 	}
 	app.Close()
 	raw := `{"s":{"id":"s","title":"Interrupted work","updated":"2026-01-01T12:00:00Z","messages":[{"role":"user","content":"Write a note.","at":"2026-01-01T12:00:00Z"}],"outcomes":[{"turnId":"unfinished","status":"running","at":"2026-01-01T12:00:00Z","messageIndex":0}]}}`
-	if err := os.WriteFile(filepath.Join(opts.State, "sessions.json"), []byte(raw), 0600); err != nil {
+	if err := os.WriteFile(filepath.Join(opts.Data, "app", "sessions.json"), []byte(raw), 0600); err != nil {
 		t.Fatal(err)
 	}
 	reopened, err := NewApp(opts)
@@ -125,7 +125,7 @@ func TestRestartMarksUnfinishedTurnInterrupted(t *testing.T) {
 	if len(outcomes) != 1 || outcomes[0].Status != "interrupted" || outcomes[0].Error == "" {
 		t.Fatalf("unfinished turn was silently treated as ready: %+v", outcomes)
 	}
-	persisted, err := os.ReadFile(filepath.Join(opts.State, "sessions.json"))
+	persisted, err := os.ReadFile(filepath.Join(opts.Data, "app", "sessions.json"))
 	if err != nil || !strings.Contains(string(persisted), `"interrupted"`) {
 		t.Fatal("interrupted outcome was not saved", err)
 	}
@@ -145,14 +145,14 @@ func TestWorkspaceIdentityIsStableAndStateScoped(t *testing.T) {
 	}
 	same, _ := b.Status()["workspaceId"].(string)
 	b.Close()
-	opts.State += "-other"
+	opts.Data += "-other"
 	c, err := NewApp(opts)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer c.Close()
 	other, _ := c.Status()["workspaceId"].(string)
-	if id == "" || id != same || id == other || strings.Contains(id, opts.Workspace) {
-		t.Fatal("browser drafts cannot be scoped to a stable opaque workspace/state identity")
+	if id == "" || id != same || id == other || strings.Contains(id, opts.Data) {
+		t.Fatal("browser drafts cannot be scoped to a stable opaque identity of the App's data")
 	}
 }
