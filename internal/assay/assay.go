@@ -146,7 +146,6 @@ func (m *Manifest) ReclaimableBytes() int64 {
 }
 
 // Compression is how much smaller a session becomes when only signal is kept.
-// This is the number that decides whether salvage is affordable.
 func (m *Manifest) Compression() float64 {
 	sig := m.SignalBytes()
 	if sig <= 0 {
@@ -161,37 +160,6 @@ func (m *Manifest) SignalShare() float64 {
 		return 0
 	}
 	return float64(m.SignalBytes()) / float64(m.TotalBytes)
-}
-
-// EstTokens approximates the token cost of feeding the entire signal class to
-// a model. Usually far too large to be practical, which is the point.
-func (m *Manifest) EstTokens() int64 { return m.SignalBytes() / 4 }
-
-// SliceBytes is the size of the bounded candidate set: previews of the most
-// relevant signal records, not the whole signal class.
-//
-// This is the number that actually governs salvage cost. Signal at the record
-// level still includes megabytes of assistant output; the slice is what
-// RECLAIM sends to a model.
-func (m *Manifest) SliceBytes() int64 {
-	var n int64
-	for _, c := range m.Candidates {
-		n += int64(len(c.Preview))
-	}
-	return n
-}
-
-// EstSliceTokens is the token cost of the salvage slice.
-func (m *Manifest) EstSliceTokens() int64 { return m.SliceBytes() / 4 }
-
-// SliceCompression is total bytes over slice bytes: the real reduction
-// achieved before any model is invoked.
-func (m *Manifest) SliceCompression() float64 {
-	s := m.SliceBytes()
-	if s <= 0 {
-		return 0
-	}
-	return float64(m.TotalBytes) / float64(s)
 }
 
 // classByKind maps tool-native record kinds to a class.

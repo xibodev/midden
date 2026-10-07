@@ -21,10 +21,8 @@ type Harvester interface {
 	Harvest(s Session, maxTurns int) (Harvest, error)
 }
 
-// Harvest is what can be recovered from a session without an LLM.
-//
-// This is the deterministic floor of RECLAIM: enough context to resume the
-// work elsewhere, at zero token cost.
+// Harvest is what can be recovered from a session without a model: enough
+// context to resume the work elsewhere.
 type Harvest struct {
 	Goal          *Turn  `json:"goal,omitempty"`           // first user turn: the original ask
 	Recent        []Turn `json:"recent"`                   // most recent turns, oldest first

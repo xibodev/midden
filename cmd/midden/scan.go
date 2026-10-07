@@ -337,17 +337,6 @@ func printManifest(m *assay.Manifest, top int) {
 	fmt.Printf("  %-13s %9.1fx  %s\n", "compression", m.Compression(),
 		render.Dim(fmt.Sprintf("signal is %.1f%% of bytes", 100*m.SignalShare())))
 
-	// The slice is what RECLAIM would actually send. Signal at record level
-	// still includes megabytes of assistant output; the slice is bounded
-	// previews of the most relevant records, and it is the number that
-	// decides whether salvage is affordable.
-	if sl := m.EstSliceTokens(); sl > 0 {
-		fmt.Printf("  %-13s %8s  %s\n", "salvage slice",
-			fmt.Sprintf("~%d tok", sl),
-			render.Dim(fmt.Sprintf("%d candidates, %.0f:1 vs source — this is what a model sees",
-				len(m.Candidates), m.SliceCompression())))
-	}
-
 	if m.DuplicateReads > 0 {
 		fmt.Printf("\n  %s %d repeated tool payloads, %s\n",
 			render.Dim("duplicates:"), m.DuplicateReads, render.Bytes(m.DuplicateBytes))

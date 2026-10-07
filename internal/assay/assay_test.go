@@ -9,8 +9,7 @@ import (
 
 func TestBinaryAssetsAreArtifactsNotSignal(t *testing.T) {
 	// Regression: session.binary_asset was 382 MiB (56%) of one real session.
-	// Treating it as signal reported 1.4x compression instead of 6.3x, which
-	// would have made salvage look unaffordable.
+	// Treating it as signal reported 1.4x compression instead of 6.3x.
 	if got := Classify("session.binary_asset"); got != Artifact {
 		t.Errorf("session.binary_asset = %v, want artifact", got)
 	}
@@ -88,7 +87,7 @@ func TestManifestArithmetic(t *testing.T) {
 
 func TestManifestHandlesEmpty(t *testing.T) {
 	m := NewManifest("s", "t")
-	if m.Compression() != 0 || m.SignalShare() != 0 || m.EstTokens() != 0 {
+	if m.Compression() != 0 || m.SignalShare() != 0 {
 		t.Error("empty manifest should report zeroes, not divide by zero")
 	}
 }
@@ -187,8 +186,8 @@ func TestScannerClustersImagesByTime(t *testing.T) {
 }
 
 func TestScannerBoundsCandidates(t *testing.T) {
-	// Candidates are the salvage slice. They must stay bounded no matter how
-	// large the transcript.
+	// Candidates are previews of the most relevant records. They must stay
+	// bounded no matter how large the transcript.
 	s := NewScanner("s1", "copilot", 5)
 	for i := 0; i < 500; i++ {
 		s.Observe("user.message", "user", []byte(`{"data":{"content":"a real message here"}}`), time.Now())
@@ -201,11 +200,10 @@ func TestScannerBoundsCandidates(t *testing.T) {
 	if m.TotalRecords != 500 {
 		t.Errorf("TotalRecords = %d, want 500", m.TotalRecords)
 	}
-	if m.EstSliceTokens() == 0 {
-		t.Error("slice should have a non-zero token estimate")
-	}
-	if m.SliceCompression() <= 1 {
-		t.Errorf("SliceCompression = %.1f, want > 1", m.SliceCompression())
+	for _, c := range m.Candidates {
+		if c.Preview == "" {
+			t.Error("a candidate has no preview")
+		}
 	}
 }
 
