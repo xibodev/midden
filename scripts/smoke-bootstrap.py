@@ -12,7 +12,9 @@ import urllib.request
 
 
 def invoke(command, env, success=True):
-    result = subprocess.run(command, env=env, capture_output=True, text=True,
+    # Run inside the disposable profile. Under a profile with no AppData\Local, Windows
+    # PowerShell writes its module analysis cache relative to the working directory.
+    result = subprocess.run(command, env=env, cwd=Path(env["HOME"]).parent, capture_output=True, text=True,
                             encoding="utf-8", errors="replace", timeout=600)
     if (result.returncode == 0) != success:
         raise RuntimeError("Unexpected installer outcome:\n" + result.stdout[-5000:] + result.stderr[-5000:])
