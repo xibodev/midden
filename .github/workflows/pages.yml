@@ -1,8 +1,8 @@
 name: Pages
+# Not on push: a release's page must not go live before its installers. The
+# Release workflow runs this after each stable release; run it by hand to
+# publish a change to site/ without a release.
 on:
-  push:
-    branches: [main]
-    paths: ['site/**', 'scripts/stage-site.py', '.github/workflows/pages.yml']
   release:
     types: [published]
   workflow_dispatch:
