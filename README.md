@@ -28,8 +28,9 @@ curl -fsSL https://xibodev.github.io/midden/install.sh | sh
 ```
 
 This installs the App, with Core and the skills, for your user account only,
-then starts it and opens it in your browser. Press Ctrl+C in the terminal to
-stop it.
+then starts it and opens it in your browser. Choose **Quit Midden** in the
+page to stop it, and start it again from the Start menu, your Applications
+folder or your application menu.
 
 To install the skills for your agent, with Core:
 

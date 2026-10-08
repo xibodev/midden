@@ -41,8 +41,8 @@ The installer:
    `~/Applications/Midden.app`, on Linux an entry in your application menu.
    On macOS and Linux it links `midden` and `midden-ui` into `~/.local/bin`
    and changes no shell profile, so `~/.local/bin` must be on your PATH.
-5. Starts the App in that terminal and opens it in your browser. Press
-   Ctrl+C to stop it.
+5. Starts the App in that terminal and opens it in your browser. Choose
+   **Quit Midden** in the page, or press Ctrl+C, to stop it.
 
 ### The skills for your agent
 
