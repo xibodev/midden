@@ -112,11 +112,15 @@ stamp the release version.
 ## Website
 
 `site/` holds the page published at <https://xibodev.github.io/midden/>.
-`pages.yml` runs when `site/` changes on `main`, after each stable release,
-and on demand. It downloads the latest stable release's installers, checks
-them against the release's checksums, and `stage-site.py` puts them beside
-the page from `main`, filling in the release version. The page is published
-only if that release's commit is part of `main`.
+`pages.yml` runs after each stable release and on demand. It downloads the
+latest stable release's installers, checks them against the release's
+checksums, and `stage-site.py` puts them beside the page from `main`, filling
+in the release version. The page is published only if that release's commit
+is part of `main`.
+
+It does not run when `main` changes, so a release's page never goes live
+before its installers. To publish a change to `site/` between releases, merge
+it into `main`, then run `gh workflow run pages.yml`.
 
 ## Pins
 

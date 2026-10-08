@@ -57,7 +57,7 @@
 <div class="cards three">
 <article>
 <h3>Core</h3>
-<p>The <code>midden</code> command lists, reads, searches and collects records from your sessions. It opens them read-only, never calls a model and makes no network connections.</p>
+<p>The <code>midden</code> command lists, reads, searches and collects records from your sessions. It never calls a model or the network, and leaves your session files as they are unless you run its prune or archive commands.</p>
 <a href="https://github.com/xibodev/midden/blob/main/docs/core.md">The midden command</a>
 </article>
 <article>
@@ -121,7 +121,7 @@
 </div>
 <div class="limits">
 <ul>
-<li>Core opens session stores read-only, never calls a model and has no network code.</li>
+<li>Core opens session stores read-only, never calls a model and has no network code. Only its prune and archive commands, run with --apply, change session files.</li>
 <li>With the skills, your agent reads session records like any other file and sends what it reads to its own model, as usual.</li>
 <li>The App listens only on 127.0.0.1 and answers only pages opened with the key it prints at each start.</li>
 <li>What you send to the App's assistant goes to the model provider you connect, and its web tools can reach the internet.</li>
