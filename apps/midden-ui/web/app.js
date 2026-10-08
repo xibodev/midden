@@ -18,7 +18,7 @@ const state = { csrf: "", current: null, sessions: [], files: [], cache: new Map
   completed: new Set(), seq: 0, revision: 0, connected: false, sending: false, creating: false,
   canceling: false, interrupted: false, source: null, selectedFile: null, fileRequest: 0, filesRequest: 0, statusRequest: 0,
   workspaceId: "", scope: 0, booting: true, selectionMade: false, modelConfigured: false, modelSetupError: "", drafts: new Map(), visiblePermission: null,
-  status: null, context: [], contextOpen: false };
+  status: null, context: [], contextOpen: false, stopped: false };
 const entry = (id = state.current) => {
   if (!state.cache.has(id)) state.cache.set(id, { messages: [], outcomes: [], activity: [], live: null, loaded: false, loading: false, request: 0 });
   return state.cache.get(id);
@@ -157,6 +157,9 @@ function controls() {
   if (state.interrupted) $("turnStatus").textContent = state.source?.readyState === EventSource.CLOSED ? "Live updates stopped. Reload Midden to reconnect." :
     `Live updates interrupted. ${state.active ? "Stop is available." : "Reconnecting..."}`;
   $("activeSession").hidden = !state.active?.sessionId || state.active.sessionId === state.current;
+  $("deleteSession").hidden = !state.current || state.active?.sessionId === state.current;
+  $("deleteSession").disabled = !state.csrf || state.booting || state.sending || item.loading;
+  $("quitApp").disabled = !state.csrf;
   $("setupModel").hidden = !state.csrf || state.modelConfigured;
   document.body.classList.toggle("has-permissions", pending(item).length > 0);
   renderDraftStatus();
@@ -327,6 +330,35 @@ async function newSession() {
   try { const id = await createSession(); if (scope === state.scope) await choose(id, false); }
   finally { if (scope === state.scope) { state.creating = false; controls(); } }
   if (scope === state.scope) $("message").focus();
+}
+// forgetSession drops a deleted conversation from the page, with its draft.
+async function forgetSession(id) {
+  state.sessions = state.sessions.filter(session => session.id !== id);
+  state.cache.delete(id);
+  const record = draft(id); setDraft(record, ""); state.drafts.delete(record.key);
+  if (state.current === id) await choose(state.sessions[0]?.id ?? null);
+  else renderSessions();
+}
+async function deleteSession() {
+  const id = state.current;
+  if (!id || $("deleteSession").disabled) return;
+  const title = state.sessions.find(session => session.id === id)?.title || "this conversation";
+  if (!confirm(`Delete “${title}”? Its messages are removed from Midden, including the assistant's own record of them. Files it made stay in your files.`)) return;
+  clearError("notice");
+  await api(`/api/sessions/${encodeURIComponent(id)}`, "DELETE");
+  await forgetSession(id);
+  $("announcement").textContent = "Conversation deleted.";
+}
+async function quitApp() {
+  if ($("quitApp").disabled) return;
+  const running = state.active ? " The running turn will be stopped; files it already wrote stay." : "";
+  if (!confirm(`Quit Midden?${running} To use it again, start it from its Start entry or run midden-ui.`)) return;
+  await api("/api/quit", "POST", {});
+  state.stopped = true;
+  state.source?.close(); state.source = null;
+  if ($("previewDialog").open) $("previewDialog").close();
+  document.body.dataset.stopped = "true";
+  $("stopped").hidden = false;
 }
 function contextBlock() {
   if (!state.context.length) return "";
@@ -508,6 +540,13 @@ function receive(event) {
   state.seq = event.seq;
   if (event.type === "status") { run(async () => { if (await loadStatus()) await refreshWorkspace(); }); return; }
   if (event.type === "files_changed") { run(loadFiles, "filesError"); bus.emit("files-changed"); return; }
+  if (event.type === "conversations_changed") {
+    run(async () => {
+      await loadSessions();
+      if (state.current && !state.sessions.some(session => session.id === state.current)) await forgetSession(state.current);
+    });
+    return;
+  }
   if (state.completed.has(event.turnId) && event.type !== "permission_result") return;
   if (!event.sessionId || !event.turnId) {
     if (event.type === "error") { error(event.error || event.text || "Midden error."); return; }
@@ -553,7 +592,7 @@ function receive(event) {
   controls();
 }
 function connect() {
-  if (state.source && state.source.readyState !== EventSource.CLOSED) return;
+  if (state.stopped || (state.source && state.source.readyState !== EventSource.CLOSED)) return;
   state.source?.close();
   const source = state.source = new EventSource("/api/events"), scope = state.scope;
   let opened = false;
@@ -739,6 +778,8 @@ $("message").addEventListener("keydown", event => {
 });
 $("composer").addEventListener("submit", event => { event.preventDefault(); run(send); });
 $("newSession").addEventListener("click", () => run(newSession));
+$("deleteSession").addEventListener("click", () => run(deleteSession));
+$("quitApp").addEventListener("click", () => run(quitApp));
 $("stop").addEventListener("click", () => run(stop));
 $("activeSession").addEventListener("click", () => { if (state.active?.sessionId) run(() => choose(state.active.sessionId)); });
 $("refreshSessions").addEventListener("click", () => run(loadSessions));

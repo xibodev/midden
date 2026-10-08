@@ -56,9 +56,11 @@ func providerRoster() []rosterItem {
 		if protocol == "" {
 			protocol = entry.RuntimeType
 		}
+		// A provider without a default address needs one; connecting refuses it without.
 		roster = append(roster, rosterItem{ID: entry.ID, Label: entry.Label, Adapter: adapter, Protocol: protocol,
 			DefaultEndpoint: entry.DefaultBaseURL, AuthMethods: append([]string{}, entry.AuthMethods...),
-			RequiresAPIKey: entry.RequiresAPIKey, RequiresBaseURL: entry.RequiresBaseURL, Keyless: entry.AnonymousAutomation})
+			RequiresAPIKey: entry.RequiresAPIKey, RequiresBaseURL: entry.RequiresBaseURL || strings.TrimSpace(entry.DefaultBaseURL) == "",
+			Keyless: entry.AnonymousAutomation})
 	}
 	sort.Slice(roster, func(i, j int) bool { return roster[i].ID < roster[j].ID })
 	return roster

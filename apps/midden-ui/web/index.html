@@ -17,8 +17,10 @@
     <span id="workspace" class="pill" title="">Loading workspace...</span>
     <span class="spacer"></span>
     <a id="modelChip" class="chip" href="#/models">Model loading...</a>
+    <button id="quitApp" class="quit" type="button">Quit Midden</button>
   </header>
   <div id="notice" class="notice" role="alert" hidden><span id="noticeText"></span><button id="retryApp" type="button">Reload Midden</button><button id="dismissNotice" type="button" aria-label="Dismiss notification">Dismiss</button></div>
+  <section id="stopped" class="stopped" role="status" hidden><h1>Midden has stopped</h1><p>You can close this tab. To use Midden again, start it from its Start entry or run midden-ui.</p></section>
   <div class="layout">
     <nav class="side" aria-label="Main">
       <span class="nav-label" aria-hidden="true">Work</span>
@@ -65,13 +67,13 @@
             <details class="skills"><summary>Skills the assistant uses</summary><ul id="skills"><li>Loading skills...</li></ul></details>
           </aside>
           <div id="chatPane" class="chat-pane">
-            <div class="chat-heading"><div><p class="eyebrow">Conversation</p><h1 id="sessionTitle">New conversation</h1></div><div class="turn-info"><span id="turnStatus" role="status">Loading...</span><button id="setupModel" class="compact" type="button" hidden>Set up model</button><button id="activeSession" class="compact" type="button" hidden>Open active conversation</button></div></div>
+            <div class="chat-heading"><div><p class="eyebrow">Conversation</p><h1 id="sessionTitle">New conversation</h1></div><div class="turn-info"><span id="turnStatus" role="status">Loading...</span><button id="setupModel" class="compact" type="button" hidden>Set up model</button><button id="activeSession" class="compact" type="button" hidden>Open active conversation</button><button id="deleteSession" class="compact danger" type="button" hidden>Delete conversation</button></div></div>
             <div id="chatScroll" class="chat-scroll">
               <div id="welcome" class="welcome">
                 <p class="eyebrow">Investigation, articles, presentations, long-form</p>
                 <h2>Start with what<br>you want to do.</h2>
                 <p>Ask what's worth explaining, develop a draft, or turn your sources into something you can share.</p>
-                <p class="quiet">Pick sessions or sources first and use “Use in chat” to hand them over. Work stays in ordinary files; you approve writes and commands as you go.</p>
+                <p class="quiet">Pick sessions or sources first and use “Use in chat” to hand them over. Work stays in ordinary files in your files folder. The assistant writes files and runs commands there without asking first.</p>
               </div>
               <p id="sessionLoading" class="quiet" role="status" hidden>Loading conversation...</p>
               <p id="sessionError" class="error" role="alert" hidden></p>

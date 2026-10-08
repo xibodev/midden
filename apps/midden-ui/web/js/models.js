@@ -106,7 +106,7 @@ function connectDialog(entry) {
   const status = el("p", { class: "quiet", attrs: { role: "status" } });
   const modal = dialog(`Connect ${entry.label}`, { onClose: () => { key.value = ""; } });
   modal.body.append(field(entry.requiresBaseUrl ? "Address" : "Address (optional)", endpoint),
-    field(entry.requiresApiKey ? "API key" : "API key (optional)", key, "Stored only in this app's private state; never shown again."),
+    field(entry.requiresApiKey ? "API key" : "API key (optional)", key, "Saved in the App's data folder (kernel/auth.json) and never shown again."),
     field("Name (optional)", label), status);
   const save = button("Connect", { primary: true, onClick: async () => {
     if (entry.requiresBaseUrl && !endpoint.value.trim()) { status.textContent = "Enter the address."; return; }

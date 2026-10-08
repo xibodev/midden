@@ -17,7 +17,7 @@ import (
 	"time"
 )
 
-var errHistoryLimit = errors.New("conversation history limit reached; remove conversations before adding more history")
+var errHistoryLimit = errors.New("conversation history limit reached; delete conversations you no longer need before adding more")
 
 // sandboxNotice says what the assistant's commands can reach.
 const sandboxNotice = "The assistant runs commands with your account; this is not an OS sandbox."
@@ -108,6 +108,10 @@ type App struct {
 
 	// modelChanging is set under mu while a model change runs; no turn starts meanwhile.
 	modelChanging bool
+
+	// quit stops the App as Ctrl+C does. It is set before the App serves
+	// requests; nil when the page cannot stop it.
+	quit func()
 }
 
 func randomID() string {
@@ -233,7 +237,7 @@ func (a *App) NewSession(title string) (Session, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	if len(a.sessions) >= 200 {
-		return Session{}, fmt.Errorf("conversation limit reached")
+		return Session{}, fmt.Errorf("Midden keeps at most 200 conversations; delete one to start another")
 	}
 	title = strings.TrimSpace(title)
 	if title == "" {
@@ -277,6 +281,42 @@ func (a *App) Session(id string) (Session, error) {
 		copy.ActiveTurn = a.active.ID
 	}
 	return copy, nil
+}
+
+// DeleteSession removes a conversation: the App's transcript, its live
+// events, and the kernel's own record of the chat. Files the assistant made
+// and notes it kept in its memory stay.
+func (a *App) DeleteSession(id string) error {
+	a.mu.Lock()
+	s, ok := a.sessions[id]
+	if !ok {
+		a.mu.Unlock()
+		return os.ErrNotExist
+	}
+	if a.active != nil && a.active.SessionID == id {
+		a.mu.Unlock()
+		return errors.New("this conversation has a turn running; stop it before deleting the conversation")
+	}
+	if err := forgetKernelChat(a.paths.Workspace, id); err != nil {
+		a.mu.Unlock()
+		return fmt.Errorf("could not remove the assistant's copy of the conversation: %w", err)
+	}
+	delete(a.sessions, id)
+	if err := a.saveSessionsLocked(); err != nil {
+		a.sessions[id] = s
+		a.mu.Unlock()
+		return err
+	}
+	kept := a.events[:0]
+	for _, event := range a.events {
+		if event.SessionID != id {
+			kept = append(kept, event)
+		}
+	}
+	a.events = kept
+	a.mu.Unlock()
+	a.emit(Event{Type: "conversations_changed"})
+	return nil
 }
 
 // saveSessionsLocked writes the App's own transcript of its conversations;
@@ -411,7 +451,8 @@ func (a *App) emit(event Event) {
 	defer a.mu.Unlock()
 	a.seq++
 	event.Seq = a.seq
-	if a.active != nil {
+	// A change to the list of conversations belongs to no turn.
+	if a.active != nil && event.Type != "conversations_changed" {
 		if event.SessionID == "" {
 			event.SessionID = a.active.SessionID
 		}
