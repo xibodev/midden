@@ -149,8 +149,9 @@ type Adapter interface {
 
 // Scope narrows a query. The zero value matches everything.
 //
-// Scoping is mandatory for any expensive operation: nobody salvages 36 GB
-// blind. It exists on read commands so the same filters compose downstream.
+// Scoping keeps expensive operations bounded: nobody needs to read 36 GB of
+// sessions blind. It exists on read commands so the same filters compose
+// downstream.
 type Scope struct {
 	Tools     []Tool
 	Days      int    // 0 = unbounded; calendar days, not exact hours

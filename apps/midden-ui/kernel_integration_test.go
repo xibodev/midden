@@ -186,6 +186,26 @@ func TestTheAppDrivesTheRealKernel(t *testing.T) {
 	if text := readTestFile(t, filepath.Join(app.paths.Workspace, "AGENT.md")); !strings.Contains(text, "name: Midden") {
 		t.Fatal("the kernel's workspace lacks Midden's instructions")
 	}
+	// Deleting the conversation removes the record the real kernel kept of it.
+	chatRecords := func() []string {
+		names, _ := filepath.Glob(filepath.Join(app.paths.Workspace, "sessions", "*.meta.json"))
+		matching := []string{}
+		for _, name := range names {
+			if strings.Contains(readTestFile(t, name), `"direct:web:`+s.ID+`"`) {
+				matching = append(matching, name)
+			}
+		}
+		return matching
+	}
+	if len(chatRecords()) == 0 {
+		t.Fatal("the kernel kept no record of the conversation")
+	}
+	if err := app.DeleteSession(s.ID); err != nil {
+		t.Fatal(err)
+	}
+	if left := chatRecords(); len(left) != 0 {
+		t.Fatalf("the kernel's record of the deleted conversation remains: %v", left)
+	}
 	app.Close()
 	if _, err := readKernelPid(app.paths.Kernel); !os.IsNotExist(err) {
 		t.Fatalf("the kernel did not stop with the App: %v", err)

@@ -7,6 +7,8 @@ import (
 	"os/exec"
 	"strings"
 	"time"
+
+	"github.com/xibodev/llmgw-core/providers"
 )
 
 // freeOutcome is one free provider's result as the Models page shows it.
@@ -83,16 +85,37 @@ func (a *App) connectFree(ctx context.Context) ([]freeOutcome, error) {
 	roster := rosterByID()
 	outcomes := make([]freeOutcome, 0, len(results))
 	for _, result := range results {
-		outcome := freeOutcome{InstanceID: result.ID, Label: result.ID, Status: freeStatus(result), Error: result.Error}
-		if item, ok := roster[result.ID]; ok && item.Label != "" {
-			outcome.Label = item.Label
+		outcome := freeOutcome{InstanceID: result.ID, Status: freeStatus(result), Error: result.Error}
+		instance := cfg.instance(result.ID)
+		kind := ""
+		if instance != nil {
+			kind = instance.ProviderKind
 		}
-		if instance := cfg.instance(result.ID); instance != nil && validCatalog(result.ID, catalogs[result.ID], instance) {
+		outcome.Label = freeLabel(result.ID, kind, roster)
+		if instance != nil && validCatalog(result.ID, catalogs[result.ID], instance) {
 			outcome.Models = len(catalogs[result.ID].Models)
 		}
 		outcomes = append(outcomes, outcome)
 	}
 	return outcomes, nil
+}
+
+// freeLabel names a free service as the provider list does. Compa reports
+// each service by its connection id, such as kilo-code, while the list is
+// keyed by registry id, such as kilo_code.
+func freeLabel(id, kind string, roster map[string]rosterItem) string {
+	registry := ""
+	for _, profile := range providers.AnonymousProviderProfiles() {
+		if profile.ProviderID == id {
+			registry = profile.RegistryID
+		}
+	}
+	for _, key := range []string{kind, registry, id} {
+		if item, ok := roster[key]; ok && item.Label != "" {
+			return item.Label
+		}
+	}
+	return id
 }
 
 // parseFreeResults reads the provider lines auto-free prints:

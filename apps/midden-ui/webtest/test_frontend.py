@@ -280,9 +280,28 @@ class MockHost:
                     return self.reply({"turnId": tid}, 202)
                 if path == "/api/cancel" or path.startswith("/api/permissions/"):
                     return self.reply({})
+                if path == "/api/quit":
+                    return self.reply({"stopping": True}, 202)
                 self.reply({"error": "Unknown mock mutation"}, 404)
 
             do_PUT = do_POST
+
+            def do_DELETE(self):
+                path = unquote(urlsplit(self.path).path)
+                token = self.headers.get("X-Midden-CSRF")
+                self.wait_for_gate(path)
+                host.calls.append((self.command, path, None, token))
+                if token != host.csrf:
+                    return self.reply({"error": "Missing CSRF token"}, 403)
+                if (self.command, path) in host.failures:
+                    return self.reply({"error": host.failures[self.command, path]}, 409)
+                if (self.command, path) in host.routes:
+                    return self.reply(host.routes[self.command, path](self, None))
+                sid = path.rsplit("/", 1)[1]
+                if path.startswith("/api/sessions/") and sid in host.sessions:
+                    del host.sessions[sid]
+                    return self.reply({"deleted": True})
+                self.reply({"error": "Unknown mock deletion"}, 404)
 
         return Handler
 
@@ -432,6 +451,20 @@ class BrowserCase(unittest.TestCase):
             self.page.get_by_label("Message", exact=True).press("Control+Enter")
         expect(self.page.get_by_role("button", name="Stop", exact=True)).to_be_enabled()
 
+    def answer_dialog(self, accept):
+        """Answers the next confirm() and returns the list its message lands in."""
+        messages = []
+
+        def handle(dialog):
+            messages.append(dialog.message)
+            if accept:
+                dialog.accept()
+            else:
+                dialog.dismiss()
+
+        self.page.once("dialog", handle)
+        return messages
+
 class FrontendTests(BrowserCase):
     def test_boot_history_new_conversation_and_draft_preservation(self):
         self.open()
@@ -440,6 +473,7 @@ class FrontendTests(BrowserCase):
         expect(self.page.locator("#appNotice")).to_be_visible()
         expect(self.page.locator("#appNotice")).to_contain_text("this is not an OS sandbox")
         expect(self.page.locator("#skills")).to_contain_text("Understand source material")
+        expect(self.page.locator("#welcome")).to_contain_text("runs commands there without asking first")
         expect(self.page.locator("#fileList button")).to_have_count(2)
         self.screenshot("desktop.png")
         self.page.get_by_label("Message", exact=True).fill("Keep my unsent thought.")
@@ -544,6 +578,7 @@ class FrontendTests(BrowserCase):
         key = dialog.get_by_label("API key")
         expect(key).to_be_focused()
         expect(key).to_have_attribute("type", "password")
+        expect(dialog).to_contain_text("Saved in the App's data folder (kernel/auth.json) and never shown again.")
         self.host.failures["POST", "/api/models/instances"] = "Rejected synthetic-key-only"
         key.fill("synthetic-key-only")
         with self.api_response("POST", "/api/models/instances", 409):
@@ -780,6 +815,62 @@ class FrontendTests(BrowserCase):
         for width in (320, 768, 960, 1024):
             self.page.set_viewport_size({"width": width, "height": 844})
             self.assertTrue(self.fits_width(), width)
+
+    def test_a_conversation_is_deleted_only_when_confirmed_and_takes_its_draft(self):
+        self.open()
+        self.page.get_by_role("button", name="Earlier conversation", exact=False).click()
+        expect(self.page.locator("#messages")).to_contain_text("An earlier observation.")
+        self.page.get_by_label("Message", exact=True).fill("A draft that goes with the conversation.")
+        delete = self.page.get_by_role("button", name="Delete conversation")
+        self.answer_dialog(accept=False)
+        delete.click()
+        expect(self.page.locator("#sessionList button")).to_have_count(2)
+        self.assert_no_api_calls("DELETE")
+        prompts = self.answer_dialog(accept=True)
+        with self.api_response("DELETE", "/api/sessions/s2"):
+            delete.click()
+        self.assertIn("Earlier conversation", prompts[0])
+        self.assertIn("Files it made stay", prompts[0])
+        expect(self.page.locator("#sessionList button")).to_have_count(1)
+        expect(self.page.locator("#sessionList")).not_to_contain_text("Earlier conversation")
+        expect(self.page.locator("#sessionTitle")).to_have_text("Research notes")
+        self.assertNotIn("s2", self.host.sessions)
+        self.assertEqual(self.page.evaluate("Object.keys(localStorage).filter(key => key.includes('session:s2'))"), [])
+
+    def test_a_conversation_with_a_running_turn_cannot_be_deleted(self):
+        self.open()
+        expect(self.page.get_by_role("button", name="Delete conversation")).to_be_enabled()
+        self.start_turn()
+        expect(self.page.get_by_role("button", name="Delete conversation")).to_be_hidden()
+        self.host.emit("message", text="Done.")
+        self.host.emit("turn_done")
+        expect(self.page.get_by_role("button", name="Delete conversation")).to_be_enabled()
+
+    def test_a_conversation_deleted_elsewhere_leaves_this_page(self):
+        self.open()
+        expect(self.page.locator("#sessionTitle")).to_have_text("Research notes")
+        del self.host.sessions["s1"]
+        self.host.emit("conversations_changed", sessionId="", turnId="")
+        expect(self.page.locator("#sessionList button")).to_have_count(1)
+        expect(self.page.locator("#sessionTitle")).to_have_text("Earlier conversation")
+
+    def test_quit_stops_midden_after_confirming_and_says_how_to_start_it_again(self):
+        self.open()
+        self.start_turn()
+        quit = self.page.get_by_role("button", name="Quit Midden")
+        self.answer_dialog(accept=False)
+        quit.click()
+        expect(self.page.locator(".layout")).to_be_visible()
+        self.assert_no_api_calls("POST", "/api/quit")
+        prompts = self.answer_dialog(accept=True)
+        with self.api_response("POST", "/api/quit", 202):
+            quit.click()
+        self.assertIn("The running turn will be stopped", prompts[0])
+        self.assertIn("start it from its Start entry or run midden-ui", prompts[0])
+        expect(self.page.get_by_role("heading", name="Midden has stopped")).to_be_visible()
+        expect(self.page.locator(".layout")).to_be_hidden()
+        expect(self.page.locator(".topbar")).to_be_hidden()
+        self.assertEqual(self.page.evaluate("document.body.dataset.stopped"), "true")
 
 
 if __name__ == "__main__":

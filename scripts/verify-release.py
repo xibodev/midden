@@ -199,8 +199,15 @@ def ui_smoke(binary, version, stage, env):
         for module in modules:
             with browser.open(address + module.decode("ascii"), timeout=10) as response:
                 assert response.headers.get_content_type() == "text/javascript", module
+        # Quit in the page stops the App, and the kernel with it.
+        quit = urllib.request.Request(address + "/api/quit", data=b"{}", method="POST",
+                                      headers={"Content-Type": "application/json", "X-Midden-CSRF": status["csrfToken"]})
+        with browser.open(quit, timeout=10) as response:
+            assert response.status == 202, "the App did not accept Quit"
+        assert process.wait(timeout=30) == 0, "the App did not stop cleanly after Quit"
     finally:
-        process.send_signal(signal.CTRL_BREAK_EVENT) if windows else process.terminate()
+        if process.poll() is None:
+            process.send_signal(signal.CTRL_BREAK_EVENT) if windows else process.terminate()
         try:
             process.wait(timeout=20)
         except subprocess.TimeoutExpired:

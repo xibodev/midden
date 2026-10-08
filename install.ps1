@@ -35,18 +35,33 @@ copilot, claude or agents; one or more. Required with -Mode bundle. With
 -Uninstall, removes only those copies of the skills.
 .PARAMETER Project
 Copies the skills into this project's harness folder instead of the person's.
+.PARAMETER Version
+latest (the default), or a release version without the v prefix.
+.PARAMETER InstallDir
+The programs folder; LOCALAPPDATA\Programs\Midden by default. Give it again on
+every later run.
 .PARAMETER DistributionDir
 Uses a reviewed local release instead of the network. The app mode also needs
 the pinned Pandoc archive in it.
-.PARAMETER DryRun
-Checks metadata, archives and ownership and prints the plan as JSON. Writes,
-extracts, probes and launches nothing and leaves PATH unchanged.
+.PARAMETER Repository
+The GitHub repository to download from, as owner/name; xibodev/midden by
+default. Give it again on every later run.
 .PARAMETER NoPath
 Leaves the user and process PATH unchanged.
 .PARAMETER NoLaunch
 Does not start the App after installing it.
 .PARAMETER NoOpen
 Passes --no-open to the App started after installation.
+.PARAMETER Upgrade
+Moves the installation to the selected release.
+.PARAMETER Verify
+Checks every installed file against the receipt, without using the network.
+.PARAMETER Uninstall
+Removes Midden's unchanged files, its Start menu entry and its PATH change.
+With -Harness, removes only those copies of the skills.
+.PARAMETER DryRun
+Checks metadata, archives and ownership and prints the plan as JSON. Writes,
+extracts, probes and launches nothing and leaves PATH unchanged.
 .EXAMPLE
 .\install.ps1 -Mode bundle -Harness claude,copilot
 .EXAMPLE

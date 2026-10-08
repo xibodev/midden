@@ -7,6 +7,9 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"os"
+	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -233,4 +236,42 @@ func (c *kernelChat) kernelApproval(ctx context.Context, request kernelApprovalR
 	defer stop()
 	allow, reason := c.app.askPermission(ctx, turn.sessionID, turn.turnID, request.Tool, request.Arguments, c.kernel.approvalWait())
 	return kernelApprovalAnswer{Approved: allow, Reason: reason}
+}
+
+// forgetKernelChat removes the kernel's record of one App conversation.
+// Compa keeps each chat as <key>.jsonl and <key>.meta.json in its workspace's
+// sessions folder, and the metadata names the chat: channel web, chat
+// direct:web:<conversation>. Only files whose metadata names this chat, under
+// its own key, are removed; anything unreadable is left alone.
+func forgetKernelChat(workspace, conversation string) error {
+	folder := filepath.Join(workspace, "sessions")
+	metas, err := filepath.Glob(filepath.Join(folder, "*.meta.json"))
+	if err != nil {
+		return err
+	}
+	for _, meta := range metas {
+		raw, err := readBounded(meta, 1<<20)
+		if err != nil {
+			continue
+		}
+		var record struct {
+			Key   string `json:"key"`
+			Scope struct {
+				Channel string            `json:"channel"`
+				Values  map[string]string `json:"values"`
+			} `json:"scope"`
+		}
+		key := strings.TrimSuffix(filepath.Base(meta), ".meta.json")
+		if json.Unmarshal(raw, &record) != nil || record.Key != key || record.Scope.Channel != "web" ||
+			record.Scope.Values["chat"] != "direct:web:"+conversation {
+			continue
+		}
+		// The transcript goes first, so a failure leaves the metadata to find it again.
+		for _, name := range []string{key + ".jsonl", key + ".meta.json"} {
+			if err := os.Remove(filepath.Join(folder, name)); err != nil && !errors.Is(err, os.ErrNotExist) {
+				return err
+			}
+		}
+	}
+	return nil
 }

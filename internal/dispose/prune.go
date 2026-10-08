@@ -63,8 +63,8 @@ type Options struct {
 	Exhaust bool
 	// Artifacts removes binary assets: screenshots, pasted files.
 	//
-	// Off by default. Artifacts are the raw material for tutorials — the same
-	// bytes are garbage or gold depending on whether they have been harvested.
+	// Off by default. Artifacts are the raw material for tutorials, so the
+	// same bytes are worth keeping until any that matter have been copied out.
 	Artifacts bool
 	// Bookkeeping removes protocol overhead.
 	Bookkeeping bool

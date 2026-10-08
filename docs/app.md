@@ -13,17 +13,19 @@ the App; see [Installing](install.md).
 ## Start and stop
 
 - **Windows:** choose Midden in the Start menu. A console window opens and
-  your browser opens Midden. Close the window, or press Ctrl+C in it, to
-  stop Midden.
+  your browser opens Midden.
 - **macOS:** open Midden in `~/Applications`. **Linux:** choose Midden in
-  your application menu. Midden then runs without a window; stop it with
-  `pkill -x midden-ui`.
-- **Anywhere:** run `midden-ui` in a terminal, and press Ctrl+C to stop it.
+  your application menu. Midden runs without a window.
+- **Anywhere:** run `midden-ui` in a terminal.
+
+To stop Midden, choose **Quit Midden** at the top of the page. A running turn
+is stopped first. On Windows you can also close the console window, and in a
+terminal press Ctrl+C.
 
 At start the App prints its address and opens it in your browser:
 
 ```
-Midden App 0.4.0: http://127.0.0.1:18890/?key=...
+Midden App 0.4.1: http://127.0.0.1:18890/?key=...
 Your files: ...
 Powered by Compa 3.0.0
 ```
@@ -114,6 +116,11 @@ One turn runs at a time across the App. **Stop** cancels the turn; files it
 already wrote stay. **Tool activity** lists the tools the assistant used in
 the turn and any approval it is waiting for.
 
+**Delete conversation** removes the open conversation after you confirm:
+its messages in the App and the assistant's own record of it. Files it made
+stay in your files, and so do notes the assistant kept in its memory. A
+conversation can't be deleted while its turn runs.
+
 ### Models
 
 The assistant needs a model you connect here:
@@ -146,9 +153,9 @@ Model settings can't change while a turn runs.
 - It runs `midden` and has Pandoc 3.12, so it can make HTML slides, HTML
   books and EPUB. The App includes no browser or Python, so PDF and the
   screenshot check depend on what your computer has.
-- Your files are the `files` folder of its workspace. It is told to work and
-  save there, but its commands start in the workspace itself, so ask it to
-  save in `files` if something you expect doesn't appear in Files.
+- Your files are the `files` folder of its workspace. It is told to run its
+  commands and save its work there. Its commands run in Windows PowerShell
+  on Windows and in `sh` elsewhere.
 - Its file tools reach only its workspace and the skills. Its commands run
   with your account; this is not a sandbox. It can also search and fetch web
   pages.
@@ -223,6 +230,6 @@ folder is left as it was.
   answer":** stop the other `midden-ui` and start again.
 - **A file the assistant made isn't in Files:** it saved it outside
   `workspace/files`; ask it to save there.
-- **"conversation history limit reached":** the App keeps up to 200
-  conversations in `app/sessions.json`, at most 8 MiB, and has no way to
-  delete one.
+- **"conversation history limit reached"** or **"Midden keeps at most 200
+  conversations":** the App keeps up to 200 conversations, at most 8 MiB in
+  `app/sessions.json`. Delete conversations you no longer need.
