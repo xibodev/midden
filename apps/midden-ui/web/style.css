@@ -52,6 +52,10 @@ nav.side a[aria-current="page"] { background: var(--green-soft); color: var(--gr
 .nav-label { padding: 0 12px 6px; color: var(--muted); font-size: .7rem; text-transform: uppercase; letter-spacing: .06em; }
 main { min-width: 0; min-height: 0; overflow: auto; padding: 18px 22px; }
 .footer { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; padding: 6px 18px; border-top: 1px solid var(--line); color: var(--muted); font-size: .76rem; flex-shrink: 0; background: var(--paper); }
+.topbar .quit { min-height: 0; padding: 2px 10px; border-radius: 999px; font-size: .8rem; white-space: nowrap; }
+body[data-stopped] > :not(.stopped) { display: none !important; }
+.stopped { margin: clamp(40px, 14vh, 140px) auto; max-width: 520px; padding: 0 24px; }
+.stopped h1 { font: 400 clamp(2rem, 3vw, 2.6rem)/1.15 Georgia, serif; letter-spacing: -.02em; color: #253f32; margin-bottom: 12px; }
 .connection::before { content: ""; display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: #a36b22; margin-right: 7px; }
 .connection.connected::before { background: #34845c; }
 .view-heading { margin-bottom: 10px; }

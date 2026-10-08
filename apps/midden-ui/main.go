@@ -145,6 +145,10 @@ func runArgs(args []string, output io.Writer) error {
 	server := &http.Server{Handler: app, ReadHeaderTimeout: 10 * time.Second}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	// Quit in the page stops the App the same way.
+	ctx, quit := context.WithCancel(ctx)
+	defer quit()
+	app.quit = quit
 	go func() {
 		<-ctx.Done()
 		shutdown, cancel := context.WithTimeout(context.Background(), 10*time.Second)

@@ -91,7 +91,7 @@ func cmdFind(args []string) error {
 	if res.Truncated {
 		fmt.Printf("; at least one transcript was read in part")
 	}
-	fmt.Printf("\n  midden assay <id>  |  midden reclaim <id>\n\n")
+	fmt.Printf("\n  midden show <id>  |  midden brief <id>\n\n")
 	return nil
 }
 

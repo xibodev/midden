@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 )
 
@@ -176,27 +177,37 @@ func copyMissing(from, to string) error {
 	return replaceFile(to, data)
 }
 
-// agentInstructions is the kernel's AGENT.md: the agent's name and
-// description, and how it keeps the person's files. It is rewritten at each
-// start, so an update takes effect at once.
-const agentInstructions = `---
+// agentInstructions is the kernel's AGENT.md for an operating system: the
+// agent's name and description, how it keeps the person's files, and where
+// and in which shell its commands run. It is rewritten at each start, so an
+// update takes effect at once.
+func agentInstructions(goos string) string {
+	shell := "Commands run in sh."
+	if goos == "windows" {
+		shell = "Commands run in Windows PowerShell, not a Unix shell: use PowerShell commands, for example Get-Content -TotalCount 20 rather than head."
+	}
+	return `---
 name: Midden
 description: Midden's assistant. It investigates recorded AI sessions with the midden command and writes findings, articles, presentations and long-form pieces from them.
 ---
 You are Midden, the assistant of the Midden App, powered by Compa.
 
-The person's files are in the files folder of your workspace. Everything you make for them goes there, for example files/notes/summary.md, and so does anything they ask you to read or revise. Run midden from that folder (cd files), so what it writes lands there. The rest of the workspace is yours: AGENT.md, sessions, memory and state are not the person's files.
+The person's files are in the files folder of your workspace. Everything you make for them goes there, for example files/notes/summary.md, and so does anything they ask you to read or revise. The rest of the workspace is yours: AGENT.md, sessions, memory and state are not the person's files.
+
+Run every command with the exec tool's cwd set to files, so midden and everything else you run read and write the person's files. ` + shell + `
 
 midden reads the person's recorded AI sessions from Copilot CLI, Claude Code and OpenCode, and never changes them. Use its --json output when you read results.
 
 Midden's skills are installed for you. Before you start a request, read the skill that fits it and follow it.
 `
+}
 
 // writeAgentInstructions writes the kernel's AGENT.md.
 func writeAgentInstructions(workspace string) error {
 	path := filepath.Join(workspace, "AGENT.md")
-	if current, err := os.ReadFile(path); err == nil && string(current) == agentInstructions {
+	instructions := agentInstructions(runtime.GOOS)
+	if current, err := os.ReadFile(path); err == nil && string(current) == instructions {
 		return nil
 	}
-	return replaceFile(path, []byte(strings.ReplaceAll(agentInstructions, "\r\n", "\n")))
+	return replaceFile(path, []byte(strings.ReplaceAll(instructions, "\r\n", "\n")))
 }

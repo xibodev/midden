@@ -42,7 +42,7 @@ func materialFlags(name string) (*flag.FlagSet, *material.Service, *bool) {
 	fs.StringVar(&service.Roots.Claude, "claude-root", service.Roots.Claude, "explicit Claude source store")
 	fs.StringVar(&service.Roots.Opencode, "opencode-db", service.Roots.Opencode, "explicit OpenCode source database")
 	fs.BoolVar(&service.Roots.Strict, "sources-only", service.Roots.Strict, "use only explicitly supplied source stores")
-	asJSON := fs.Bool("json", false, "structured result without a module envelope")
+	asJSON := fs.Bool("json", false, "structured JSON result")
 	return fs, service, asJSON
 }
 

@@ -42,7 +42,7 @@ func cmdPrune(args []string) error {
 	sc, asJSON, _ := scopeFlags(fs)
 	apply := fs.Bool("apply", false, "actually write pruned copies (default is a dry run)")
 	replace := fs.Bool("replace", false, "after verification, swap the pruned copy in and back up the original")
-	artifacts := fs.Bool("artifacts", false, "also prune binary assets (screenshots) — harvest them first")
+	artifacts := fs.Bool("artifacts", false, "also prune binary assets such as screenshots; copy any you need first with midden assets")
 	minBytes := fs.Int("min-bytes", 2048, "leave payloads smaller than this alone")
 	minSize := fs.Int64("min-session", 50, "only consider transcripts larger than this many MiB")
 	if err := fs.Parse(reorderArgs(fs, args)); err != nil {

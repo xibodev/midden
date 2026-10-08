@@ -85,6 +85,18 @@ func (a *App) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			respond(w, s)
 			return
 		}
+		if action == "" && r.Method == "DELETE" {
+			err := a.DeleteSession(id)
+			switch {
+			case errors.Is(err, os.ErrNotExist):
+				apiError(w, 404, "session not found")
+			case err != nil:
+				apiError(w, 409, err.Error())
+			default:
+				respond(w, map[string]bool{"deleted": true})
+			}
+			return
+		}
 		if action == "turn" && r.Method == "POST" {
 			var input struct {
 				Message string `json:"message"`
@@ -132,6 +144,8 @@ func (a *App) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		respond(w, map[string]bool{"accepted": true})
 	case r.URL.Path == "/api/events" && r.Method == "GET":
 		a.serveEvents(w, r)
+	case r.URL.Path == "/api/quit" && r.Method == "POST":
+		a.serveQuit(w)
 	case strings.HasPrefix(r.URL.Path, "/api/core/"):
 		a.serveCore(w, r)
 	case strings.HasPrefix(r.URL.Path, "/api/models/"):
@@ -199,6 +213,22 @@ func decode(w http.ResponseWriter, r *http.Request, value any) bool {
 		return false
 	}
 	return true
+}
+
+// serveQuit answers, then stops the App as Ctrl+C does: the server closes, a
+// running turn is cancelled and the kernel stops.
+func (a *App) serveQuit(w http.ResponseWriter) {
+	if a.quit == nil {
+		apiError(w, http.StatusConflict, "this Midden cannot be stopped from the page")
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusAccepted)
+	json.NewEncoder(w).Encode(map[string]bool{"stopping": true})
+	if flusher, ok := w.(http.Flusher); ok {
+		flusher.Flush()
+	}
+	a.quit()
 }
 func (a *App) serveEvents(w http.ResponseWriter, r *http.Request) {
 	flusher, ok := w.(http.Flusher)

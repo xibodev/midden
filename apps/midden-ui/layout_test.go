@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -160,8 +161,20 @@ func TestAgentInstructionsAreRewrittenAtEachStart(t *testing.T) {
 		t.Fatal(err)
 	}
 	again.Close()
-	if readTestFile(t, path) != agentInstructions {
+	if readTestFile(t, path) != agentInstructions(runtime.GOOS) {
 		t.Fatal("AGENT.md was not rewritten")
+	}
+}
+
+func TestAgentInstructionsSayWhereAndInWhichShellCommandsRun(t *testing.T) {
+	windows, unix := agentInstructions("windows"), agentInstructions("darwin")
+	for _, text := range []string{windows, unix} {
+		if !strings.Contains(text, "exec tool's cwd set to files") {
+			t.Fatalf("the instructions do not say where commands run: %q", text)
+		}
+	}
+	if !strings.Contains(windows, "Windows PowerShell") || strings.Contains(unix, "PowerShell") || !strings.Contains(unix, "Commands run in sh.") {
+		t.Fatalf("shell: windows %q, other %q", windows, unix)
 	}
 }
 

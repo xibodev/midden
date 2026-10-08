@@ -17,11 +17,10 @@ import (
 )
 
 // cmdBrief produces a handoff brief: enough context to continue the work in a
-// fresh session, extracted deterministically at zero token cost.
+// fresh session, read deterministically without a model.
 //
-// This is the deterministic floor of RECLAIM, and the thing that makes the
-// resume cliff survivable — you cannot resume a 774 MiB session, but you can
-// carry its intent forward.
+// It is what makes the resume cliff survivable — you cannot resume a 774 MiB
+// session, but you can carry its intent forward.
 func cmdBrief(args []string) error {
 	fs := flag.NewFlagSet("brief", flag.ContinueOnError)
 	tool := fs.String("tool", "", "source tool")
@@ -41,7 +40,7 @@ func cmdBrief(args []string) error {
 	a := adapter.Find(s.Tool)
 	h, ok := a.(core.Harvester)
 	if !ok {
-		return fmt.Errorf("%s sessions cannot be harvested yet", s.Tool)
+		return fmt.Errorf("%s sessions cannot be briefed", s.Tool)
 	}
 
 	if s.Bytes > 100<<20 {
@@ -52,7 +51,7 @@ func cmdBrief(args []string) error {
 	start := time.Now()
 	hv, err := h.Harvest(s, *turns)
 	if err != nil {
-		return fmt.Errorf("harvest: %w", err)
+		return fmt.Errorf("read the session: %w", err)
 	}
 	// Every surface below (JSON, handoff text, saved handoff, terminal) shows
 	// the filtered session and turns.
@@ -79,7 +78,7 @@ func cmdBrief(args []string) error {
 
 	fmt.Printf("\n  %s  %s\n", render.Bold(core.Truncate(s.Title, 66)), render.ToolColour(s.Tool))
 	fmt.Printf("  %s\n\n", render.Dim(fmt.Sprintf(
-		"%s · %d user turns · %d records scanned · harvested in %s",
+		"%s · %d user turns · %d records scanned · read in %s",
 		s.ID, hv.UserTurns, hv.TotalRecords, time.Since(start).Round(time.Millisecond))))
 
 	if hv.Goal != nil {
